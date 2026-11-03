@@ -47,7 +47,7 @@
 - 2026-11-04 新增「常规设置 → API 配置存储」卡片，位于「资产存储目录」下方。默认浏览器存储；切换「本地目录」后选择目录，会写入明文 JSON `manshiguang-api-config.json`，API Key、Base URL 或模型勾选变化时自动续写，并提供「从本地恢复」。位置元数据保存在 `localStorage["manshiguang:canvas-api-storage"]`；API 配置目录使用独立 token，不覆盖素材目录。已验证真实桥接写入/读取、恢复不覆盖源文件、刷新保持和切回浏览器后停止本地写入；目录选择窗口用 OPFS 模拟，未实际操作 Windows 授权窗口。
 - 选择素材目录后使用 `webdir:<uuid>:<encoded-name>` 虚拟路径；没有目录授权时，保存回退为浏览器下载。
 - 网络能力通过浏览器 `fetch` 实现，保留 URL、方法、状态和 CORS 提示；OSS 使用 Web Crypto 做 V1 签名。
-- 2026-11-03 新增 canvas/model-patch.js：启用非内置云雾 API 时只读取当前 Profile 的 `selectedModels` 注入图片节点下拉，不再自行拉取、缓存 10 分钟或失败回退内置清单；单次选择写入 localStorage["manshiguang:canvas-model-choice"]，取消勾选或切回云雾时清理失效选择并恢复原生文案。Grsai 请求从 /v1/images/generations / /v1/images/edits 改写为 /v1/draw/nano-banana 或 /v1/draw/completions，并轮询 /v1/draw/result；未勾选模型时返回明确中文错误。canvas/api-profiles-patch.js 会先归一化 Base URL，去掉重复的 /v1、/v1/api/*、/v1/draw/*、/v1/images/* 后缀。
+- 2026-11-03 新增 canvas/model-patch.js：启用非内置云雾 API 时只读取当前 Profile 的 `selectedModels` 注入图片节点下拉，不再自行拉取、缓存 10 分钟或失败回退内置清单；下拉只高亮当前节点正在使用的模型，单次选择（含 `lastPicked`）写入 localStorage["manshiguang:canvas-model-choice"]，取消勾选或切回云雾时清理失效选择并恢复原生文案。Grsai 请求从 /v1/images/generations / /v1/images/edits 改写为 /v1/draw/nano-banana 或 /v1/draw/completions，并轮询 /v1/draw/result；未勾选模型时返回明确中文错误。canvas/api-profiles-patch.js 会先归一化 Base URL，去掉重复的 /v1、/v1/api/*、/v1/draw/*、/v1/images/* 后缀。
 
 ## 已实现范围
 

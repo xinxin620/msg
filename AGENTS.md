@@ -183,7 +183,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 6. 移动菜单也能打开画布。
 7. 进入任一工作流并打开「模型与接口设置」，确认作者信息为「抖音/B站/小红书：阿亮啊」「微信：liangliang_0314」「资料主站：https://github.com/xinxin620」，且收款码实际加载 `canvas/donation-qr-liangliang-20261103.png`，中心为真人头像、底部为「恋心心 (*亮)」。
 8. 在「API 来源设置」添加 3 个第三方配置后，4 张卡片全部显示；每张保留「申请」并有「启用/已启用」，任意时刻仅一个启用；切换后刷新页面仍保持，且原云雾输入框与 `canvas-api-settings` 同步为当前配置。
-9. 启用 Grsai（Base URL 可填 `https://grsai.dakka.com.cn`、带 `/v1/draw/completions` 或 `/v1/api/generate` 的完整地址）后，确认自动拉取 30 个模型并默认勾选 16 个图片模型；打开图片节点模型下拉，只应显示当前 `selectedModels`。取消若干勾选并刷新后选择仍保留；再次点击「拉取全部模型」不得无故覆盖既有勾选；「清空」后下拉应显示空提示而不是回退原生模型。
+9. 启用 Grsai（Base URL 可填 `https://grsai.dakka.com.cn`、带 `/v1/draw/completions` 或 `/v1/api/generate` 的完整地址）后，确认自动拉取 30 个模型并默认勾选 16 个图片模型；打开图片节点模型下拉，只应显示当前 `selectedModels`，且只有当前节点正在使用的模型显示黑色选中态，切换后高亮、按钮文案和 `lastPicked` 同步更新。取消若干勾选并刷新后选择仍保留；再次点击「拉取全部模型」不得无故覆盖既有勾选；「清空」后下拉应显示空提示而不是回退原生模型。
 10. 进入「常规设置」，确认「API 配置存储」紧跟「资产存储目录」且默认选中「浏览器存储」；切换「本地目录」后选择目录，应生成 `manshiguang-api-config.json`。修改 API Key 或模型勾选应自动续写；「从本地恢复」应更新配置且不立刻覆盖源文件；切回浏览器存储后不应继续写本地文件；刷新后模式和目录名称应保持。
 
 只报告实际完成的检查。AI 服务商、OSS、CORS、上传和 FFmpeg 若没有真实环境和凭证，不得标记为已验证。

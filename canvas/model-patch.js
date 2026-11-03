@@ -104,7 +104,25 @@
       state.lastPicked = "";
       changed = true;
     }
-    if (changed) writeJson(CHOICE_KEY, state.choice);
+    if (changed) persistChoice();
+  }
+
+  function persistChoice() {
+    writeJson(CHOICE_KEY, {
+      ...state.choice,
+      lastPicked: state.lastPicked,
+    });
+  }
+
+  function chosenModelFor(models) {
+    if (state.lastPicked && models.includes(state.lastPicked)) {
+      return state.lastPicked;
+    }
+    return (
+      [state.choice.gpt, state.choice.banana].find(
+        (model) => model && models.includes(model),
+      ) || ""
+    );
   }
 
   function apiKeyFor(base) {
@@ -344,7 +362,11 @@
 
   function loadChoice() {
     const stored = readJson(CHOICE_KEY, null);
-    state.choice = stored && typeof stored === "object" ? stored : {};
+    const choice = stored && typeof stored === "object" ? { ...stored } : {};
+    state.lastPicked =
+      typeof choice.lastPicked === "string" ? choice.lastPicked : "";
+    delete choice.lastPicked;
+    state.choice = choice;
   }
 
   function modelSelectOf(dropdown) {
@@ -376,6 +398,7 @@
 
   function buildList(dropdown, base) {
     const models = selectedModelsForActiveProfile();
+    const chosenModel = chosenModelFor(models);
     const wrap = document.createElement("div");
     wrap.className = "ms-model-list";
     wrap.setAttribute("data-ms-model-list", "1");
@@ -390,7 +413,7 @@
     const items = nativeItems(dropdown);
     for (const model of models) {
       const family = familyOf(model);
-      const isActive = state.choice[family] === model;
+      const isActive = chosenModel === model;
       const button = document.createElement("button");
       button.type = "button";
       button.className = `action-panel__dropdown-item ms-model-item${isActive ? " active" : ""}`;
@@ -403,7 +426,7 @@
         if (!preset) return;
         state.choice[family] = model;
         state.lastPicked = model;
-        writeJson(CHOICE_KEY, state.choice);
+        persistChoice();
         preset.click();
         window.setTimeout(() => {
           patchTrigger();
@@ -423,7 +446,8 @@
 
   function enhanceDropdown(dropdown, base) {
     if (!modelSelectOf(dropdown)) return;
-    const signature = [base, selectedModelsForActiveProfile().join(","), state.choice.banana || "", state.choice.gpt || ""].join("|");
+    const models = selectedModelsForActiveProfile();
+    const signature = [base, models.join(","), chosenModelFor(models)].join("|");
     if (dropdown.getAttribute("data-ms-model-signature") === signature) return;
     dropdown.setAttribute("data-ms-model-signature", signature);
     dropdown.querySelector("[data-ms-model-list]")?.remove();
@@ -457,11 +481,7 @@
     const base = activeBase();
     const models = isRemotePlatform(base) ? selectedModelsForActiveProfile() : [];
     if (isRemotePlatform(base)) clearStaleChoices(models);
-    const chosen = models.includes(state.lastPicked)
-      ? state.lastPicked
-      : [state.choice.gpt, state.choice.banana].find(
-          (model) => model && models.includes(model),
-        ) || "";
+    const chosen = chosenModelFor(models);
     document.querySelectorAll(".action-panel--image .action-panel__left > .action-panel__model-select").forEach((select) => {
       const left = select.closest(".action-panel__left");
       if (!left || left.querySelector(".action-panel__model-select") !== select) return;
