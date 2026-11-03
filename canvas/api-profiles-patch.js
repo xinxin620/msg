@@ -17,6 +17,10 @@
     timers: new Map(),
     attempted: new Map(),
   };
+  const modelScrollRuntime = {
+    pending: null,
+    sequence: 0,
+  };
 
   const escapeHtml = (value) =>
     String(value ?? "").replace(
@@ -244,6 +248,58 @@
     style.id = STYLE_ID;
     style.textContent = `
       .ms-api-native-card { display: none !important; }
+      .settings-toggle-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary, #6d5e52);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
+      }
+      .settings-toggle-row input[type="checkbox"] {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex: 0 0 auto;
+        margin: 0;
+        border: 1px solid #c9beb4;
+        border-radius: 999px;
+        outline: none;
+        appearance: none;
+        -webkit-appearance: none;
+        background: #d8d1ca;
+        cursor: pointer;
+        transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      }
+      .settings-toggle-row input[type="checkbox"]::after {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px #2f251c33;
+        content: "";
+        transition: transform 160ms ease;
+      }
+      .settings-toggle-row input[type="checkbox"]:checked {
+        border-color: #ff6a1a;
+        background: #ff6a1a;
+      }
+      .settings-toggle-row input[type="checkbox"]:checked::after {
+        transform: translateX(16px);
+      }
+      .settings-toggle-row input[type="checkbox"]:focus-visible {
+        box-shadow: 0 0 0 3px #ff6a1a29;
+      }
+      .settings-toggle-row:has(input[type="checkbox"]:checked) {
+        color: #d9530d;
+      }
       .ms-api-manager {
         display: flex;
         flex-direction: column;
@@ -492,6 +548,7 @@
         gap: 7px;
         max-height: 236px;
         overflow: auto;
+        overflow-anchor: none;
         padding: 2px;
       }
       .ms-api-model {
@@ -635,13 +692,91 @@
     `;
   }
 
+  function modelSectionFor(profileId) {
+    const card = [...document.querySelectorAll("#" + ROOT_ID + " [data-profile-id]")]
+      .find((item) => item.dataset.profileId === profileId);
+    return card?.querySelector("[data-ms-model-section]") || null;
+  }
+
+  function captureModelScroll(target) {
+    const section = target?.closest?.("[data-ms-model-section]");
+    const card = section?.closest("[data-profile-id]");
+    if (!section || !card) return null;
+    return {
+      profileId: card.dataset.profileId,
+      listTop: section.querySelector(".ms-api-models__list")?.scrollTop || 0,
+      modalTop:
+        section.closest(".settings-modal__body")?.scrollTop ?? null,
+    };
+  }
+
+  function restoreModelScroll(snapshot) {
+    if (!snapshot) return;
+    const modal = document.querySelector(".settings-modal__body");
+    if (modal && snapshot.modalTop != null) modal.scrollTop = snapshot.modalTop;
+    const list = modelSectionFor(snapshot.profileId)?.querySelector(
+      ".ms-api-models__list",
+    );
+    if (list) list.scrollTop = snapshot.listTop;
+  }
+
+  function rememberModelScroll(event) {
+    const checkbox =
+      event.target?.closest?.("[data-ms-model]") ||
+      event.target?.closest?.(".ms-api-model")?.querySelector("[data-ms-model]");
+    if (!checkbox) return;
+    modelScrollRuntime.pending = captureModelScroll(checkbox);
+    checkbox.focus({ preventScroll: true });
+  }
+
+  function settleModelScroll(target) {
+    if (!modelScrollRuntime.pending) {
+      modelScrollRuntime.pending = captureModelScroll(target);
+    }
+    const snapshot = modelScrollRuntime.pending;
+    if (!snapshot) return;
+    const sequence = ++modelScrollRuntime.sequence;
+    const apply = () => {
+      if (sequence === modelScrollRuntime.sequence) restoreModelScroll(snapshot);
+    };
+    queueMicrotask(apply);
+    window.requestAnimationFrame(() => {
+      apply();
+      window.requestAnimationFrame(apply);
+    });
+    [50, 180, 360].forEach((delay) => window.setTimeout(apply, delay));
+    window.setTimeout(() => {
+      if (sequence === modelScrollRuntime.sequence) {
+        modelScrollRuntime.pending = null;
+      }
+    }, 430);
+  }
+
   function refreshModelSection(profileId) {
     const profile = profileState?.profiles.find((item) => item.id === profileId);
     if (!profile || profile.builtin) return;
-    const card = [...document.querySelectorAll("#" + ROOT_ID + " [data-profile-id]")]
-      .find((item) => item.dataset.profileId === profileId);
-    const section = card?.querySelector("[data-ms-model-section]");
-    if (section) section.innerHTML = renderModelSection(profile);
+    const section = modelSectionFor(profileId);
+    if (!section) return;
+    const snapshot = captureModelScroll(section);
+    section.innerHTML = renderModelSection(profile);
+    restoreModelScroll(snapshot);
+  }
+
+  function syncModelSelectionUi(profileId) {
+    const profile = profileState?.profiles.find((item) => item.id === profileId);
+    if (!profile || profile.builtin) return;
+    const section = modelSectionFor(profileId);
+    if (!section) return;
+    const selected = new Set(profile.selectedModels);
+    section.querySelectorAll("[data-ms-model]").forEach((checkbox) => {
+      checkbox.checked = selected.has(checkbox.dataset.msModel);
+    });
+    const count = section.querySelector(".ms-api-models__count");
+    if (count) {
+      count.textContent = `已选择 ${selected.size} 个 / 共 ${profile.modelCatalog.length} 个`;
+    }
+    const clearButton = section.querySelector('[data-ms-action="models-clear"]');
+    if (clearButton) clearButton.disabled = selected.size === 0;
   }
 
   function extractModelIds(payload) {
@@ -951,17 +1086,21 @@
     }
 
     if (action === "models-images") {
+      modelScrollRuntime.pending = captureModelScroll(actionButton);
       profile.selectedModels = profile.modelCatalog.filter(isImageModel);
       saveProfileState();
-      refreshModelSection(profile.id);
+      syncModelSelectionUi(profile.id);
+      settleModelScroll(actionButton);
       showStatus(`已选择 ${profile.selectedModels.length} 个图片模型。`);
       return;
     }
 
     if (action === "models-clear") {
+      modelScrollRuntime.pending = captureModelScroll(actionButton);
       profile.selectedModels = [];
       saveProfileState();
-      refreshModelSection(profile.id);
+      syncModelSelectionUi(profile.id);
+      settleModelScroll(actionButton);
       showStatus("已清空模型勾选，画布将不再显示该第三方配置的模型。");
       return;
     }
@@ -1044,7 +1183,8 @@
       selected.has(model),
     );
     saveProfileState();
-    refreshModelSection(found.profile.id);
+    syncModelSelectionUi(found.profile.id);
+    settleModelScroll(checkbox);
   }
 
   function init() {
@@ -1053,6 +1193,7 @@
     root.addEventListener("click", handleClick);
     root.addEventListener("input", handleInput);
     root.addEventListener("change", handleChange);
+    root.addEventListener("pointerdown", rememberModelScroll, true);
     new MutationObserver(queueRender).observe(root, {
       childList: true,
       subtree: true,
