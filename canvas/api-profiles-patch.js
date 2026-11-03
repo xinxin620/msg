@@ -963,7 +963,7 @@
               <p class="ms-api-storage-card__warning">本地文件是明文 JSON，会包含 API 密钥，请不要放到公开目录或同步到公共网盘。</p>
             `
             : `
-              <p class="ms-api-storage-card__hint">切换为本地目录后，当前配置会在你选择的目录中保存一份可用于恢复的 JSON 副本；浏览器中的副本仍会保留。</p>
+              <p class="ms-api-storage-card__hint">点击「本地目录」会打开 Windows 目录选择窗口；选定后立即创建或更新 JSON。浏览器中的副本始终保留，切换存储方式不会删除本地文件。</p>
             `
         }
         <div class="ms-api-storage-card__status" role="status" aria-live="polite"></div>
@@ -1165,18 +1165,20 @@
       window.clearTimeout(apiStorageRuntime.timer);
       apiStorageRuntime.timer = null;
       renderApiStorageCard();
-      setApiStorageStatus("已切换为浏览器存储。");
+      setApiStorageStatus(
+        "已切换为浏览器存储；本地 JSON 未删除，再次切换到本地目录时会更新。",
+      );
       return;
     }
     if (action === "mode-directory") {
+      if (!apiStorageState.directoryToken) {
+        await chooseApiConfigDirectory();
+        return;
+      }
       apiStorageState.mode = "directory";
       saveApiStorageState();
       renderApiStorageCard();
-      if (!apiStorageState.directoryToken) {
-        setApiStorageStatus("请选择本地目录，确认后会自动保存当前 API 配置。", false, false);
-      } else {
-        await writeApiConfigToDirectory(true);
-      }
+      await writeApiConfigToDirectory(true);
       return;
     }
     if (action === "choose-directory") {
