@@ -2,7 +2,7 @@
 
 ## 项目基准 / Project Baseline
 
-> 本文件是 `msg` 仓库的项目级基准上下文，首次按当前工作副本核对于 2026-11-03。后续任务应优先阅读本文件，再检查实际代码；若本文件与源码、页面行为或外部工具事实冲突，以当前代码和实际验证为准，并在同一变更中同步修复本文件。
+> 本文件是 `msg` 仓库的项目级基准上下文，首次按当前工作副本核对于 2026-11-04。后续任务应优先阅读本文件，再检查实际代码；若本文件与源码、页面行为或外部工具事实冲突，以当前代码和实际验证为准，并在同一变更中同步修复本文件。
 >
 > 每次变更架构、依赖、入口、存储格式、画布桥接能力、外部服务边界或关键约束时，都必须同步更新本文件。
 
@@ -52,7 +52,7 @@
 - **Java 版本：不适用。** 本项目没有 Java 源码、JVM 构建或 Java 运行时要求。
 - **Spring Boot / Spring Cloud / Spring MVC：不适用。**
 - **Redis、RabbitMQ、MySQL：不适用。** 没有消息队列、缓存服务或关系数据库。
-- **数据库表：无。** 主站收藏使用 `localStorage`；画布偏好/workflow 由打包应用保存在浏览器存储；API 多配置使用 `localStorage["manshiguang:canvas-api-profiles"]`，当前启用项再同步到原有 `canvas-api-settings`；目录授权使用 IndexedDB 数据库 `manshiguang-canvas-bridge` 的 `directoryHandles` object store。
+- **数据库表：无。** 主站收藏使用 `localStorage`；画布偏好/workflow 由打包应用保存在浏览器存储；API 多配置使用 `localStorage["manshiguang:canvas-api-profiles"]`，当前启用项再同步到原有 `canvas-api-settings`；目录授权使用 IndexedDB 数据库 `manshiguang-canvas-bridge` 的 `directoryHandles` object store。API 配置默认保留在浏览器；若在「常规设置 → API 配置存储」中选择本地目录，则另写一份明文 JSON 副本，位置元数据使用 `localStorage["manshiguang:canvas-api-storage"]`，目录 handle 使用独立 token 保存，不复用或覆盖素材目录。
 - 后续若引入后端，应先明确 API、鉴权、数据模型和部署边界，再修改本文件；不要把模板中的 Java/Spring/MySQL 假设套到当前项目上。
 
 ### 3. 目录结构与职责
@@ -99,9 +99,9 @@ msg/
 #### 3.2 画布职责
 
 - `canvas/index.html`：加载桥接脚本、品牌/API 补丁、画布 bundle、React 根节点和启动遮罩；遮罩只在 React 根节点产生内容后消失，12 秒未加载时显示诊断提示。
-- `canvas/web-bridge.js`：浏览器兼容层，负责网络、文件、目录、窗口、诊断和 OSS 请求；不得把桌面 Node/Electron 能力伪装成成功。
+- `canvas/web-bridge.js`：浏览器兼容层，负责网络、文件、目录、API 配置 JSON 读写、窗口、诊断和 OSS 请求；不得把桌面 Node/Electron 能力伪装成成功。
 - `canvas/branding-patch.js`：通过 `MutationObserver` 替换设置侧栏的作者信息文本（`大桶子ai` → `阿亮啊`、`wmxwz1` → `liangliang_0314`、`hub.datong-ai.cn` → `https://github.com/xinxin620`），并把收款码切换到带日期的唯一文件名并追加版本参数，以避免旧 URL 缓存；补丁必须独立于原始 bundle，更新二维码或升级画布后同步提升脚本/图片版本并重新核对选择器。
-- `canvas/api-profiles-patch.js`：隐藏原始云雾 vendor 卡片，在原位置插入多配置管理区；支持内置云雾与任意多个第三方 API，每项包含名称、申请地址、API Key、Base URL，每张卡保留「申请」并在右侧提供「启用/已启用」。状态使用 `localStorage["manshiguang:canvas-api-profiles"]`，`activeId` 保证同一时间只有一个启用；切换时同步到画布原有 `canvas-api-settings`、`state.vendorConfigs.yunwu` 和云雾输入框。第三方 Profile 还保存 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`：填写或变更 Base URL / API Key 后自动尝试 `${base}/v1/models` 和 `${base}/models`，也提供「拉取全部模型」「全选图片」「清空」。首次或接口地址变化时默认勾选全部图片模型；同源刷新保留仍存在的既有勾选，不无故覆盖用户选择。Base URL 会归一化掉 `/v1/api/*`、`/v1/draw/*`、`/v1/images/*`、`/v1/models`、`/v1` 等路径。补丁只挂在页面 DOM 上，不修改压缩 bundle。
+- `canvas/api-profiles-patch.js`：隐藏原始云雾 vendor 卡片，在原位置插入多配置管理区；支持内置云雾与任意多个第三方 API，每项包含名称、申请地址、API Key、Base URL，每张卡保留「申请」并在右侧提供「启用/已启用」。状态使用 `localStorage["manshiguang:canvas-api-profiles"]`，`activeId` 保证同一时间只有一个启用；切换时同步到画布原有 `canvas-api-settings`、`state.vendorConfigs.yunwu` 和云雾输入框。第三方 Profile 还保存 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`：填写或变更 Base URL / API Key 后自动尝试 `${base}/v1/models` 和 `${base}/models`，也提供「拉取全部模型」「全选图片」「清空」。首次或接口地址变化时默认勾选全部图片模型；同源刷新保留仍存在的既有勾选，不无故覆盖用户选择。Base URL 会归一化掉 `/v1/api/*`、`/v1/draw/*`、`/v1/images/*`、`/v1/models`、`/v1` 等路径。补丁只挂在页面 DOM 上，不修改压缩 bundle。「常规设置 → API 配置存储」卡片紧跟「资产存储目录」：默认使用浏览器存储；切换本地目录后，可通过真实目录选择器保存 `manshiguang-api-config.json`，并在 API Key、Base URL 或模型勾选变化后自动续写。本地文件是明文 JSON，包含 API 密钥；「从本地恢复」读取该文件后只更新浏览器状态，不立即回写源文件。
 - `canvas/model-patch.js`：当启用的 API 不是内置云雾时，只读取当前 Profile 的 `selectedModels` 注入图片节点模型下拉；没有勾选时显示明确空状态，不回退到内置清单。用户选择写入 `localStorage["manshiguang:canvas-model-choice"]`（按 `banana` / `gpt` 两个族保存），选中后通过点击原生下拉项让 React 更新节点状态；取消勾选或切回云雾时清理失效选择并恢复原生按钮文案。请求侧劫持 `window.fetch`：命中 `/v1/images/generations`（文生图）或 `/v1/images/edits`（带参考图）且当前平台为 Grsai 时，强制从当前 Profile 的 `selectedModels` 选择模型，未勾选则返回明确中文错误；随后改写为 `${base}/v1/draw/nano-banana`（nano-banana 族）或 `${base}/v1/draw/completions`（gpt-image 族），并在需要时轮询 `${base}/v1/draw/result`，最后回填成 OpenAI 风格的 `{ data: [{ url }] }`。
 - `canvas/assets/index-*.js` 与 `index-*.css`：外部已打包产物，默认视为只读。若需升级画布，整体替换 bundle 并重新核对桥接 API，不要局部修改压缩代码。
 
@@ -118,13 +118,15 @@ msg/
 
 - **Workflow**：节点、边、分组、工作流名称和参数；可导入/导出 `.json` / `.dtworkflow`。
 - **Node**：图片、视频、音频、文本、AI 生成节点等；节点结果保留文件名、媒体 URL、本地路径和生成参数。
-- **Provider / API 配置**：云端文本/图片服务商、API Key、Base URL、模型映射；仅保存在当前浏览器，不会同步到服务器。画布设置页可维护任意多个 API Profile，但 `activeId` 只能指向一个配置。
+- **Provider / API 配置**：云端文本/图片服务商、API Key、Base URL、模型映射；默认保存在当前浏览器，也可额外写入用户选择的本地明文 JSON，不存在服务端同步或共享。画布设置页可维护任意多个 API Profile，但 `activeId` 只能指向一个配置。
 - **API Profile**：`id`、`name`、`apiKey`、`baseUrl`、`applyUrl`、`builtin`，以及第三方专用的 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`；内置云雾 ID 固定为 `yunwu`，第三方 ID 在新增时生成。默认云雾仍使用画布原生模型和展示，不参与第三方模型勾选。
-- **目录授权记录**：IndexedDB 中的 File System Access directory handle；虚拟目录 token 形如 `webdir:<uuid>:<encoded-name>`。
-- **兼容 API**：`window.electronAPI` 共 26 项，名称与原 Electron preload 对齐：
+- **API 配置存储设置**：`version`、`mode`（`browser` / `directory`）、`directoryToken`、`directoryName`，保存在 `localStorage["manshiguang:canvas-api-storage"]`。未设置时按 `browser` 处理。
+- **本地 API 配置文件**：固定名 `manshiguang-api-config.json`；外层为 `version`、`kind: "manshiguang-api-config"`、`savedAt`、`state`，`state` 即 `manshiguang:canvas-api-profiles` 的完整结构。文件明文包含 API Key。
+- **目录授权记录**：IndexedDB 中的 File System Access directory handle；虚拟目录 token 形如 `webdir:<uuid>:<encoded-name>`。素材目录与 API 配置存储目录使用各自的 token，API 配置目录不会成为素材默认目录。
+- **兼容 API**：`window.electronAPI` 共 29 项：26 项与原 Electron preload 对齐，另有 3 项本项目 API 配置存储扩展：
   - 窗口：`windowControl`、`getWindowState`、`onWindowStateChanged`、`openExternalUrl`
   - 诊断/路径：`getUserDataPath`、`appendDiagnosticLog`、`getDiagnosticLogPath`、`getDefaultAssetsPath`
-  - 文件/目录：`pickDirectory`、`openFolder`、`saveTextFile`、`openTextFile`、`saveGeneratedTextAsset`、`saveMediaAsset`、`exportMediaFile`、`readLocalMediaDataUrl`、`getLocalMediaFileUrl`
+  - 文件/目录：`pickDirectory`、`pickApiConfigDirectory`、`openFolder`、`saveTextFile`、`saveApiConfigFile`、`readApiConfigFile`、`openTextFile`、`saveGeneratedTextAsset`、`saveMediaAsset`、`exportMediaFile`、`readLocalMediaDataUrl`、`getLocalMediaFileUrl`
   - 网络/上传：`httpRequest`、`fetchRemoteImageDataUrl`、`yunwuImageEditRequest`、`uploadImageRequest`、`multipartRequest`、`writeTempUploadFile`、`uploadSignedUrl`、`uploadOssObject`
   - 原桌面媒体能力：`clipVideo`
 - **存储与接口边界**：没有应用级数据库表；浏览器存储不是服务端数据源。对外能力由页面 DOM 交互和 `window.electronAPI` 兼容层组成。
@@ -182,6 +184,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 7. 进入任一工作流并打开「模型与接口设置」，确认作者信息为「抖音/B站/小红书：阿亮啊」「微信：liangliang_0314」「资料主站：https://github.com/xinxin620」，且收款码实际加载 `canvas/donation-qr-liangliang-20261103.png`，中心为真人头像、底部为「恋心心 (*亮)」。
 8. 在「API 来源设置」添加 3 个第三方配置后，4 张卡片全部显示；每张保留「申请」并有「启用/已启用」，任意时刻仅一个启用；切换后刷新页面仍保持，且原云雾输入框与 `canvas-api-settings` 同步为当前配置。
 9. 启用 Grsai（Base URL 可填 `https://grsai.dakka.com.cn`、带 `/v1/draw/completions` 或 `/v1/api/generate` 的完整地址）后，确认自动拉取 30 个模型并默认勾选 16 个图片模型；打开图片节点模型下拉，只应显示当前 `selectedModels`。取消若干勾选并刷新后选择仍保留；再次点击「拉取全部模型」不得无故覆盖既有勾选；「清空」后下拉应显示空提示而不是回退原生模型。
+10. 进入「常规设置」，确认「API 配置存储」紧跟「资产存储目录」且默认选中「浏览器存储」；切换「本地目录」后选择目录，应生成 `manshiguang-api-config.json`。修改 API Key 或模型勾选应自动续写；「从本地恢复」应更新配置且不立刻覆盖源文件；切回浏览器存储后不应继续写本地文件；刷新后模式和目录名称应保持。
 
 只报告实际完成的检查。AI 服务商、OSS、CORS、上传和 FFmpeg 若没有真实环境和凭证，不得标记为已验证。
 
@@ -195,7 +198,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 - **无障碍**：保留 `aria-*`、键盘焦点、`Escape` 关闭、`skip-link` 和可见焦点；新增按钮必须使用正确元素或明确 `type`。
 - **异常处理**：兼容桥接的普通拒绝使用 `throw new Error(中文说明)`，不得静默成功；网络错误要保留 URL、方法、状态和 CORS 提示。画布宿主页在根节点未渲染时显示可诊断的启动失败信息。
 - **文件/资源所有权**：浏览器无法访问的绝对路径、系统文件管理器、FFmpeg 和原生窗口能力必须明确报错或降级说明，不能用假数据掩盖。
-- **安全**：API Key 仅保存在浏览器本地；不要把密钥、上传凭证或用户选择的绝对路径写入仓库、日志或提交。`openExternalUrl` 只允许 `http/https`。
+- **安全**：API Key 默认保存在浏览器本地；用户显式选择本地目录时会写入明文 JSON 副本，只能放在本人可控的私有目录。不要把密钥、上传凭证、用户选择的绝对路径或生成的配置文件写入仓库、日志或提交。`openExternalUrl` 只允许 `http/https`。
 - **生成文件**：`canvas/assets/index-*.js`、`index-*.css` 是外部构建产物，不手改；需要升级时整体替换并复测桥接契约。
 
 ### 7. 已知约束、历史备注与注意事项
@@ -216,9 +219,9 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 - 画布资源从「简单画布 Setup 0.0.1.exe」解包，原应用包名为 `canvas-app`，原包版本为 `0.0.5`。
 - 当前 `canvas/assets`、品牌图和图标与解包后的 `dist` 文件逐文件 SHA-256 一致；`canvas/donation-qr.png` 与 `canvas/donation-qr-liangliang-20261103.png` 内容相同，均为用户提供的收款码卡片，不再与原始 `dist` 一致。带日期文件名是运行时首选路径，稳定文件名保留为原始 bundle 的兼容回退。
 - `canvas/branding-patch.js` 在浏览器运行时替换设置侧栏作者信息，原始压缩 bundle 内仍保留旧文本；这是有意的只读边界，不要为了替换品牌而修改 bundle。
-- `canvas/api-profiles-patch.js` 在浏览器运行时管理多套 API 配置，压缩 bundle 内仍只有原始云雾 vendor 卡片。已验证：添加第三方配置并填写 Base URL 后自动拉取、30 个模型与 16 个图片模型默认勾选、手动勾选/取消、刷新保持、重新拉取保留选择、清空、唯一启用和云雾回退。真实第三方出图仍未验证，因为当前没有有效 Key。
+- `canvas/api-profiles-patch.js` 在浏览器运行时管理多套 API 配置，压缩 bundle 内仍只有原始云雾 vendor 卡片。已验证：添加第三方配置并填写 Base URL 后自动拉取、30 个模型与 16 个图片模型默认勾选、手动勾选/取消、刷新保持、重新拉取保留选择、清空、唯一启用和云雾回退。API 配置存储的另一条独立验收链已通过：默认浏览器模式、OPFS 模拟目录选择后真实桥接写入/读取 JSON、Key 变更自动续写、从本地恢复不覆盖源文件、刷新保持目录模式、切回浏览器后停止本地写入。未实际操作 Windows 系统目录选择授权窗口。真实第三方出图仍未验证，因为当前没有有效 Key。
 - `canvas/model-patch.js` 依赖 bundle 内部只有 `yunwu` 一个 vendor 的事实，因此无法直接把 `grsai` 变成 vendor；它改为「Base URL 指向第三方 + 拦截请求改协议」的运行时方案。模型目录与勾选归 API Profile 管理，`model-patch.js` 只展示 `selectedModels`，不再单独拉取、缓存 10 分钟或失败回退内置清单。已验证模型下拉只显示勾选模型、空勾选提示、选择持久化与未勾选时的明确请求错误；真实出图尚未验证。文本节点仍沿用原云雾模型名，未做 Grsai 文本模型适配。
-- 原 Electron preload 暴露 26 个 IPC 方法；当前 `canvas/web-bridge.js` 以同名 API 实现浏览器兼容版本，但不代表所有网络和原生能力已可用。
+- 原 Electron preload 暴露 26 个 IPC 方法；当前 `canvas/web-bridge.js` 在保留这 26 个兼容方法之外，新增 `pickApiConfigDirectory`、`saveApiConfigFile`、`readApiConfigFile` 三项 API 配置存储扩展，共 29 项。扩展不代表所有网络和原生能力已可用。
 - 本次集成未运行原始安装器或 `SimpleCanvas.exe`，只使用静态解包资源。
 - 主站仍是演示原型：番剧、用户、社区内容均为原创虚构数据；没有视频播放器、登录、服务端收藏或真实社区接口。
 - 若后续恢复/升级画布 bundle，必须重新核对：资源路径、React 根节点、`window.electronAPI` 方法、IndexedDB 记录格式、保存/下载路径和启动遮罩行为。

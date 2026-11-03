@@ -146,7 +146,8 @@
     return record || null;
   }
 
-  async function saveDirectoryRecord(token, handle) {
+  async function saveDirectoryRecord(token, handle, options = {}) {
+    const makeDefault = options.makeDefault !== false;
     const record = {
       token,
       name: handle.name || "浏览器素材目录",
@@ -155,7 +156,7 @@
     };
     directoryRecords.set(token, record);
     await databasePut(token, record);
-    await databasePut(DEFAULT_DIRECTORY_KEY, record);
+    if (makeDefault) await databasePut(DEFAULT_DIRECTORY_KEY, record);
     return record;
   }
 
@@ -864,6 +865,84 @@
     return token;
   }
 
+  async function pickApiConfigDirectory() {
+    if (typeof window.showDirectoryPicker !== "function") {
+      throw new Error(
+        "当前浏览器不支持选择本地目录。请使用最新版 Chrome 或 Edge，并确认页面通过本地 HTTP 地址打开。",
+      );
+    }
+    let handle;
+    try {
+      handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    } catch (error) {
+      if (isAbortError(error)) return null;
+      throw error;
+    }
+    const token = `webdir:${makeId()}:${encodeURIComponent(handle.name || "api-config")}`;
+    await saveDirectoryRecord(token, handle, { makeDefault: false });
+    return {
+      token,
+      name: handle.name || "API 配置目录",
+    };
+  }
+
+  async function saveApiConfigFile(payload = {}) {
+    const record = await resolveDirectory(payload.targetDir);
+    if (!record) {
+      throw new Error("尚未选择 API 配置存储目录，请先在设置中选择本地目录。");
+    }
+    const fileName = sanitizeFileName(
+      payload.fileName || "manshiguang-api-config.json",
+      "manshiguang-api-config.json",
+    );
+    const content =
+      typeof payload.content === "string" ? payload.content : "";
+    const blob = new Blob([content], {
+      type: "application/json;charset=utf-8",
+    });
+    const fileHandle = await record.handle.getFileHandle(fileName, {
+      create: true,
+    });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return {
+      token: record.token,
+      directoryName: record.name,
+      fileName,
+      bytes: blob.size,
+    };
+  }
+
+  async function readApiConfigFile(payload = {}) {
+    const record = await resolveDirectory(payload.targetDir);
+    if (!record) {
+      throw new Error("尚未选择 API 配置存储目录，请先在设置中选择本地目录。");
+    }
+    const fileName = sanitizeFileName(
+      payload.fileName || "manshiguang-api-config.json",
+      "manshiguang-api-config.json",
+    );
+    try {
+      const fileHandle = await record.handle.getFileHandle(fileName);
+      const file = await fileHandle.getFile();
+      return {
+        token: record.token,
+        directoryName: record.name,
+        fileName: file.name,
+        lastModified: file.lastModified,
+        content: await file.text(),
+      };
+    } catch (error) {
+      if (error?.name === "NotFoundError") {
+        throw new Error(
+          `目录中没有找到 ${fileName}，请先保存一次 API 配置。`,
+        );
+      }
+      throw error;
+    }
+  }
+
   async function getDefaultAssetsPath() {
     const record = await getDirectoryRecord(DEFAULT_DIRECTORY_KEY);
     return record?.token || DOWNLOAD_ROOT;
@@ -943,8 +1022,11 @@
     getDiagnosticLogPath,
     getDefaultAssetsPath,
     pickDirectory,
+    pickApiConfigDirectory,
     openFolder,
     saveTextFile,
+    saveApiConfigFile,
+    readApiConfigFile,
     saveGeneratedTextAsset,
     openTextFile,
     fetchRemoteImageDataUrl,

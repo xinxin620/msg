@@ -27,6 +27,7 @@
 - 主导航「社区」右侧新增「画布」入口，点击后在浏览器新标签页打开
 - 「简单画布」工作流界面：节点编排、工作流导入/导出、AI 服务商配置、素材上传与生成结果管理
 - 画布 API 来源管理：保留云雾并支持任意多个第三方配置，同一时间只启用一个，配置与 Key/Base URL 刷新后保留
+- 画布 API 配置存储：默认浏览器存储，也可切换为用户选择的本地目录并写入 `manshiguang-api-config.json`，支持自动续写与本地恢复
 - 画布第三方模型列表：添加并填写第三方 API 后自动拉取模型，可勾选或全选图片模型；图片节点只显示当前启用配置勾选的模型；Grsai 请求自动适配 `/v1/draw/nano-banana` / `/v1/draw/completions`
 - 画布浏览器桥接：本地目录授权、文本/媒体保存、HTTP 请求、multipart 上传、OSS/签名上传等
 
@@ -50,7 +51,13 @@
 
 「模型与接口设置 → API 来源设置」支持在保留内置「云雾」的同时新增任意多个第三方 API。每张配置卡都包含申请地址、API Key 和 Base URL，并保留「申请」按钮；其右侧的「启用」按钮用于切换当前配置，同一时间只有一个配置处于启用状态。
 
-配置保存在 `localStorage["manshiguang:canvas-api-profiles"]`，刷新页面后继续保留。启用项会同步到画布原有的 `canvas-api-settings`，后续请求使用当前配置的 Key 与 Base URL。密钥仍只保存在当前浏览器，不会上传到服务器。
+配置保存在 `localStorage["manshiguang:canvas-api-profiles"]`，刷新页面后继续保留。启用项会同步到画布原有的 `canvas-api-settings`，后续请求使用当前配置的 Key 与 Base URL。
+
+### API 配置存储
+
+「模型与接口设置 → 常规设置 → API 配置存储」默认使用浏览器存储。切换为「本地目录」并选择目录后，当前 API 配置会额外写入固定文件 `manshiguang-api-config.json`；修改 API Key、Base URL 或模型勾选时会自动续写，「从本地恢复」可把该文件重新载入画布。存储模式使用 `localStorage["manshiguang:canvas-api-storage"]` 记录，刷新后保留。
+
+本地文件是**明文 JSON**，会包含 API 密钥，只能放在本人可控的私有目录；浏览器存储与本地文件都只属于当前设备，不会同步到服务器。
 
 ### 第三方模型列表
 
@@ -71,6 +78,7 @@ Grsai 的请求协议与云雾不同：画布仍调用 OpenAI 风格 `/v1/images
 - 自定义网络代理属于浏览器外部配置，画布设置页中的代理不能接管浏览器网络栈。
 - 未选择素材目录时，保存操作会回退为浏览器下载；不会写入原桌面版的默认资产目录。
 - 第三方模型列表依赖平台 `/v1/models` 的 CORS；实际出图仍需要有效的第三方 API Key。当前只适配了图片节点，文本节点仍使用原云雾模型名。
+- 选择本地 API 配置目录后，导出的 `manshiguang-api-config.json` 是明文文件，包含 API Key；请避免放在公开目录、公共网盘或版本库中。
 - 画布内窗口最大化使用 Fullscreen API；浏览器新标签页的关闭行为由浏览器控制。
 
 ## 设计系统
@@ -105,7 +113,7 @@ msg/
 │  ├─ index.html              画布宿主页与启动诊断
 │  ├─ web-bridge.js           浏览器兼容桥接层
 │  ├─ branding-patch.js       设置页作者信息品牌替换补丁
-│  ├─ api-profiles-patch.js   云雾/第三方 API 多配置、唯一启用与模型勾选
+│  ├─ api-profiles-patch.js   云雾/第三方 API 多配置、唯一启用、模型勾选与 API 配置存储
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ assets/
 │  │  ├─ index-BN-uSJKj.js    已打包 React 画布

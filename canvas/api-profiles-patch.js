@@ -3,15 +3,28 @@
 
   const PROFILES_KEY = "manshiguang:canvas-api-profiles";
   const CANVAS_SETTINGS_KEY = "canvas-api-settings";
+  const API_STORAGE_KEY = "manshiguang:canvas-api-storage";
+  const API_CONFIG_FILE_NAME = "manshiguang-api-config.json";
   const STYLE_ID = "ms-api-profiles-style";
   const ROOT_ID = "ms-api-profiles";
+  const STORAGE_CARD_ID = "ms-api-storage-card";
   const BUILTIN_ID = "yunwu";
   const DEFAULT_BASE_URL = "https://api.openlux.ai/v1";
   const BUILTIN_APPLY_URL = "https://api.openlux.ai/register?aff=MYE2";
   const MODEL_FETCH_DEBOUNCE_MS = 700;
 
   let profileState = null;
+  let apiStorageState = null;
   let renderQueued = false;
+  const apiStorageRuntime = {
+    timer: null,
+    writing: false,
+    pending: false,
+    profileLoaded: false,
+    status: "",
+    statusError: false,
+    statusTimer: null,
+  };
   const modelRuntime = {
     loading: new Set(),
     timers: new Map(),
@@ -153,9 +166,9 @@
     }
   }
 
-  function loadProfileState(nativeCard) {
-    const stored = readStoredProfiles();
-    const profiles = Array.isArray(stored?.profiles)
+  function normalizeProfileState(value, nativeCard) {
+    const stored = value && typeof value === "object" ? value : {};
+    const profiles = Array.isArray(stored.profiles)
       ? stored.profiles.map(normalizeProfile).filter(Boolean)
       : [];
     if (!profiles.some((profile) => profile.id === BUILTIN_ID)) {
@@ -175,12 +188,49 @@
     return { version: 1, activeId, profiles: uniqueProfiles };
   }
 
-  function saveProfileState() {
+  function loadProfileState(nativeCard) {
+    return normalizeProfileState(readStoredProfiles(), nativeCard);
+  }
+
+  function readApiStorageState() {
+    let stored = null;
+    try {
+      const raw = window.localStorage.getItem(API_STORAGE_KEY);
+      stored = raw ? JSON.parse(raw) : null;
+    } catch {
+      stored = null;
+    }
+    return {
+      version: 1,
+      mode: stored?.mode === "directory" ? "directory" : "browser",
+      directoryToken:
+        typeof stored?.directoryToken === "string" ? stored.directoryToken : "",
+      directoryName:
+        typeof stored?.directoryName === "string" ? stored.directoryName : "",
+    };
+  }
+
+  function saveApiStorageState() {
+    if (!apiStorageState) return;
+    try {
+      window.localStorage.setItem(
+        API_STORAGE_KEY,
+        JSON.stringify(apiStorageState),
+      );
+    } catch {
+      setApiStorageStatus("保存位置设置未能写入浏览器本地存储。", true);
+    }
+  }
+
+  function saveProfileState(options = {}) {
     if (!profileState) return;
     try {
       window.localStorage.setItem(PROFILES_KEY, JSON.stringify(profileState));
     } catch {
       showStatus("配置已更新，但浏览器未能写入本地存储。", true);
+    }
+    if (apiStorageRuntime.profileLoaded && !options.skipStorage) {
+      scheduleApiStorageWrite();
     }
   }
 
@@ -672,6 +722,125 @@
         font-size: 11px;
         cursor: pointer;
       }
+      .ms-api-storage-card {
+        gap: 14px;
+      }
+      .ms-api-storage-card__badge {
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: #ff6a1a14;
+        color: #d9530d;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .ms-api-storage-card__body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .ms-api-storage-card__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .ms-api-storage-card__label {
+        color: var(--text-primary, #2f251c);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .ms-api-storage-card__description,
+      .ms-api-storage-card__hint,
+      .ms-api-storage-card__warning {
+        margin: 0;
+        color: var(--text-secondary, #8d7868);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+      .ms-api-storage-card__warning {
+        padding: 9px 11px;
+        border-radius: 10px;
+        background: #fff8e7;
+        color: #8a5a00;
+      }
+      .ms-api-storage-card__directory {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 11px 12px;
+        border: 1px solid var(--panel-border, #8f7c6829);
+        border-radius: 12px;
+        background: var(--panel-bg-muted, #ffffff80);
+      }
+      .ms-api-storage-card__directory-main {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .ms-api-storage-card__directory-name {
+        overflow: hidden;
+        color: var(--text-primary, #3a2f27);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ms-api-storage-card__directory-file {
+        color: var(--text-secondary, #8d7868);
+        font-size: 10px;
+      }
+      .ms-api-storage-card__actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .ms-api-storage-card__actions .path-picker__btn {
+        height: 32px;
+        padding: 0 13px;
+        border-radius: 999px;
+        font-size: 11px;
+      }
+      .ms-api-storage-card__status {
+        display: none;
+        padding: 8px 11px;
+        border-radius: 10px;
+        background: #e9f7ef;
+        color: #217a50;
+        font-size: 11px;
+        line-height: 1.6;
+      }
+      .ms-api-storage-card__status.is-visible {
+        display: block;
+      }
+      .ms-api-storage-card__status.is-error {
+        background: #fff1ee;
+        color: #b42318;
+      }
+      :root[data-theme="dark"] .ms-api-storage-card__badge {
+        background: #f2f5fb1a;
+        color: var(--text-primary, #edf1f7);
+      }
+      :root[data-theme="dark"] .ms-api-storage-card__directory {
+        background: var(--panel-bg-soft);
+      }
+      :root[data-theme="dark"] .ms-api-storage-card__warning {
+        background: #ffd16618;
+        color: #ffd166;
+      }
+      :root[data-theme="dark"] .ms-api-storage-card__status {
+        background: #2b9a6624;
+        color: #7fe0ae;
+      }
+      :root[data-theme="dark"] .ms-api-storage-card__status.is-error {
+        background: #ff6f6118;
+        color: #ff8a80;
+      }
       @media (max-width: 640px) {
         .ms-api-card__header { align-items: flex-start; }
         .ms-api-card__actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -694,6 +863,333 @@
       () => element.classList.remove("is-visible"),
       3200,
     );
+  }
+
+  function findGeneralSettingsSection() {
+    return [...document.querySelectorAll(".settings-section")].find(
+      (section) =>
+        section.querySelector(".settings-section__header h3")?.textContent?.trim() ===
+        "常规设置",
+    );
+  }
+
+  function findAssetStorageCard() {
+    const section = findGeneralSettingsSection();
+    if (!section) return null;
+    return [...section.querySelectorAll(".vendor-card")].find(
+      (card) =>
+        card.querySelector(".vendor-name")?.textContent?.trim() ===
+        "资产存储目录",
+    );
+  }
+
+  function updateApiStorageStatusElement() {
+    const element = document.querySelector(
+      `#${STORAGE_CARD_ID} .ms-api-storage-card__status`,
+    );
+    if (!element) return;
+    element.textContent = apiStorageRuntime.status;
+    element.classList.toggle("is-error", apiStorageRuntime.statusError);
+    element.classList.toggle(
+      "is-visible",
+      Boolean(apiStorageRuntime.status),
+    );
+  }
+
+  function setApiStorageStatus(message, isError = false, autoHide = true) {
+    apiStorageRuntime.status = String(message || "");
+    apiStorageRuntime.statusError = Boolean(isError);
+    updateApiStorageStatusElement();
+    window.clearTimeout(apiStorageRuntime.statusTimer);
+    if (!apiStorageRuntime.status || !autoHide) return;
+    apiStorageRuntime.statusTimer = window.setTimeout(() => {
+      apiStorageRuntime.status = "";
+      apiStorageRuntime.statusError = false;
+      updateApiStorageStatusElement();
+    }, 4200);
+  }
+
+  function renderApiStorageCard() {
+    const card = document.getElementById(STORAGE_CARD_ID);
+    if (!card) return;
+    if (!apiStorageState) apiStorageState = readApiStorageState();
+    const isDirectory = apiStorageState.mode === "directory";
+    const hasDirectory = Boolean(apiStorageState.directoryToken);
+    const directoryName = apiStorageState.directoryName || "尚未选择目录";
+    const nextHtml = `
+      <div class="vendor-card__header">
+        <div class="vendor-card__title">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-database icon-server" aria-hidden="true">
+            <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+            <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"></path>
+            <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path>
+          </svg>
+          <span class="vendor-name">API 配置存储</span>
+        </div>
+        <span class="ms-api-storage-card__badge">${isDirectory ? "本地目录" : "浏览器存储"}</span>
+      </div>
+      <div class="ms-api-storage-card__body">
+        <div class="ms-api-storage-card__row">
+          <span class="ms-api-storage-card__label">保存位置</span>
+          <div class="settings-segmented" role="group" aria-label="API 配置保存位置">
+            <button type="button" class="settings-segmented__btn${isDirectory ? "" : " is-active"}" data-ms-storage-action="mode-browser" aria-pressed="${isDirectory ? "false" : "true"}">浏览器存储</button>
+            <button type="button" class="settings-segmented__btn${isDirectory ? " is-active" : ""}" data-ms-storage-action="mode-directory" aria-pressed="${isDirectory ? "true" : "false"}">本地目录</button>
+          </div>
+        </div>
+        <p class="ms-api-storage-card__description">
+          ${
+            isDirectory
+              ? "API 密钥、接口地址和模型勾选会同步写入所选目录中的 JSON 文件。"
+              : "默认保存在当前浏览器的本地存储中，修改后会立即续存；更换浏览器或清理站点数据后不会自动保留。"
+          }
+        </p>
+        ${
+          isDirectory
+            ? `
+              <div class="ms-api-storage-card__directory">
+                <div class="ms-api-storage-card__directory-main">
+                  <span class="ms-api-storage-card__label">当前目录</span>
+                  <strong class="ms-api-storage-card__directory-name">${escapeHtml(directoryName)}</strong>
+                  <span class="ms-api-storage-card__directory-file">文件：${API_CONFIG_FILE_NAME}</span>
+                </div>
+                <span class="ms-api-storage-card__badge">JSON</span>
+              </div>
+              <div class="ms-api-storage-card__actions">
+                <button type="button" class="path-picker__btn" data-ms-storage-action="choose-directory">${hasDirectory ? "更换目录" : "选择目录"}</button>
+                <button type="button" class="path-picker__btn" data-ms-storage-action="save" ${hasDirectory ? "" : "disabled"}>立即保存</button>
+                <button type="button" class="path-picker__btn" data-ms-storage-action="restore" ${hasDirectory ? "" : "disabled"}>从本地恢复</button>
+              </div>
+              <p class="ms-api-storage-card__hint">浏览器只显示目录名称，不会向网页暴露完整绝对路径；请确保该目录仅由你本人访问。</p>
+              <p class="ms-api-storage-card__warning">本地文件是明文 JSON，会包含 API 密钥，请不要放到公开目录或同步到公共网盘。</p>
+            `
+            : `
+              <p class="ms-api-storage-card__hint">切换为本地目录后，当前配置会在你选择的目录中保存一份可用于恢复的 JSON 副本；浏览器中的副本仍会保留。</p>
+            `
+        }
+        <div class="ms-api-storage-card__status" role="status" aria-live="polite"></div>
+      </div>
+    `;
+    if (card.innerHTML !== nextHtml) card.innerHTML = nextHtml;
+    updateApiStorageStatusElement();
+  }
+
+  function ensureApiStorageCard() {
+    installStyles();
+    if (!apiStorageState) apiStorageState = readApiStorageState();
+    const assetCard = findAssetStorageCard();
+    const existing = document.getElementById(STORAGE_CARD_ID);
+    if (!assetCard) {
+      existing?.remove();
+      return;
+    }
+    let card = existing;
+    if (!card) {
+      card = document.createElement("div");
+      card.id = STORAGE_CARD_ID;
+      card.className = "vendor-card ms-api-storage-card";
+    }
+    if (card.previousElementSibling !== assetCard) {
+      assetCard.insertAdjacentElement("afterend", card);
+    }
+    renderApiStorageCard();
+  }
+
+  function ensureProfileStateForStorage() {
+    if (profileState) return profileState;
+    const stored = readStoredProfiles();
+    if (!stored?.profiles?.length) return null;
+    profileState = loadProfileState(findNativeVendorCard());
+    saveProfileState();
+    apiStorageRuntime.profileLoaded = true;
+    return profileState;
+  }
+
+  function apiConfigFileContent() {
+    const state = ensureProfileStateForStorage();
+    if (!state) {
+      throw new Error("尚未加载 API 配置，请先打开「API 来源设置」并填写一个配置。");
+    }
+    return JSON.stringify(
+      {
+        version: 1,
+        kind: "manshiguang-api-config",
+        savedAt: new Date().toISOString(),
+        state,
+      },
+      null,
+      2,
+    );
+  }
+
+  async function writeApiConfigToDirectory(manual = false) {
+    if (
+      !apiStorageState ||
+      apiStorageState.mode !== "directory" ||
+      !apiStorageState.directoryToken
+    ) {
+      if (manual) {
+        setApiStorageStatus("请先选择 API 配置的本地目录。", true);
+      }
+      return false;
+    }
+    if (!window.electronAPI?.saveApiConfigFile) {
+      setApiStorageStatus("当前画布桥接不支持写入 API 配置文件，请刷新页面后重试。", true);
+      return false;
+    }
+    if (apiStorageRuntime.writing) {
+      apiStorageRuntime.pending = true;
+      return false;
+    }
+
+    apiStorageRuntime.writing = true;
+    if (manual) setApiStorageStatus("正在保存 API 配置到本地目录…", false, false);
+    try {
+      const content = apiConfigFileContent();
+      const result = await window.electronAPI.saveApiConfigFile({
+        targetDir: apiStorageState.directoryToken,
+        fileName: API_CONFIG_FILE_NAME,
+        content,
+      });
+      if (result?.directoryName && result.directoryName !== apiStorageState.directoryName) {
+        apiStorageState.directoryName = result.directoryName;
+        saveApiStorageState();
+        renderApiStorageCard();
+      }
+      setApiStorageStatus(
+        `已保存到「${result?.directoryName || apiStorageState.directoryName || "本地目录"}」/${result?.fileName || API_CONFIG_FILE_NAME}`,
+      );
+      return true;
+    } catch (error) {
+      setApiStorageStatus(
+        `保存失败：${error?.message || String(error)}`,
+        true,
+      );
+      return false;
+    } finally {
+      apiStorageRuntime.writing = false;
+      if (apiStorageRuntime.pending) {
+        apiStorageRuntime.pending = false;
+        scheduleApiStorageWrite(260);
+      }
+    }
+  }
+
+  function scheduleApiStorageWrite(delay = 500) {
+    if (
+      !apiStorageRuntime.profileLoaded ||
+      !apiStorageState ||
+      apiStorageState.mode !== "directory" ||
+      !apiStorageState.directoryToken
+    ) {
+      return;
+    }
+    window.clearTimeout(apiStorageRuntime.timer);
+    apiStorageRuntime.timer = window.setTimeout(() => {
+      apiStorageRuntime.timer = null;
+      void writeApiConfigToDirectory(false);
+    }, delay);
+  }
+
+  async function chooseApiConfigDirectory() {
+    if (!window.electronAPI?.pickApiConfigDirectory) {
+      setApiStorageStatus("当前浏览器桥接不支持选择本地目录，请刷新页面后重试。", true);
+      return;
+    }
+    setApiStorageStatus("请在系统窗口中选择用于保存 API 配置的目录…", false, false);
+    try {
+      const result = await window.electronAPI.pickApiConfigDirectory();
+      if (!result?.token) {
+        setApiStorageStatus("已取消选择目录。");
+        return;
+      }
+      apiStorageState.mode = "directory";
+      apiStorageState.directoryToken = result.token;
+      apiStorageState.directoryName = result.name || "本地目录";
+      saveApiStorageState();
+      renderApiStorageCard();
+      await writeApiConfigToDirectory(true);
+    } catch (error) {
+      setApiStorageStatus(
+        `选择目录失败：${error?.message || String(error)}`,
+        true,
+      );
+    }
+  }
+
+  async function restoreApiConfigFromDirectory() {
+    if (
+      !apiStorageState?.directoryToken ||
+      !window.electronAPI?.readApiConfigFile
+    ) {
+      setApiStorageStatus("请先选择 API 配置的本地目录。", true);
+      return;
+    }
+    setApiStorageStatus("正在读取本地 API 配置…", false, false);
+    try {
+      const result = await window.electronAPI.readApiConfigFile({
+        targetDir: apiStorageState.directoryToken,
+        fileName: API_CONFIG_FILE_NAME,
+      });
+      if (!result?.content?.trim()) {
+        throw new Error("配置文件为空");
+      }
+      if (result.content.length > 5 * 1024 * 1024) {
+        throw new Error("配置文件超过 5 MB，已拒绝读取");
+      }
+      const parsed = JSON.parse(result.content);
+      const restored = normalizeProfileState(
+        parsed?.state || parsed,
+        findNativeVendorCard(),
+      );
+      profileState = restored;
+      apiStorageRuntime.profileLoaded = true;
+      saveProfileState({ skipStorage: true });
+      syncActiveToCanvas();
+      renderManager(true);
+      setApiStorageStatus(
+        `已从「${result.directoryName || apiStorageState.directoryName || "本地目录"}」恢复 ${restored.profiles.length} 个 API 配置。`,
+      );
+    } catch (error) {
+      setApiStorageStatus(
+        `恢复失败：${error?.message || String(error)}`,
+        true,
+      );
+    }
+  }
+
+  async function handleStorageAction(action) {
+    if (!apiStorageState) apiStorageState = readApiStorageState();
+    if (action === "mode-browser") {
+      apiStorageState.mode = "browser";
+      saveApiStorageState();
+      window.clearTimeout(apiStorageRuntime.timer);
+      apiStorageRuntime.timer = null;
+      renderApiStorageCard();
+      setApiStorageStatus("已切换为浏览器存储。");
+      return;
+    }
+    if (action === "mode-directory") {
+      apiStorageState.mode = "directory";
+      saveApiStorageState();
+      renderApiStorageCard();
+      if (!apiStorageState.directoryToken) {
+        setApiStorageStatus("请选择本地目录，确认后会自动保存当前 API 配置。", false, false);
+      } else {
+        await writeApiConfigToDirectory(true);
+      }
+      return;
+    }
+    if (action === "choose-directory") {
+      await chooseApiConfigDirectory();
+      return;
+    }
+    if (action === "save") {
+      await writeApiConfigToDirectory(true);
+      return;
+    }
+    if (action === "restore") {
+      await restoreApiConfigFromDirectory();
+    }
   }
 
   function renderModelSection(profile) {
@@ -1036,6 +1532,7 @@
       profileState = loadProfileState(nativeCard);
       saveProfileState();
       syncActiveToCanvas();
+      apiStorageRuntime.profileLoaded = true;
     }
 
     nativeCard.classList.add("ms-api-native-card");
@@ -1101,7 +1598,10 @@
   function queueRender() {
     if (renderQueued) return;
     renderQueued = true;
-    window.requestAnimationFrame(ensureManagerMounted);
+    window.requestAnimationFrame(() => {
+      ensureApiStorageCard();
+      ensureManagerMounted();
+    });
   }
 
   function profileCardFor(target) {
@@ -1129,6 +1629,11 @@
   }
 
   function handleClick(event) {
+    const storageButton = event.target.closest("[data-ms-storage-action]");
+    if (storageButton) {
+      void handleStorageAction(storageButton.dataset.msStorageAction);
+      return;
+    }
     const actionButton = event.target.closest("[data-ms-action]");
     if (!actionButton) return;
     const action = actionButton.dataset.msAction;
