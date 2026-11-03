@@ -1,0 +1,79 @@
+# msg 项目记忆
+
+## 项目定位
+
+- 本项目是一个**动漫网站项目**。
+- 项目的设计、开发和内容规划应围绕动漫网站这一方向展开。
+- 品牌名已确认为 **漫时光 / MANSHIGUANG**，面向中文二次元用户。
+- 视觉主题为「夜航星海」，强调沉浸、精致和轻赛博，不使用传统模板站、门户式密集布局和廉价霓虹感。
+
+## 当前已确认信息
+
+- 项目根目录：`D:\data\workData\codex\Projects\msg`
+- 项目类型：零依赖静态动漫网站原型
+- 主站入口：`index.html`
+- 画布入口：`canvas/index.html`
+- 配色方案：**夜航星海**
+- 视觉关键词：沉浸、精致、轻赛博
+
+## 视觉规范
+
+- 深海背景 `#070B18`，次级背景 `#0D1428`，卡片表面 `#141D36`
+- 星云紫 `#7C5CFF`，冰蓝青光 `#22D3EE`，月光粉 `#FF6FB5`，星芒金 `#FFD166`
+- 主文字 `#F7F8FF`，次要文字 `#99A4C5`
+- 标题偏圆润、正文清晰克制，英文与编号使用几何字体增强杂志感
+- 动效服务于氛围与层级，不使用高饱和、大面积闪烁和模板化营销组件
+
+## 技术实现
+
+- 零依赖静态前端：`index.html`、`assets/styles.css`、`assets/app.js`
+- 可直接双击 `index.html` 运行主站，不依赖构建工具
+- 当前番剧数据集中在 `assets/app.js`，全部为原创虚构内容
+- 追番状态使用 `localStorage`，键名为 `manshiguang:favorites`
+- 主视觉为原创 `assets/hero-art.svg`，卡片封面由 CSS 渐变生成
+
+## 画布集成
+
+- 2026-11-03 已从「简单画布」Electron 安装包中静态解包并复制已构建前端资源。
+- 主站导航「社区」右侧新增「画布」，移动菜单同步新增。
+- 点击画布使用 `window.open` 打开独立窗口，命名窗口为 `manshiguang-canvas`；优先居中 popup，失败回退 `_blank`。
+- 画布宿主页：`canvas/index.html`，包含 React 根节点、启动遮罩和加载失败提示。
+- 浏览器桥接层：`canvas/web-bridge.js`，以 IIFE 方式暴露 `window.electronAPI`，覆盖原 Electron preload 的 26 个方法。
+- 画布 bundle：`canvas/assets/index-BN-uSJKj.js`、`canvas/assets/index-BfAuAU0s.css`，与解包后的 `dist` 文件 SHA-256 一致。
+- 设置页品牌补丁：`canvas/branding-patch.js`，通过 `MutationObserver` 将作者信息替换为「抖音/B站/小红书：阿亮啊」「微信：liangliang_0314」「资料主站：https://github.com/xinxin620」；同时把收款码切换为带日期的唯一文件名并追加 `?v=` 参数以避开旧缓存，不修改压缩 bundle。
+- 收款码：`canvas/donation-qr-liangliang-20261103.png` 是运行时加载的新卡片（934×1037，中心真人头像、底部「恋心心 (*亮)」）；`canvas/donation-qr.png` 是同内容兼容副本，二者不再与原始 `dist` 一致。
+- 2026-11-03 新增 `canvas/api-profiles-patch.js`：在「API 来源设置」中隐藏原始云雾卡片并管理任意多个云雾/第三方 API 配置。每项包含名称、申请地址、API Key、Base URL，每卡保留「申请」并在右侧提供「启用/已启用」；`activeId` 保证同一时间只启用一个。状态存于 `localStorage["manshiguang:canvas-api-profiles"]`，启用项同步到 `canvas-api-settings` 与 `state.vendorConfigs.yunwu`，刷新后保持。
+- 画布设置和目录授权使用浏览器存储；目录 handle 保存到 IndexedDB 数据库 `manshiguang-canvas-bridge` 的 `directoryHandles` object store。
+- 选择素材目录后使用 `webdir:<uuid>:<encoded-name>` 虚拟路径；没有目录授权时，保存回退为浏览器下载。
+- 网络能力通过浏览器 `fetch` 实现，保留 URL、方法、状态和 CORS 提示；OSS 使用 Web Crypto 做 V1 签名。
+
+## 已实现范围
+
+- 首页 Hero、继续观看、番剧库、排行榜、新番表、社区与页脚
+- 搜索、分类筛选、追番收藏、详情弹层和选集切换
+- 桌面、平板和手机响应式布局
+- 移动菜单、键盘快捷键和基础无障碍状态
+- 画布 React 界面加载、工作流管理台显示和独立窗口入口
+
+## 当前边界
+
+- 视频播放器尚未接入，相关按钮为演示反馈
+- 登录、社区后端、内容 API 和数据库尚未接入
+- 当前内容与用户均为虚构演示数据
+- 浏览器画布不等价于原 Electron 桌面版：
+  - 第三方 AI/OSS/上传接口可能受 CORS 限制
+  - 不能读取任意本地绝对路径
+  - 不能打开系统文件管理器
+  - 没有 FFmpeg，`clipVideo()` 会明确失败
+  - 自定义代理配置无法接管浏览器网络栈
+  - 窗口最大化使用 Fullscreen API，关闭可能受弹窗策略限制
+- 未提供画布后端，因此 API Key 只能保存在当前浏览器本地，不能安全共享或同步
+
+## 协作约定
+
+- 修改前先检查当前项目结构和已有代码；项目基准文档为 `AGENTS.md`。
+- 新增设定或功能时，优先沿用项目中已经确认的方案。
+- 保持直接打开 `index.html` 可预览，非必要不引入构建依赖。
+- 新增视觉内容应延续「夜航星海」，并优先使用原创或已授权素材。
+- 不要手改 `canvas/assets/index-*.js` / `index-*.css`；画布的浏览器适配写在 `canvas/web-bridge.js`、`canvas/index.html`、`canvas/branding-patch.js` 和 `canvas/api-profiles-patch.js`。
+- 修改画布能力、外部接口、存储格式或技术栈时，同步更新 `AGENTS.md`、`README.md` 与本文件中的长期有效信息。

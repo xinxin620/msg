@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="漫时光，一间收藏动漫、故事与深夜情绪的光影放映室。"
+    />
+    <meta name="theme-color" content="#070b18" />
+    <title>漫时光 · 在星光坠落之前</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700&family=Zen+Maru+Gothic:wght@500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script src="assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="site-noise" aria-hidden="true"></div>
+    <div class="starfield" id="starfield" aria-hidden="true"></div>
+    <div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
+
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="6.5"></circle>
+        <path d="m16 16 4.2 4.2"></path>
+      </symbol>
+      <symbol id="icon-heart" viewBox="0 0 24 24">
+        <path d="M20.7 5.8a5.2 5.2 0 0 0-7.4 0L12 7.1l-1.3-1.3a5.2 5.2 0 0 0-7.4 7.4L12 21l8.7-7.8a5.2 5.2 0 0 0 0-7.4Z"></path>
+      </symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24">
+        <path d="m8 5 11 7-11 7V5Z"></path>
+      </symbol>
+      <symbol id="icon-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6"></path>
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14"></path>
+      </symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M18 6 6 18"></path>
+      </symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </symbol>
+      <symbol id="icon-star" viewBox="0 0 24 24">
+        <path d="m12 3 2.8 5.6 6.2.9-4.5 4.4 1.1 6.1-5.6-2.9-5.6 2.9 1.1-6.1L3 9.5l6.2-.9L12 3Z"></path>
+      </symbol>
+      <symbol id="icon-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5"></circle>
+        <path d="M12 7.5V12l3 2"></path>
+      </symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24">
+        <path d="m8 10 4 4 4-4"></path>
+      </symbol>
+    </svg>
+
+    <header class="site-header" id="siteHeader">
+      <a class="brand" href="#top" aria-label="漫时光首页">
+        <span class="brand-mark" aria-hidden="true">
+          <span class="brand-orbit"></span>
+          <span class="brand-core"></span>
+        </span>
+        <span class="brand-copy">
+          <strong>漫时光</strong>
+          <small>MANSHIGUANG</small>
+        </span>
+      </a>
+
+      <nav class="desktop-nav" aria-label="主导航">
+        <a class="is-active" href="#top">首页</a>
+        <a href="#library">番剧库</a>
+        <a href="#schedule">新番表</a>
+        <a href="#ranking">排行榜</a>
+        <a href="#community">社区</a>
+        <a href="canvas/index.html" target="_blank" rel="noopener" data-open-canvas>画布</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="icon-button search-trigger" type="button" aria-label="打开搜索">
+          <svg class="icon"><use href="#icon-search"></use></svg>
+          <span class="shortcut">/</span>
+        </button>
+        <button class="icon-button favorites-trigger" type="button" aria-label="查看我的追番">
+          <svg class="icon"><use href="#icon-heart"></use></svg>
+          <span class="favorite-count" id="favoriteCount">0</span>
+        </button>
+        <button class="profile-button" type="button" aria-label="个人中心">
+          <span class="profile-avatar">时</span>
+          <span class="profile-name">时光旅人</span>
+          <svg class="icon chevron"><use href="#icon-chevron"></use></svg>
+        </button>
+        <button class="icon-button mobile-menu-trigger" type="button" aria-label="打开菜单" aria-expanded="false">
+          <svg class="icon"><use href="#icon-menu"></use></svg>
+        </button>
+      </div>
+
+      <div class="mobile-menu" id="mobileMenu">
+        <a href="#top">首页</a>
+        <a href="#library">番剧库</a>
+        <a href="#schedule">新番表</a>
+        <a href="#ranking">排行榜</a>
+        <a href="#community">社区</a>
+        <a href="canvas/index.html" target="_blank" rel="noopener" data-open-canvas>画布</a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="heroTitle">
+        <div class="hero-aurora hero-aurora-one" aria-hidden="true"></div>
+        <div class="hero-aurora hero-aurora-two" aria-hidden="true"></div>
+        <div class="hero-grid" aria-hidden="true"></div>
+
+        <div class="hero-inner page-shell">
+          <div class="hero-copy">
+            <div class="hero-kicker reveal">
+              <span class="live-dot"></span>
+              <span>2026 AUTUMN · 星海季</span>
+              <span class="kicker-line"></span>
+              <span>编辑精选</span>
+            </div>
+
+            <h1 class="hero-title reveal" id="heroTitle">
+              <span class="title-line">在星光</span>
+              <span class="title-line title-accent">坠落之前</span>
+            </h1>
+            <p class="hero-english reveal">BEFORE THE STARS FALL</p>
+
+            <p class="hero-description reveal">
+              一间只在深夜营业的邮局，替无法再见的人寄出最后一封信。<br />
+              少年在第七个满月，等到了来自十年后的回音。
+            </p>
+
+            <div class="hero-tags reveal" aria-label="番剧标签">
+              <span>原创动画</span>
+              <span>奇幻</span>
+              <span>治愈</span>
+              <span>12 话</span>
+            </div>
+
+            <div class="hero-actions reveal">
+              <button class="button button-primary watch-featured" type="button">
+                <span class="button-icon">
+                  <svg class="icon"><use href="#icon-play"></use></svg>
+                </span>
+                立即观看
+                <span class="button-shine" aria-hidden="true"></span>
+              </button>
+              <button class="button button-ghost favorite-featured" type="button" data-anime-id="starlight">
+                <svg class="icon"><use href="#icon-plus"></use></svg>
+                加入追番
+              </button>
+            </div>
+
+            <div class="hero-meta reveal">
+              <div class="meta-item">
+                <strong>9.8</strong>
+                <span>观众评分</span>
+              </div>
+              <span class="meta-divider"></span>
+              <div class="meta-item">
+                <strong>08 / 12</strong>
+                <span>最新集数</span>
+              </div>
+              <span class="meta-divider"></span>
+              <div class="meta-item">
+                <strong>24:00</strong>
+                <span>每周五更新</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-stage reveal" aria-label="番剧视觉海报">
+            <div class="poster-orbital orbital-one" aria-hidden="true"></div>
+            <div class="poster-orbital orbital-two" aria-hidden="true"></div>
+            <div class="poster-frame" id="heroPoster">
+              <div class="poster-image">
+                <img src="assets/hero-art.svg" alt="星空下回望的少女原创插画" />
+                <div class="poster-shade"></div>
+                <div class="poster-scan" aria-hidden="true"></div>
+              </div>
+              <div class="poster-topline">
+                <span>MANSHIGUANG ORIGINAL</span>
+                <span>EP. 08</span>
+              </div>
+              <div class="poster-side-copy" aria-hidden="true">星屑の郵便局</div>
+              <div class="poster-caption">
+                <span class="caption-index">08</span>
+                <span class="caption-copy">
+                  <small>NEXT EPISODE</small>
+                  <strong>星之邮局</strong>
+                </span>
+                <span class="caption-time">24:00</span>
+              </div>
+            </div>
+
+            <div class="floating-card floating-rating">
+              <svg class="icon star-icon"><use href="#icon-star"></use></svg>
+              <span>
+                <small>本周口碑</small>
+                <strong>9.8 / 10</strong>
+              </span>
+            </div>
+
+            <div class="floating-card floating-progress">
+              <span class="pulse-ring" aria-hidden="true"></span>
+              <span>
+                <small>正在热映</small>
+                <strong>第 08 话已更新</strong>
+              </span>
+              <svg class="icon"><use href="#icon-arrow"></use></svg>
+            </div>
+
+            <div class="poster-code" aria-hidden="true">
+              <span>35°41'N</span>
+              <span>139°41'E</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-footer page-shell">
+          <a class="scroll-cue" href="#continue">
+            <span class="scroll-line"></span>
+            <span>向下探索</span>
+          </a>
+          <div class="hero-socials" aria-label="社交链接">
+            <span>FOLLOW THE LIGHT</span>
+            <a href="#community" aria-label="社区">BILIBILI</a>
+            <a href="#community" aria-label="讨论">DISCORD</a>
+            <a href="#community" aria-label="微博">WEIBO</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="continue-section page-shell" id="continue" aria-labelledby="continueTitle">
+        <div class="section-heading compact">
+          <div>
+            <p class="section-kicker">PICK UP WHERE YOU LEFT OFF</p>
+            <h2 id="continueTitle">继续你的故事</h2>
+          </div>
+          <button class="text-button" type="button">
+            查看观看记录
+            <svg class="icon"><use href="#icon-arrow"></use></svg>
+          </button>
+        </div>
+
+        <div class="continue-grid">
+          <article class="continue-card" data-anime-id="after-rain" tabindex="0">
+            <div class="continue-visual theme-rain">
+              <span class="cover-ghost">雨</span>
+              <span class="cover-orbit"></span>
+              <div class="continue-play">
+                <svg class="icon"><use href="#icon-play"></use></svg>
+              </div>
+              <div class="continue-progress">
+                <span style="width: 64%"></span>
+              </div>
+            </div>
+            <div class="continue-info">
+              <div>
+                <small>看到第 06 话</small>
+                <h3>雨停之后</h3>
+                <p>剩余 18 分钟</p>
+              </div>
+              <button class="round-action" type="button" aria-label="继续播放">
+                <svg class="icon"><use href="#icon-arrow"></use></svg>
+              </button>
+            </div>
+          </article>
+
+          <article class="continue-card" data-anime-id="midnight-line" tabindex="0">
+            <div class="continue-visual theme-train">
+              <span class="cover-ghost">列</span>
+              <span class="cover-orbit"></span>
+              <div class="continue-play">
+                <svg class="icon"><use href="#icon-play"></use></svg>
+              </div>
+              <div class="continue-progress">
+                <span style="width: 31%"></span>
+              </div>
+            </div>
+            <div class="continue-info">
+              <div>
+                <small>看到第 02 话</small>
+                <h3>零点列车</h3>
+                <p>剩余 13 分钟</p>
+              </div>
+              <button class="round-action" type="button" aria-label="继续播放">
+                <svg class="icon"><use href="#icon-arrow"></use></svg>
+              </button>
+            </div>
+          </article>
+
+          <article class="continue-note">
+            <span class="note-icon">
+              <svg class="icon"><use href="#icon-clock"></use></svg>
+            </span>
+            <div>
+              <small>今晚 24:00</small>
+              <h3>《星海回响》第 09 话</h3>
+              <p>开播提醒已开启</p>
+            </div>
+            <span class="note-glow" aria-hidden="true"></span>
+          </article>
+        </div>
+      </section>
+
+      <section class="library-section section-space" id="library" aria-labelledby="libraryTitle">
+        <div class="page-shell">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">CURATED FOR THE NIGHT</p>
+              <h2 id="libraryTitle">今晚，看点不一样的</h2>
+              <p class="section-description">
+                从星海尽头到旧城雨巷，挑一部故事，让今晚慢一点。
+              </p>
+            </div>
+            <a class="button button-outline" href="#search">
+              浏览全部
+              <svg class="icon"><use href="#icon-arrow"></use></svg>
+            </a>
+          </div>
+
+          <div class="filter-bar" role="group" aria-label="番剧分类筛选">
+            <button class="filter-chip is-active" type="button" data-filter="全部">全部</button>
+            <button class="filter-chip" type="button" data-filter="奇幻">奇幻</button>
+            <button class="filter-chip" type="button" data-filter="恋爱">恋爱</button>
+            <button class="filter-chip" type="button" data-filter="科幻">科幻</button>
+            <button class="filter-chip" type="button" data-filter="治愈">治愈</button>
+            <button class="filter-chip" type="button" data-filter="热血">热血</button>
+            <button class="filter-chip" type="button" data-filter="悬疑">悬疑</button>
+          </div>
+
+          <div class="anime-grid" id="animeGrid" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="ranking-section section-space" id="ranking" aria-labelledby="rankingTitle">
+        <div class="ranking-aurora" aria-hidden="true"></div>
+        <div class="page-shell ranking-layout">
+          <div class="ranking-main">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">TRENDING TONIGHT</p>
+                <h2 id="rankingTitle">正在被追的光</h2>
+              </div>
+              <div class="ranking-tabs" role="group" aria-label="排行榜周期">
+                <button class="is-active" type="button">本周</button>
+                <button type="button">本月</button>
+                <button type="button">新作</button>
+              </div>
+            </div>
+            <div class="ranking-list" id="rankingList"></div>
+          </div>
+
+          <aside class="editor-pick">
+            <div class="editor-visual theme-aurora">
+              <span class="editor-ghost">光</span>
+              <span class="editor-orbit editor-orbit-one"></span>
+              <span class="editor-orbit editor-orbit-two"></span>
+              <div class="editor-label">EDITOR'S NOTE / 07</div>
+              <div class="editor-title">
+                <small>本周私藏</small>
+                <strong>把宇宙写成<br />一封慢信</strong>
+              </div>
+            </div>
+            <div class="editor-content">
+              <div class="editor-meta">
+                <span>星海回响</span>
+                <span>9.8</span>
+              </div>
+              <h3>“所有告别，都是星光迟到的抵达。”</h3>
+              <p>
+                它没有急着解释宇宙，只是让两个孤单的人在同一片夜空下，慢慢学会告别。
+              </p>
+              <button class="text-button open-anime" type="button" data-anime-id="starlight">
+                阅读制作手记
+                <svg class="icon"><use href="#icon-arrow"></use></svg>
+              </button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="schedule-section section-space" id="schedule" aria-labelledby="scheduleTitle">
+        <div class="page-shell">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">WEEKLY SIGNAL</p>
+              <h2 id="scheduleTitle">本季新番时刻表</h2>
+              <p class="section-description">把想看的故事，放进这一周的时间里。</p>
+            </div>
+            <span class="schedule-time">
+              <span class="live-dot"></span>
+              北京时间
+            </span>
+          </div>
+
+          <div class="week-tabs" id="weekTabs" role="tablist" aria-label="按星期查看新番">
+            <button type="button" role="tab" data-day="周一">周一 <small>02</small></button>
+            <button type="button" role="tab" data-day="周二">周二 <small>03</small></button>
+            <button type="button" role="tab" data-day="周三">周三 <small>04</small></button>
+            <button type="button" role="tab" data-day="周四">周四 <small>05</small></button>
+            <button type="button" role="tab" data-day="周五">周五 <small>06</small></button>
+            <button type="button" role="tab" data-day="周六">周六 <small>07</small></button>
+            <button type="button" role="tab" data-day="周日">周日 <small>08</small></button>
+          </div>
+
+          <div class="schedule-board" id="scheduleBoard"></div>
+        </div>
+      </section>
+
+      <section class="community-section section-space" id="community" aria-labelledby="communityTitle">
+        <div class="page-shell">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">AFTER THE CREDITS</p>
+              <h2 id="communityTitle">散场以后，故事还在继续</h2>
+              <p class="section-description">和 128,406 位时光旅人，一起交换今晚的心情。</p>
+            </div>
+            <a class="button button-outline" href="#community">
+              进入社区
+              <svg class="icon"><use href="#icon-arrow"></use></svg>
+            </a>
+          </div>
+
+          <div class="community-grid">
+            <article class="topic-card topic-large">
+              <div class="topic-art theme-starlight">
+                <span class="topic-ghost">星</span>
+                <span class="topic-orbit"></span>
+                <div class="topic-tag">正在热议 · 2.4k</div>
+              </div>
+              <div class="topic-body">
+                <div class="topic-meta">
+                  <span class="topic-avatar avatar-one">A</span>
+                  <span>阿遥不熬夜</span>
+                  <span>12 分钟前</span>
+                </div>
+                <h3>第 08 话最后那封信，到底是谁写的？</h3>
+                <p>
+                  我回看了前三集的时间线，邮戳上的年份好像不是 2016，而是 2036……
+                </p>
+                <div class="topic-footer">
+                  <span># 星海回响</span>
+                  <span>128 条回复</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="topic-card">
+              <div class="topic-body">
+                <div class="topic-meta">
+                  <span class="topic-avatar avatar-two">M</span>
+                  <span>月面拾荒者</span>
+                  <span>38 分钟前</span>
+                </div>
+                <h3>哪部番的片尾曲，你从来舍不得跳过？</h3>
+                <p>最近循环《雨停之后》的片尾曲，前奏一响就不想点下一集。</p>
+                <div class="topic-footer">
+                  <span># 音乐分享</span>
+                  <span>86 条回复</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="topic-card topic-quote">
+              <span class="quote-mark">“</span>
+              <p>如果故事终将散场，<br />至少在漫时光里，我们曾一起看过同一片星空。</p>
+              <span class="quote-author">— 今日签到 7 / 30</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="join-section">
+        <div class="page-shell">
+          <div class="join-panel">
+            <div class="join-glow" aria-hidden="true"></div>
+            <div class="join-copy">
+              <p class="section-kicker">YOUR STORY STARTS HERE</p>
+              <h2>今晚，留下一点<br /><span>属于你的光。</span></h2>
+              <p>收藏番剧、记录心情、认识同样热爱故事的人。</p>
+            </div>
+            <div class="join-actions">
+              <button class="button button-primary" type="button">
+                创建时光账户
+                <svg class="icon"><use href="#icon-arrow"></use></svg>
+              </button>
+              <button class="button button-ghost" type="button">先逛逛</button>
+            </div>
+            <div class="join-rings" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="page-shell">
+        <div class="footer-main">
+          <a class="brand footer-brand" href="#top" aria-label="漫时光首页">
+            <span class="brand-mark" aria-hidden="true">
+              <span class="brand-orbit"></span>
+              <span class="brand-core"></span>
+            </span>
+            <span class="brand-copy">
+              <strong>漫时光</strong>
+              <small>MANSHIGUANG</small>
+            </span>
+          </a>
+          <p>把每一个喜欢的故事，留在时间里。</p>
+          <div class="footer-links">
+            <a href="#library">番剧库</a>
+            <a href="#schedule">新番表</a>
+            <a href="#ranking">排行榜</a>
+            <a href="#community">社区</a>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© 2026 漫时光 MANSHIGUANG</span>
+          <span>本页面为前端视觉演示，番剧与人物均为原创虚构内容。</span>
+          <span>MADE FOR THE NIGHT</span>
+        </div>
+      </div>
+    </footer>
+
+    <div class="search-panel" id="searchPanel" aria-hidden="true">
+      <div class="search-backdrop" data-close-search></div>
+      <div class="search-dialog" role="dialog" aria-modal="true" aria-labelledby="searchTitle">
+        <div class="search-head">
+          <div>
+            <p class="section-kicker">FIND YOUR STORY</p>
+            <h2 id="searchTitle">想找哪部故事？</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭搜索" data-close-search>
+            <svg class="icon"><use href="#icon-close"></use></svg>
+          </button>
+        </div>
+        <label class="search-field" for="searchInput">
+          <svg class="icon"><use href="#icon-search"></use></svg>
+          <input
+            id="searchInput"
+            type="search"
+            autocomplete="off"
+            placeholder="输入番剧名、类型或关键词…"
+          />
+          <kbd>ESC</kbd>
+        </label>
+        <div class="search-suggestions">
+          <span>热搜</span>
+          <button type="button" data-search-term="星海回响">星海回响</button>
+          <button type="button" data-search-term="治愈">治愈</button>
+          <button type="button" data-search-term="零点列车">零点列车</button>
+          <button type="button" data-search-term="科幻">科幻</button>
+        </div>
+        <div class="search-results" id="searchResults"></div>
+      </div>
+    </div>
+
+    <div class="detail-panel" id="detailPanel" aria-hidden="true">
+      <div class="detail-backdrop" data-close-detail></div>
+      <div class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+        <button class="detail-close icon-button" type="button" aria-label="关闭详情" data-close-detail>
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+        <div id="detailContent"></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <span class="toast-dot"></span>
+      <span id="toastText"></span>
+    </div>
+  </body>
+</html>
