@@ -461,6 +461,56 @@
         border-color: #ff6a1a;
         box-shadow: 0 0 0 3px #ff6a1a14;
       }
+      .ms-api-card__secret {
+        position: relative;
+        display: block;
+      }
+      .ms-api-card__secret .ms-api-card__input {
+        padding-right: 44px;
+      }
+      .ms-api-card__secret-toggle {
+        position: absolute;
+        top: 50%;
+        right: 6px;
+        display: grid;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #8d7868;
+        cursor: pointer;
+        transform: translateY(-50%);
+        transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+      }
+      .ms-api-card__secret-toggle:hover {
+        background: #8f7c6814;
+        color: #ff6a1a;
+      }
+      .ms-api-card__secret-toggle:focus-visible {
+        outline: 0;
+        box-shadow: 0 0 0 3px #ff6a1a2e;
+        color: #ff6a1a;
+      }
+      .ms-api-card__secret-icon {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        pointer-events: none;
+      }
+      .ms-api-card__secret-icon--hide { display: none; }
+      .ms-api-card__secret-toggle[aria-pressed="true"] .ms-api-card__secret-icon--show {
+        display: none;
+      }
+      .ms-api-card__secret-toggle[aria-pressed="true"] .ms-api-card__secret-icon--hide {
+        display: block;
+      }
       .ms-api-card__hint {
         color: #8d7868;
         font-size: 11px;
@@ -915,10 +965,39 @@
             <span class="ms-api-card__label">申请地址（可选）</span>
             <input class="ms-api-card__input" data-ms-field="applyUrl" value="${escapeHtml(profile.applyUrl)}" placeholder="https://example.com/register" />
           </label>
-          <label class="ms-api-card__field">
-            <span class="ms-api-card__label">API 密钥</span>
-            <input class="ms-api-card__input" data-ms-field="apiKey" type="password" autocomplete="off" value="${escapeHtml(profile.apiKey)}" placeholder="sk-..." />
-          </label>
+          <div class="ms-api-card__field">
+            <label class="ms-api-card__label" for="ms-api-key-${escapeHtml(profile.id)}">API 密钥</label>
+            <span class="ms-api-card__secret">
+              <input
+                id="ms-api-key-${escapeHtml(profile.id)}"
+                class="ms-api-card__input"
+                data-ms-field="apiKey"
+                type="password"
+                autocomplete="off"
+                value="${escapeHtml(profile.apiKey)}"
+                placeholder="sk-..."
+              />
+              <button
+                type="button"
+                class="ms-api-card__secret-toggle"
+                data-ms-action="toggle-secret"
+                aria-label="显示 API 密钥"
+                aria-pressed="false"
+                title="显示 API 密钥"
+              >
+                <svg class="ms-api-card__secret-icon ms-api-card__secret-icon--show" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M2.5 12s3.43-6 9.5-6 9.5 6 9.5 6-3.43 6-9.5 6-9.5-6-9.5-6Z"></path>
+                  <circle cx="12" cy="12" r="2.75"></circle>
+                </svg>
+                <svg class="ms-api-card__secret-icon ms-api-card__secret-icon--hide" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M3 3l18 18"></path>
+                  <path d="M10.6 6.2A10.9 10.9 0 0 1 12 6c6.07 0 9.5 6 9.5 6a17.8 17.8 0 0 1-3.1 3.8"></path>
+                  <path d="M6.2 6.2C3.9 7.8 2.5 12 2.5 12s3.43 6 9.5 6c1.3 0 2.5-.28 3.55-.72"></path>
+                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path>
+                </svg>
+              </button>
+            </span>
+          </div>
           <label class="ms-api-card__field">
             <span class="ms-api-card__label">接口地址（Base URL）</span>
             <input class="ms-api-card__input" data-ms-field="baseUrl" value="${escapeHtml(profile.baseUrl)}" placeholder="${escapeHtml(defaultBaseUrl || "https://example.com/v1")}" />
@@ -1079,6 +1158,20 @@
 
     if (!found) return;
     const { profile } = found;
+
+    if (action === "toggle-secret") {
+      const input = actionButton
+        .closest(".ms-api-card__field")
+        ?.querySelector('[data-ms-field="apiKey"]');
+      if (!input) return;
+      const visible = input.type === "password";
+      input.type = visible ? "text" : "password";
+      actionButton.setAttribute("aria-pressed", String(visible));
+      const label = visible ? "隐藏 API 密钥" : "显示 API 密钥";
+      actionButton.setAttribute("aria-label", label);
+      actionButton.title = label;
+      return;
+    }
 
     if (action === "models-refresh") {
       fetchModelCatalog(profile, true, true);
