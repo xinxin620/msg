@@ -816,44 +816,7 @@ function setupCursorGlow() {
   });
 }
 
-function openCanvasWindow(event) {
-  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
-    return;
-  }
-
-  event.preventDefault();
-
-  const width = Math.min(1500, window.screen.availWidth);
-  const height = Math.min(980, window.screen.availHeight);
-  const left = Math.max(0, Math.round((window.screen.availWidth - width) / 2));
-  const top = Math.max(0, Math.round((window.screen.availHeight - height) / 2));
-  const features = [
-    "popup=yes",
-    `width=${width}`,
-    `height=${height}`,
-    `left=${left}`,
-    `top=${top}`,
-    "resizable=yes",
-    "scrollbars=yes",
-  ].join(",");
-
-  const canvasWindow = window.open("canvas/index.html", "manshiguang-canvas", features);
-  if (canvasWindow) {
-    canvasWindow.focus();
-    return;
-  }
-
-  const fallback = window.open("canvas/index.html", "_blank", "noopener,noreferrer");
-  if (!fallback) {
-    showToast("浏览器拦截了画布窗口，请允许本站弹窗后重试");
-  }
-}
-
 function setupEvents() {
-  $$("[data-open-canvas]").forEach((link) => {
-    link.addEventListener("click", openCanvasWindow);
-  });
-
   $(".search-trigger")?.addEventListener("click", openSearch);
   $(".mobile-menu-trigger")?.addEventListener("click", openMobileMenu);
   $(".favorites-trigger")?.addEventListener("click", () => {

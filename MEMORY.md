@@ -36,16 +36,17 @@
 
 - 2026-11-03 已从「简单画布」Electron 安装包中静态解包并复制已构建前端资源。
 - 主站导航「社区」右侧新增「画布」，移动菜单同步新增。
-- 点击画布使用 `window.open` 打开独立窗口，命名窗口为 `manshiguang-canvas`；优先居中 popup，失败回退 `_blank`。
+- 点击画布使用浏览器原生 `target="_blank"` 在新标签页打开；主站当前标签页保持不变，不强制窗口尺寸或复用命名窗口。
 - 画布宿主页：`canvas/index.html`，包含 React 根节点、启动遮罩和加载失败提示。
 - 浏览器桥接层：`canvas/web-bridge.js`，以 IIFE 方式暴露 `window.electronAPI`，覆盖原 Electron preload 的 26 个方法。
 - 画布 bundle：`canvas/assets/index-BN-uSJKj.js`、`canvas/assets/index-BfAuAU0s.css`，与解包后的 `dist` 文件 SHA-256 一致。
 - 设置页品牌补丁：`canvas/branding-patch.js`，通过 `MutationObserver` 将作者信息替换为「抖音/B站/小红书：阿亮啊」「微信：liangliang_0314」「资料主站：https://github.com/xinxin620」；同时把收款码切换为带日期的唯一文件名并追加 `?v=` 参数以避开旧缓存，不修改压缩 bundle。
 - 收款码：`canvas/donation-qr-liangliang-20261103.png` 是运行时加载的新卡片（934×1037，中心真人头像、底部「恋心心 (*亮)」）；`canvas/donation-qr.png` 是同内容兼容副本，二者不再与原始 `dist` 一致。
-- 2026-11-03 新增 `canvas/api-profiles-patch.js`：在「API 来源设置」中隐藏原始云雾卡片并管理任意多个云雾/第三方 API 配置。每项包含名称、申请地址、API Key、Base URL，每卡保留「申请」并在右侧提供「启用/已启用」；`activeId` 保证同一时间只启用一个。状态存于 `localStorage["manshiguang:canvas-api-profiles"]`，启用项同步到 `canvas-api-settings` 与 `state.vendorConfigs.yunwu`，刷新后保持。
+- 2026-11-03 新增 `canvas/api-profiles-patch.js`：在「API 来源设置」中隐藏原始云雾卡片并管理任意多个云雾/第三方 API 配置。每项包含名称、申请地址、API Key、Base URL，每卡保留「申请」并在右侧提供「启用/已启用」；`activeId` 保证同一时间只启用一个。第三方配置的 `modelCatalog` / `selectedModels` / `modelsFetchedAt` / `modelsError` / `modelsBaseUrl` 也存入 `localStorage["manshiguang:canvas-api-profiles"]`；填写或变更 Base URL / Key 后自动拉取，支持拉取全部、全选图片、清空和逐项勾选。启用项同步到 `canvas-api-settings` 与 `state.vendorConfigs.yunwu`，刷新后保持。
 - 画布设置和目录授权使用浏览器存储；目录 handle 保存到 IndexedDB 数据库 `manshiguang-canvas-bridge` 的 `directoryHandles` object store。
 - 选择素材目录后使用 `webdir:<uuid>:<encoded-name>` 虚拟路径；没有目录授权时，保存回退为浏览器下载。
 - 网络能力通过浏览器 `fetch` 实现，保留 URL、方法、状态和 CORS 提示；OSS 使用 Web Crypto 做 V1 签名。
+- 2026-11-03 新增 canvas/model-patch.js：启用非内置云雾 API 时只读取当前 Profile 的 `selectedModels` 注入图片节点下拉，不再自行拉取、缓存 10 分钟或失败回退内置清单；单次选择写入 localStorage["manshiguang:canvas-model-choice"]，取消勾选或切回云雾时清理失效选择并恢复原生文案。Grsai 请求从 /v1/images/generations / /v1/images/edits 改写为 /v1/draw/nano-banana 或 /v1/draw/completions，并轮询 /v1/draw/result；未勾选模型时返回明确中文错误。canvas/api-profiles-patch.js 会先归一化 Base URL，去掉重复的 /v1、/v1/api/*、/v1/draw/*、/v1/images/* 后缀。
 
 ## 已实现范围
 
@@ -53,7 +54,7 @@
 - 搜索、分类筛选、追番收藏、详情弹层和选集切换
 - 桌面、平板和手机响应式布局
 - 移动菜单、键盘快捷键和基础无障碍状态
-- 画布 React 界面加载、工作流管理台显示和独立窗口入口
+- 画布 React 界面加载、工作流管理台显示和浏览器新标签页入口
 
 ## 当前边界
 
@@ -66,8 +67,9 @@
   - 不能打开系统文件管理器
   - 没有 FFmpeg，`clipVideo()` 会明确失败
   - 自定义代理配置无法接管浏览器网络栈
-  - 窗口最大化使用 Fullscreen API，关闭可能受弹窗策略限制
+  - 画布内窗口最大化使用 Fullscreen API，新标签页关闭由浏览器控制
 - 未提供画布后端，因此 API Key 只能保存在当前浏览器本地，不能安全共享或同步
+- 第三方模型列表依赖平台 /v1/models（或 /models）的 CORS；本机已验证 Grsai 返回 30 个模型、其中 16 个图片模型，并验证自动拉取、勾选持久化、重新拉取保留选择、清空与云雾回退。真实出图尚未验证，因为当前没有有效 API Key。文本节点仍使用原画布云雾模型名，未接入 Grsai 文本模型。
 
 ## 协作约定
 
@@ -75,5 +77,5 @@
 - 新增设定或功能时，优先沿用项目中已经确认的方案。
 - 保持直接打开 `index.html` 可预览，非必要不引入构建依赖。
 - 新增视觉内容应延续「夜航星海」，并优先使用原创或已授权素材。
-- 不要手改 `canvas/assets/index-*.js` / `index-*.css`；画布的浏览器适配写在 `canvas/web-bridge.js`、`canvas/index.html`、`canvas/branding-patch.js` 和 `canvas/api-profiles-patch.js`。
+- 不要手改 `canvas/assets/index-*.js` / `index-*.css`；画布的浏览器适配写在 `canvas/web-bridge.js`、`canvas/index.html`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js` 和 `canvas/model-patch.js`。
 - 修改画布能力、外部接口、存储格式或技术栈时，同步更新 `AGENTS.md`、`README.md` 与本文件中的长期有效信息。

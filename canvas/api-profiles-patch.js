@@ -8,9 +8,15 @@
   const BUILTIN_ID = "yunwu";
   const DEFAULT_BASE_URL = "https://api.openlux.ai/v1";
   const BUILTIN_APPLY_URL = "https://api.openlux.ai/register?aff=MYE2";
+  const MODEL_FETCH_DEBOUNCE_MS = 700;
 
   let profileState = null;
   let renderQueued = false;
+  const modelRuntime = {
+    loading: new Set(),
+    timers: new Map(),
+    attempted: new Map(),
+  };
 
   const escapeHtml = (value) =>
     String(value ?? "").replace(
@@ -24,6 +30,43 @@
           "'": "&#39;",
         })[character],
     );
+
+  function normalizeBaseUrl(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return "";
+    try {
+      const url = new URL(text);
+      const path = url.pathname
+        .replace(/\/v1\/draw\/.*$/i, "")
+        .replace(/\/v1\/images(\/.*)?$/i, "")
+        .replace(/\/v1\/api(\/.*)?$/i, "")
+        .replace(/\/v1\/chat\/completions$/i, "")
+        .replace(/\/v1\/models(\/.*)?$/i, "")
+        .replace(/\/v1beta(\/.*)?$/i, "")
+        .replace(/\/v1$/i, "")
+        .replace(/\/models$/i, "")
+        .replace(/\/+$/, "");
+      return `${url.origin}${path}`;
+    } catch {
+      return text.replace(/\/+$/, "");
+    }
+  }
+
+  function uniqueStringList(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item && !seen.has(item) && seen.add(item));
+  }
+
+  function isImageModel(model) {
+    const id = String(model || "");
+    if (/embedding|rerank|moderation|whisper|tts|audio|speech|realtime|transcri/i.test(id)) {
+      return false;
+    }
+    return /image|banana|imagen|flux|dall|stable-diffusion|sdxl|seedream|kolors|midjourney|^mj[-_.]|draw|paint|vision/i.test(id);
+  }
 
   const createId = () =>
     `api-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -54,6 +97,11 @@
       baseUrl: inputs.baseUrl?.value || "",
       applyUrl: BUILTIN_APPLY_URL,
       builtin: true,
+      modelCatalog: [],
+      selectedModels: [],
+      modelsFetchedAt: 0,
+      modelsError: "",
+      modelsBaseUrl: "",
     };
   }
 
@@ -82,6 +130,13 @@
             ? BUILTIN_APPLY_URL
             : "",
       builtin,
+      modelCatalog: builtin ? [] : uniqueStringList(value.modelCatalog),
+      selectedModels: builtin ? [] : uniqueStringList(value.selectedModels),
+      modelsFetchedAt: Number.isFinite(Number(value.modelsFetchedAt))
+        ? Number(value.modelsFetchedAt)
+        : 0,
+      modelsError: typeof value.modelsError === "string" ? value.modelsError : "",
+      modelsBaseUrl: typeof value.modelsBaseUrl === "string" ? value.modelsBaseUrl : "",
     };
   }
 
@@ -162,7 +217,7 @@
           ...(state.vendorConfigs?.[BUILTIN_ID] || {}),
           enabled: true,
           apiKey: profile.apiKey,
-          baseUrlOverride: profile.baseUrl,
+          baseUrlOverride: normalizeBaseUrl(profile.baseUrl),
         },
       };
       persisted.state = state;
@@ -375,6 +430,132 @@
         background: #fff1ee;
         color: #b42318;
       }
+      .ms-api-card__models {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-top: 14px;
+        border-top: 1px solid #8f7c681f;
+      }
+      .ms-api-models__toolbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .ms-api-models__heading {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .ms-api-models__title {
+        color: #4b3d33;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .ms-api-models__count,
+      .ms-api-models__time {
+        color: #8d7868;
+        font-size: 11px;
+      }
+      .ms-api-models__actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .ms-api-models__button {
+        height: 28px;
+        padding: 0 12px;
+        border: 1px solid #d8c9bb;
+        border-radius: 999px;
+        background: #fff;
+        color: #6d5e52;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .ms-api-models__button--primary {
+        border-color: #ff6a1a;
+        background: #fff4ec;
+        color: #d9530d;
+      }
+      .ms-api-models__button:disabled {
+        cursor: not-allowed;
+        opacity: .52;
+      }
+      .ms-api-models__list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+        max-height: 236px;
+        overflow: auto;
+        padding: 2px;
+      }
+      .ms-api-model {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid #8f7c681f;
+        border-radius: 10px;
+        background: #ffffffa6;
+        color: #3a2f27;
+        cursor: pointer;
+      }
+      .ms-api-model:hover {
+        border-color: #ff6a1a59;
+        background: #fffaf6;
+      }
+      .ms-api-model input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: #ff6a1a;
+        flex: 0 0 auto;
+      }
+      .ms-api-model__name {
+        min-width: 0;
+        overflow: hidden;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ms-api-model__tag {
+        margin-left: auto;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: #8f7c6814;
+        color: #8d7868;
+        font-size: 9px;
+        line-height: 1.4;
+        flex: 0 0 auto;
+      }
+      .ms-api-model__tag.is-image {
+        background: #e9f7ef;
+        color: #217a50;
+      }
+      .ms-api-models__empty,
+      .ms-api-models__note {
+        padding: 9px 11px;
+        border-radius: 10px;
+        background: #8f7c680d;
+        color: #8d7868;
+        font-size: 11px;
+        line-height: 1.65;
+      }
+      .ms-api-models__note.is-error {
+        background: #fff1ee;
+        color: #b42318;
+      }
+      .ms-api-models__note.is-warning {
+        background: #fff8e7;
+        color: #8a5a00;
+      }
       .ms-api-card__remove {
         align-self: flex-start;
         padding: 0;
@@ -406,6 +587,160 @@
       () => element.classList.remove("is-visible"),
       3200,
     );
+  }
+
+  function renderModelSection(profile) {
+    if (profile.builtin) return "";
+    const loading = modelRuntime.loading.has(profile.id);
+    const models = profile.modelCatalog;
+    const selected = new Set(profile.selectedModels);
+    const sourceChanged = Boolean(
+      profile.modelsBaseUrl &&
+      normalizeBaseUrl(profile.baseUrl) !== profile.modelsBaseUrl,
+    );
+    const rows = models.map((model) => {
+      const image = isImageModel(model);
+      return `
+        <label class="ms-api-model" title="${escapeHtml(model)}">
+          <input type="checkbox" data-ms-model="${escapeHtml(model)}" ${selected.has(model) ? "checked" : ""} />
+          <span class="ms-api-model__name">${escapeHtml(model)}</span>
+          <span class="ms-api-model__tag${image ? " is-image" : ""}">${image ? "图片" : "其他"}</span>
+        </label>
+      `;
+    }).join("");
+    const fetchedAt = profile.modelsFetchedAt
+      ? new Date(profile.modelsFetchedAt).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "";
+    return `
+      <div class="ms-api-models__toolbar">
+        <div class="ms-api-models__heading">
+          <span class="ms-api-models__title">模型列表</span>
+          <span class="ms-api-models__count">已选择 ${selected.size} 个 / 共 ${models.length} 个</span>
+          ${fetchedAt ? `<span class="ms-api-models__time">最近拉取 ${escapeHtml(fetchedAt)}</span>` : ""}
+        </div>
+        <div class="ms-api-models__actions">
+          <button type="button" class="ms-api-models__button ms-api-models__button--primary" data-ms-action="models-refresh" ${loading ? "disabled" : ""}>${loading ? "拉取中…" : "拉取全部模型"}</button>
+          <button type="button" class="ms-api-models__button" data-ms-action="models-images" ${models.length && !loading ? "" : "disabled"}>全选图片</button>
+          <button type="button" class="ms-api-models__button" data-ms-action="models-clear" ${selected.size ? "" : "disabled"}>清空</button>
+        </div>
+      </div>
+      ${sourceChanged ? '<div class="ms-api-models__note is-warning">接口地址已变更，请重新拉取该地址的模型。</div>' : ""}
+      ${profile.modelsError ? `<div class="ms-api-models__note is-error">拉取失败：${escapeHtml(profile.modelsError)}</div>` : ""}
+      ${models.length
+        ? `<div class="ms-api-models__list">${rows}</div>`
+        : `<div class="ms-api-models__empty">${loading ? "正在从平台拉取模型列表…" : "填写 API Key 与 Base URL 后会自动拉取；也可以点击「拉取全部模型」。"}</div>`}
+    `;
+  }
+
+  function refreshModelSection(profileId) {
+    const profile = profileState?.profiles.find((item) => item.id === profileId);
+    if (!profile || profile.builtin) return;
+    const card = [...document.querySelectorAll("#" + ROOT_ID + " [data-profile-id]")]
+      .find((item) => item.dataset.profileId === profileId);
+    const section = card?.querySelector("[data-ms-model-section]");
+    if (section) section.innerHTML = renderModelSection(profile);
+  }
+
+  function extractModelIds(payload) {
+    const raw = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.models)
+          ? payload.models
+          : [];
+    return uniqueStringList(
+      raw.map((item) =>
+        typeof item === "string"
+          ? item
+          : item?.id || item?.name || item?.model || "",
+      ),
+    );
+  }
+
+  async function fetchModelCatalog(profile, force = false, manual = false) {
+    const base = normalizeBaseUrl(profile.baseUrl);
+    if (!base) {
+      if (manual) showStatus("请先填写 Base URL，再拉取模型。", true);
+      return;
+    }
+    if (modelRuntime.loading.has(profile.id)) return;
+    if (!force && profile.modelsFetchedAt && profile.modelsBaseUrl === base) return;
+    modelRuntime.loading.add(profile.id);
+    profile.modelsError = "";
+    saveProfileState();
+    refreshModelSection(profile.id);
+
+    try {
+      const headers = { Accept: "application/json" };
+      if (profile.apiKey.trim()) {
+        headers.Authorization = `Bearer ${profile.apiKey.trim()}`;
+      }
+      const candidates = [`${base}/v1/models`, `${base}/models`];
+      let models = [];
+      let lastStatus = 0;
+      for (let index = 0; index < candidates.length; index += 1) {
+        const response = await fetch(candidates[index], { headers });
+        lastStatus = response.status;
+        if (!response.ok) {
+          if (response.status === 404 && index < candidates.length - 1) continue;
+          throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
+        }
+        models = extractModelIds(await response.json());
+        if (!models.length) throw new Error("平台返回的模型列表为空");
+        break;
+      }
+      if (!models.length) throw new Error(`未找到模型接口（HTTP ${lastStatus || "未知"}）`);
+
+      const sourceChanged = profile.modelsBaseUrl !== base;
+      const previous = new Set(profile.selectedModels);
+      const retained = models.filter((model) => previous.has(model));
+      profile.modelCatalog = models;
+      profile.selectedModels =
+        !profile.modelsFetchedAt || sourceChanged
+          ? models.filter(isImageModel)
+          : retained;
+      profile.modelsFetchedAt = Date.now();
+      profile.modelsBaseUrl = base;
+      profile.modelsError = "";
+      saveProfileState();
+      refreshModelSection(profile.id);
+      if (manual) {
+        showStatus(`已拉取 ${models.length} 个模型，并默认勾选其中 ${profile.selectedModels.length} 个图片模型。`);
+      }
+    } catch (error) {
+      profile.modelsError = error?.message || String(error);
+      saveProfileState();
+      refreshModelSection(profile.id);
+      if (manual) showStatus(`拉取模型失败：${profile.modelsError}`, true);
+    } finally {
+      modelRuntime.loading.delete(profile.id);
+      refreshModelSection(profile.id);
+    }
+  }
+
+  function scheduleAutoFetch(profile, delay = MODEL_FETCH_DEBOUNCE_MS) {
+    if (!profile || profile.builtin) return;
+    const base = normalizeBaseUrl(profile.baseUrl);
+    if (!base) return;
+    if (profile.modelsFetchedAt && profile.modelsBaseUrl === base) return;
+    const previousTimer = modelRuntime.timers.get(profile.id);
+    if (previousTimer) window.clearTimeout(previousTimer);
+    const timer = window.setTimeout(() => {
+      modelRuntime.timers.delete(profile.id);
+      const current = profileState?.profiles.find((item) => item.id === profile.id);
+      if (!current) return;
+      const currentBase = normalizeBaseUrl(current.baseUrl);
+      if (!currentBase || (current.modelsFetchedAt && current.modelsBaseUrl === currentBase)) return;
+      const signature = `${currentBase}\n${current.apiKey}`;
+      if (modelRuntime.attempted.get(current.id) === signature) return;
+      modelRuntime.attempted.set(current.id, signature);
+      fetchModelCatalog(current, false, false);
+    }, delay);
+    modelRuntime.timers.set(profile.id, timer);
   }
 
   function renderProfileCard(profile, isActive) {
@@ -466,6 +801,11 @@
               : '<button type="button" class="ms-api-card__remove" data-ms-action="remove">删除此配置</button>'
           }
         </div>
+        ${
+          profile.builtin
+            ? ""
+            : `<section class="ms-api-card__models" data-ms-model-section>${renderModelSection(profile)}</section>`
+        }
       </article>
     `;
   }
@@ -515,6 +855,7 @@
     `;
     if (force || root.innerHTML !== nextHtml) root.innerHTML = nextHtml;
     updateSectionCopy(root);
+    profileState.profiles.forEach((profile) => scheduleAutoFetch(profile, 250));
   }
 
   function updateSectionCopy(root) {
@@ -522,7 +863,7 @@
       ?.closest(".settings-section")
       ?.querySelector(".settings-section__header p");
     if (!description) return;
-    const copy = "管理云雾与第三方 API 配置。启用一个配置后，画布请求会自动使用它的 API Key 和 Base URL。";
+    const copy = "管理云雾与第三方 API 配置。启用一个配置后，画布请求会自动使用它的 API Key 和 Base URL；第三方模型可拉取、勾选后显示在画布中。";
     if (description.textContent !== copy) description.textContent = copy;
   }
 
@@ -588,6 +929,11 @@
         baseUrl: "",
         applyUrl: "",
         builtin: false,
+        modelCatalog: [],
+        selectedModels: [],
+        modelsFetchedAt: 0,
+        modelsError: "",
+        modelsBaseUrl: "",
       };
       profileState.profiles.push(profile);
       saveProfileState();
@@ -598,6 +944,27 @@
 
     if (!found) return;
     const { profile } = found;
+
+    if (action === "models-refresh") {
+      fetchModelCatalog(profile, true, true);
+      return;
+    }
+
+    if (action === "models-images") {
+      profile.selectedModels = profile.modelCatalog.filter(isImageModel);
+      saveProfileState();
+      refreshModelSection(profile.id);
+      showStatus(`已选择 ${profile.selectedModels.length} 个图片模型。`);
+      return;
+    }
+
+    if (action === "models-clear") {
+      profile.selectedModels = [];
+      saveProfileState();
+      refreshModelSection(profile.id);
+      showStatus("已清空模型勾选，画布将不再显示该第三方配置的模型。");
+      return;
+    }
 
     if (action === "enable") {
       if (profileState.activeId === profile.id) return;
@@ -660,6 +1027,24 @@
       }
     }
     saveProfileState();
+    if (key === "apiKey" || key === "baseUrl") {
+      scheduleAutoFetch(found.profile);
+    }
+  }
+
+  function handleChange(event) {
+    const checkbox = event.target.closest("[data-ms-model]");
+    if (!checkbox) return;
+    const found = profileCardFor(checkbox);
+    if (!found) return;
+    const selected = new Set(found.profile.selectedModels);
+    if (checkbox.checked) selected.add(checkbox.dataset.msModel);
+    else selected.delete(checkbox.dataset.msModel);
+    found.profile.selectedModels = found.profile.modelCatalog.filter((model) =>
+      selected.has(model),
+    );
+    saveProfileState();
+    refreshModelSection(found.profile.id);
   }
 
   function init() {
@@ -667,6 +1052,7 @@
     const root = document.getElementById("root") || document.documentElement;
     root.addEventListener("click", handleClick);
     root.addEventListener("input", handleInput);
+    root.addEventListener("change", handleChange);
     new MutationObserver(queueRender).observe(root, {
       childList: true,
       subtree: true,

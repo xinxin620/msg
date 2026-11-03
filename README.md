@@ -24,9 +24,10 @@
 - 追番收藏，使用 `localStorage` 保留在当前浏览器
 - 本周排行榜、每日新番表和社区内容区
 - 选集切换、移动端菜单、键盘快捷键和基础无障碍状态
-- 主导航「社区」右侧新增「画布」入口，点击后打开独立窗口
+- 主导航「社区」右侧新增「画布」入口，点击后在浏览器新标签页打开
 - 「简单画布」工作流界面：节点编排、工作流导入/导出、AI 服务商配置、素材上传与生成结果管理
 - 画布 API 来源管理：保留云雾并支持任意多个第三方配置，同一时间只启用一个，配置与 Key/Base URL 刷新后保留
+- 画布第三方模型列表：添加并填写第三方 API 后自动拉取模型，可勾选或全选图片模型；图片节点只显示当前启用配置勾选的模型；Grsai 请求自动适配 `/v1/draw/nano-banana` / `/v1/draw/completions`
 - 画布浏览器桥接：本地目录授权、文本/媒体保存、HTTP 请求、multipart 上传、OSS/签名上传等
 
 交互快捷键：
@@ -36,20 +37,28 @@
 
 ## 画布使用
 
-从主站顶部导航点击「画布」，会尝试打开居中的独立浏览器窗口；如果浏览器拦截弹窗，会回退到新标签页，并给出提示。
+从主站顶部导航点击「画布」，会在浏览器新标签页打开画布，主站页面保持当前标签页不变。若浏览器拦截新标签页，请允许本站打开新标签后重试。
 
 画布入口：
 
 - `canvas/index.html`
-- 主站窗口名：`manshiguang-canvas`
+- 打开方式：浏览器原生新标签页（`target="_blank"`）
 
-画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js` 和 `canvas/api-profiles-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码，不修改压缩 bundle。
+画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js` 和 `canvas/model-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，模型补丁只展示已选模型并适配 Grsai 请求协议，不修改压缩 bundle。
 
 ### API 来源配置
 
 「模型与接口设置 → API 来源设置」支持在保留内置「云雾」的同时新增任意多个第三方 API。每张配置卡都包含申请地址、API Key 和 Base URL，并保留「申请」按钮；其右侧的「启用」按钮用于切换当前配置，同一时间只有一个配置处于启用状态。
 
 配置保存在 `localStorage["manshiguang:canvas-api-profiles"]`，刷新页面后继续保留。启用项会同步到画布原有的 `canvas-api-settings`，后续请求使用当前配置的 Key 与 Base URL。密钥仍只保存在当前浏览器，不会上传到服务器。
+
+### 第三方模型列表
+
+添加第三方配置并填写 Base URL 后，`canvas/api-profiles-patch.js` 会自动尝试 `${base}/v1/models` 与 `${base}/models`；也可以点击「拉取全部模型」。首次拉取默认勾选图片模型，之后可在模型列表中逐项勾选、全选图片或清空，并可用「拉取全部模型」刷新目录。模型目录与勾选保存在 `localStorage["manshiguang:canvas-api-profiles"]`，刷新后保留；同源重新拉取只保留仍存在且此前勾选的模型，不无故覆盖用户选择。
+
+`canvas/model-patch.js` 只把当前启用 Profile 的 `selectedModels` 注入图片节点下拉。未勾选任何模型时显示配置提示；切回云雾时恢复画布原生的 4 个模型和原始按钮文案。当前 Grsai 返回 30 个模型，其中 16 个 `gpt-image-*` / `nano-banana-*` 图片模型。单次节点选择另存于 `localStorage["manshiguang:canvas-model-choice"]`。
+
+Grsai 的请求协议与云雾不同：画布仍调用 OpenAI 风格 `/v1/images/generations` 或 `/v1/images/edits`，补丁会转发到 `/v1/draw/nano-banana` 或 `/v1/draw/completions` 并轮询 `/v1/draw/result`。文本节点暂未接入第三方文本模型，仍使用原画布云雾模型名。
 
 ### 浏览器版能力限制
 
@@ -61,7 +70,8 @@
 - 网页版没有 FFmpeg，视频剪辑接口会明确报错。
 - 自定义网络代理属于浏览器外部配置，画布设置页中的代理不能接管浏览器网络栈。
 - 未选择素材目录时，保存操作会回退为浏览器下载；不会写入原桌面版的默认资产目录。
-- 浏览器窗口最大化使用 Fullscreen API，关闭行为也可能受弹窗策略限制。
+- 第三方模型列表依赖平台 `/v1/models` 的 CORS；实际出图仍需要有效的第三方 API Key。当前只适配了图片节点，文本节点仍使用原云雾模型名。
+- 画布内窗口最大化使用 Fullscreen API；浏览器新标签页的关闭行为由浏览器控制。
 
 ## 设计系统
 
@@ -88,14 +98,15 @@ msg/
 ├─ index.html                  主站页面结构与图标
 ├─ assets/
 │  ├─ styles.css              视觉系统、布局与动效
-│  ├─ app.js                  番剧数据、交互与画布窗口入口
+│  ├─ app.js                  番剧数据、交互与画布新标签页入口
 │  ├─ hero-art.svg            原创首页主视觉
 │  └─ favicon.svg             站点图标
 ├─ canvas/
 │  ├─ index.html              画布宿主页与启动诊断
 │  ├─ web-bridge.js           浏览器兼容桥接层
 │  ├─ branding-patch.js       设置页作者信息品牌替换补丁
-│  ├─ api-profiles-patch.js   云雾/第三方 API 多配置与唯一启用补丁
+│  ├─ api-profiles-patch.js   云雾/第三方 API 多配置、唯一启用与模型勾选
+│  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ assets/
 │  │  ├─ index-BN-uSJKj.js    已打包 React 画布
 │  │  └─ index-BfAuAU0s.css   画布样式
@@ -117,6 +128,7 @@ node --check assets/app.js
 node --check canvas/web-bridge.js
 node --check canvas/branding-patch.js
 node --check canvas/api-profiles-patch.js
+node --check canvas/model-patch.js
 ```
 
 ## 内容与后续接入
