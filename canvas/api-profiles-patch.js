@@ -5,9 +5,17 @@
   const CANVAS_SETTINGS_KEY = "canvas-api-settings";
   const API_STORAGE_KEY = "manshiguang:canvas-api-storage";
   const API_CONFIG_FILE_NAME = "manshiguang-api-config.json";
+  const API_CONFIG_APP_DATA_DIR = "C:\\Users\\liliang\\msg";
+  // 浏览器不会暴露目录的 Windows 绝对路径。这里按用户确认的实际位置做
+  // 显示层固定标注；它不参与读写，真实读写仍以 File System Access handle 为准。
+  const ASSET_DIRECTORY_DISPLAY_PATH = "D:\\data\\workData\\漫时光\\画布\\images";
+  const LOCAL_FOLDER_OPEN_PATHS = {
+    images: ASSET_DIRECTORY_DISPLAY_PATH,
+  };
   const STYLE_ID = "ms-api-profiles-style";
   const ROOT_ID = "ms-api-profiles";
   const STORAGE_CARD_ID = "ms-api-storage-card";
+  const DIRECTORY_INSPECTOR_ID = "ms-directory-inspector";
   const BUILTIN_ID = "yunwu";
   const DEFAULT_BASE_URL = "https://api.openlux.ai/v1";
   const BUILTIN_APPLY_URL = "https://api.openlux.ai/register?aff=MYE2";
@@ -20,6 +28,7 @@
     timer: null,
     writing: false,
     pending: false,
+    busyAction: "",
     profileLoaded: false,
     status: "",
     statusError: false,
@@ -34,6 +43,9 @@
     pending: null,
     sequence: 0,
   };
+  const wrappedElectronApis = new WeakSet();
+  let assetDirectoryDecorateTimers = [];
+  let assetDirectoryLocalOpenAvailable = false;
 
   const escapeHtml = (value) =>
     String(value ?? "").replace(
@@ -192,6 +204,35 @@
     return normalizeProfileState(readStoredProfiles(), nativeCard);
   }
 
+  function hydrateBuiltinProfileFromCanvas(state) {
+    const builtin = state?.profiles?.find((profile) => profile.id === BUILTIN_ID);
+    if (!builtin) return state;
+
+    const inputs = nativeInputs(findNativeVendorCard());
+    if (!builtin.apiKey && inputs.apiKey?.value) {
+      builtin.apiKey = inputs.apiKey.value;
+    }
+    if (!builtin.baseUrl && inputs.baseUrl?.value) {
+      builtin.baseUrl = inputs.baseUrl.value;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(CANVAS_SETTINGS_KEY);
+      const persisted = raw ? JSON.parse(raw) : null;
+      const yunwu = persisted?.state?.vendorConfigs?.[BUILTIN_ID];
+      if (!builtin.apiKey && typeof yunwu?.apiKey === "string") {
+        builtin.apiKey = yunwu.apiKey;
+      }
+      if (!builtin.baseUrl && typeof yunwu?.baseUrlOverride === "string") {
+        builtin.baseUrl = yunwu.baseUrlOverride;
+      }
+    } catch {
+      // Keep the native input values when the canvas settings cannot be parsed.
+    }
+
+    return state;
+  }
+
   function readApiStorageState() {
     let stored = null;
     try {
@@ -202,11 +243,15 @@
     }
     return {
       version: 1,
-      mode: stored?.mode === "directory" ? "directory" : "browser",
+      mode: "directory",
       directoryToken:
         typeof stored?.directoryToken === "string" ? stored.directoryToken : "",
       directoryName:
         typeof stored?.directoryName === "string" ? stored.directoryName : "",
+      lastSavedAt:
+        typeof stored?.lastSavedAt === "string" ? stored.lastSavedAt : "",
+      lastRestoredAt:
+        typeof stored?.lastRestoredAt === "string" ? stored.lastRestoredAt : "",
     };
   }
 
@@ -753,11 +798,17 @@
       }
       .ms-api-storage-card__description,
       .ms-api-storage-card__hint,
+      .ms-api-storage-card__meta,
       .ms-api-storage-card__warning {
         margin: 0;
         color: var(--text-secondary, #8d7868);
         font-size: 11px;
         line-height: 1.7;
+      }
+      .ms-api-storage-card__meta {
+        color: var(--text-secondary, #8d7868);
+        font-size: 11px;
+        font-weight: 600;
       }
       .ms-api-storage-card__warning {
         padding: 9px 11px;
@@ -794,6 +845,11 @@
         color: var(--text-secondary, #8d7868);
         font-size: 10px;
       }
+      .ms-api-storage-card__directory-meta {
+        color: var(--text-secondary, #8d7868);
+        font-size: 10px;
+        line-height: 1.55;
+      }
       .ms-api-storage-card__actions {
         display: flex;
         align-items: center;
@@ -806,19 +862,26 @@
         border-radius: 999px;
         font-size: 11px;
       }
+      .ms-api-storage-card__actions .path-picker__btn:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
       .ms-api-storage-card__status {
         display: none;
         padding: 8px 11px;
+        border: 1px solid #217a5024;
         border-radius: 10px;
         background: #e9f7ef;
         color: #217a50;
         font-size: 11px;
+        font-weight: 600;
         line-height: 1.6;
       }
       .ms-api-storage-card__status.is-visible {
         display: block;
       }
       .ms-api-storage-card__status.is-error {
+        border-color: #b4231824;
         background: #fff1ee;
         color: #b42318;
       }
@@ -840,6 +903,148 @@
       :root[data-theme="dark"] .ms-api-storage-card__status.is-error {
         background: #ff6f6118;
         color: #ff8a80;
+      }
+      .ms-directory-inspector {
+        position: fixed;
+        inset: 0;
+        z-index: 100020;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #1b1613a8;
+        backdrop-filter: blur(8px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 160ms ease;
+      }
+      .ms-directory-inspector.is-visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .ms-directory-inspector__panel {
+        width: min(620px, 100%);
+        max-height: min(720px, calc(100vh - 48px));
+        overflow: auto;
+        padding: 20px;
+        border: 1px solid #8f7c6838;
+        border-radius: 18px;
+        background: var(--panel-bg, #fffdfb);
+        color: var(--text-primary, #2f251c);
+        box-shadow: 0 24px 80px #1b161345;
+      }
+      .ms-directory-inspector__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      .ms-directory-inspector__title {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .ms-directory-inspector__title strong {
+        font-size: 16px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+      .ms-directory-inspector__title span,
+      .ms-directory-inspector__note {
+        color: var(--text-secondary, #8d7868);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+      .ms-directory-inspector__close {
+        width: 30px;
+        height: 30px;
+        border: 1px solid #8f7c6833;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text-secondary, #8d7868);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .ms-directory-inspector__summary {
+        display: flex;
+        gap: 8px;
+        margin: 16px 0 12px;
+        flex-wrap: wrap;
+      }
+      .ms-directory-inspector__pill {
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: #8f7c6814;
+        color: var(--text-secondary, #8d7868);
+        font-size: 10px;
+        font-weight: 600;
+      }
+      .ms-directory-inspector__note {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 11px;
+        background: #fff8e7;
+        color: #8a5a00;
+      }
+      .ms-directory-inspector__note.is-error {
+        background: #fff1ee;
+        color: #b42318;
+      }
+      .ms-directory-inspector__list {
+        display: grid;
+        max-height: 360px;
+        margin: 0;
+        padding: 0;
+        overflow: auto;
+        border: 1px solid #8f7c6829;
+        border-radius: 12px;
+        list-style: none;
+      }
+      .ms-directory-inspector__item {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+        padding: 9px 12px;
+        border-bottom: 1px solid #8f7c681c;
+        color: var(--text-primary, #3a2f27);
+        font-size: 11px;
+      }
+      .ms-directory-inspector__item:last-child {
+        border-bottom: 0;
+      }
+      .ms-directory-inspector__kind {
+        min-width: 42px;
+        color: var(--text-secondary, #8d7868);
+        font-size: 9px;
+      }
+      .ms-directory-inspector__name {
+        overflow: hidden;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      :root[data-theme="dark"] .ms-directory-inspector__panel {
+        border-color: #ffffff24;
+      }
+      :root[data-theme="dark"] .ms-directory-inspector__close,
+      :root[data-theme="dark"] .ms-directory-inspector__list {
+        border-color: #ffffff24;
+      }
+      :root[data-theme="dark"] .ms-directory-inspector__pill {
+        background: #ffffff16;
+      }
+      :root[data-theme="dark"] .ms-directory-inspector__note {
+        background: #ffd16618;
+        color: #ffd166;
+      }
+      :root[data-theme="dark"] .ms-directory-inspector__note.is-error {
+        background: #ff6f6118;
+        color: #ff8a80;
+      }
+      :root[data-theme="dark"] .ms-directory-inspector__item {
+        border-bottom-color: #ffffff14;
       }
       @media (max-width: 640px) {
         .ms-api-card__header { align-items: flex-start; }
@@ -883,13 +1088,220 @@
     );
   }
 
+  function decodeWebdirName(value) {
+    const match = /^webdir:[^:]+:(.+)$/.exec(String(value || ""));
+    if (!match) return "";
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+
+  function getHardcodedAssetDisplayPath(name) {
+    return String(name || "").trim().toLowerCase() === "images"
+      ? ASSET_DIRECTORY_DISPLAY_PATH
+      : "";
+  }
+
+  function getAssetDirectoryName(card) {
+    const input = card?.querySelector("input.url-input");
+    if (!input) return "";
+    if (input.dataset.msDirectoryName) return input.dataset.msDirectoryName;
+    return decodeWebdirName(input.dataset.msRawPath || input.value);
+  }
+
+  // 浏览器只肯返回目录授权标识（webdir:...），拿不到 Windows 绝对路径。
+  // 这里只改显示文字；真实标识仍由画布保存在组件状态中。
+  function decorateAssetDirectoryInput() {
+    const input = findAssetStorageCard()?.querySelector("input.url-input");
+    if (!input) return;
+    const raw = input.value;
+    if (!raw.startsWith("webdir:")) return;
+    if (document.activeElement === input) return;
+    const name = decodeWebdirName(raw);
+    if (!name) return;
+    const displayPath = getHardcodedAssetDisplayPath(name);
+    input.dataset.msRawPath = raw;
+    input.dataset.msDirectoryName = name;
+    input.value = displayPath
+      ? `${displayPath}（授权目录：${name}）`
+      : `${name}（浏览器授权目录）`;
+    input.title = displayPath
+      ? `实际保存目录：${displayPath}\n浏览器授权目录名：${name}\n授权标识：${raw}`
+      : `浏览器安全限制：页面只能拿到目录名字，无法读取 Windows 绝对路径。授权标识：${raw}`;
+  }
+
+  function decorateAssetDirectoryActions() {
+    const card = findAssetStorageCard();
+    if (!card) return;
+    const button = [...card.querySelectorAll(".path-picker__btn")].find(
+      (item) => ["打开目录", "查看目录"].includes(item.textContent?.trim()),
+    );
+    if (!button) return;
+    const directoryName = getAssetDirectoryName(card).trim().toLowerCase();
+    const canOpenInExplorer =
+      assetDirectoryLocalOpenAvailable &&
+      Boolean(LOCAL_FOLDER_OPEN_PATHS[directoryName]);
+    const nextText = canOpenInExplorer ? "打开目录" : "查看目录";
+    const nextTitle = canOpenInExplorer
+      ? `在 Windows 资源管理器中打开 ${LOCAL_FOLDER_OPEN_PATHS[directoryName]}`
+      : "本地打开服务未启用，改为查看已授权目录中的内容";
+    if (button.textContent !== nextText) button.textContent = nextText;
+    if (button.title !== nextTitle) button.title = nextTitle;
+  }
+
+  async function refreshLocalFolderOpenAvailability() {
+    try {
+      const response = await window.fetch("/__health", {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json().catch(() => null);
+      assetDirectoryLocalOpenAvailable = Boolean(
+        response.ok && payload?.ok && payload?.openFolder,
+      );
+    } catch {
+      assetDirectoryLocalOpenAvailable = false;
+    }
+    scheduleAssetDirectoryDecoration();
+  }
+
+  function scheduleAssetDirectoryDecoration() {
+    assetDirectoryDecorateTimers.forEach((timer) => window.clearTimeout(timer));
+    assetDirectoryDecorateTimers = [];
+    [0, 60, 160, 360, 700, 1200].forEach((delay) => {
+      const timer = window.setTimeout(() => {
+        decorateAssetDirectoryInput();
+        decorateAssetDirectoryActions();
+      }, delay);
+      assetDirectoryDecorateTimers.push(timer);
+    });
+  }
+
+  function installAssetDirectoryBridgeWatch() {
+    const api = window.electronAPI;
+    if (!api?.pickDirectory || wrappedElectronApis.has(api)) return;
+    wrappedElectronApis.add(api);
+    const pickDirectory = api.pickDirectory.bind(api);
+    api.pickDirectory = async (...args) => {
+      const result = await pickDirectory(...args);
+      if (typeof result === "string" && result.startsWith("webdir:")) {
+        // React 会在选择器返回后更新受控输入框，但这个更新不会触发
+        // MutationObserver；这里在随后一小段时间内主动刷新显示。
+        scheduleAssetDirectoryDecoration();
+      }
+      return result;
+    };
+  }
+
+  function closeDirectoryInspector() {
+    document.getElementById(DIRECTORY_INSPECTOR_ID)?.classList.remove("is-visible");
+  }
+
+  function showDirectoryInspector(detail) {
+    let overlay = document.getElementById(DIRECTORY_INSPECTOR_ID);
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = DIRECTORY_INSPECTOR_ID;
+      overlay.className = "ms-directory-inspector";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", "已授权的资产目录");
+      document.body.appendChild(overlay);
+    }
+    const directories = Array.isArray(detail?.directories) ? detail.directories : [];
+    const files = Array.isArray(detail?.files) ? detail.files : [];
+    const total = directories.length + files.length;
+    const rows = [
+      ...directories.map((name) => ({ name, kind: "文件夹" })),
+      ...files.map((name) => ({ name, kind: "文件" })),
+    ];
+    const listHtml = rows.length
+      ? `
+          <ul class="ms-directory-inspector__list">
+            ${rows
+              .map(
+                (entry) => `
+                  <li class="ms-directory-inspector__item">
+                    <span class="ms-directory-inspector__kind">${entry.kind}</span>
+                    <span class="ms-directory-inspector__name" title="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</span>
+                  </li>
+                `,
+              )
+              .join("")}
+          </ul>
+        `
+      : "";
+    const error = String(detail?.error || "");
+    const openError = String(detail?.openError || "");
+    const directoryName = String(detail?.directoryName || "").trim();
+    const displayPath = getHardcodedAssetDisplayPath(directoryName);
+    const directoryTitle = displayPath
+      ? `资产目录：${displayPath}`
+      : `资产目录：${directoryName || "未选择"}`;
+    const titleHint = displayPath
+      ? `浏览器授权目录名：${escapeHtml(directoryName)}；实际路径由页面固定显示。`
+      : "浏览器安全限制：网页不能打开 Windows 资源管理器，只能查看已授权目录的内容。";
+    const pathNote = displayPath
+      ? `实际路径：${escapeHtml(displayPath)}。如需在 Windows 中查看，请按这个路径打开资源管理器。`
+      : "如需在 Windows 中查看，请打开资源管理器并进入你刚才授权的文件夹；本页面拿不到完整绝对路径。";
+    overlay.innerHTML = `
+      <div class="ms-directory-inspector__panel">
+        <div class="ms-directory-inspector__head">
+          <div class="ms-directory-inspector__title">
+            <strong>${escapeHtml(directoryTitle)}</strong>
+            <span>${titleHint}</span>
+          </div>
+          <button type="button" class="ms-directory-inspector__close" data-ms-directory-close aria-label="关闭">×</button>
+        </div>
+        ${openError ? `<p class="ms-directory-inspector__note is-error">${escapeHtml(openError)}</p>` : ""}
+        ${
+          error
+            ? `<p class="ms-directory-inspector__note is-error">${escapeHtml(error)}</p>`
+            : `
+              <div class="ms-directory-inspector__summary">
+                <span class="ms-directory-inspector__pill">文件夹 ${directories.length}</span>
+                <span class="ms-directory-inspector__pill">文件 ${files.length}</span>
+                ${detail?.truncated ? `<span class="ms-directory-inspector__pill">仅显示前 ${total} 项</span>` : ""}
+              </div>
+              <p class="ms-directory-inspector__note">${pathNote}</p>
+              ${listHtml || `<p class="ms-directory-inspector__note">这个目录目前是空的。</p>`}
+            `
+        }
+      </div>
+    `;
+    overlay.classList.add("is-visible");
+    window.requestAnimationFrame(() => {
+      overlay.querySelector("[data-ms-directory-close]")?.focus();
+    });
+  }
+
+  function handleDirectoryInspectorClick(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const overlay = document.getElementById(DIRECTORY_INSPECTOR_ID);
+    if (!overlay?.classList.contains("is-visible")) return;
+    if (
+      target?.closest("[data-ms-directory-close]") ||
+      target === overlay
+    ) {
+      closeDirectoryInspector();
+    }
+  }
+
   function updateApiStorageStatusElement() {
     const element = document.querySelector(
       `#${STORAGE_CARD_ID} .ms-api-storage-card__status`,
     );
     if (!element) return;
-    element.textContent = apiStorageRuntime.status;
-    element.classList.toggle("is-error", apiStorageRuntime.statusError);
+    // textContent 赋相同文本也会产生一次 DOM 变更，配合 MutationObserver
+    // 会形成每秒 60 次的重绘循环；这里必须比较后再写。
+    if (element.textContent !== apiStorageRuntime.status) {
+      element.textContent = apiStorageRuntime.status;
+    }
+    if (element.classList.contains("is-error") !== apiStorageRuntime.statusError) {
+      element.classList.toggle("is-error", apiStorageRuntime.statusError);
+    }
     element.classList.toggle(
       "is-visible",
       Boolean(apiStorageRuntime.status),
@@ -900,6 +1312,13 @@
     apiStorageRuntime.status = String(message || "");
     apiStorageRuntime.statusError = Boolean(isError);
     updateApiStorageStatusElement();
+    if (isError) {
+      window.requestAnimationFrame(() => {
+        document
+          .querySelector(`#${STORAGE_CARD_ID} .ms-api-storage-card__status`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    }
     window.clearTimeout(apiStorageRuntime.statusTimer);
     if (!apiStorageRuntime.status || !autoHide) return;
     apiStorageRuntime.statusTimer = window.setTimeout(() => {
@@ -909,13 +1328,52 @@
     }, 4200);
   }
 
+  function formatStorageTime(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+
+  function setApiStorageBusy(action, message = "", isError = false) {
+    apiStorageRuntime.busyAction = action;
+    if (message) setApiStorageStatus(message, isError, false);
+    renderApiStorageCard();
+  }
+
+  function clearApiStorageBusy() {
+    if (!apiStorageRuntime.busyAction) return;
+    apiStorageRuntime.busyAction = "";
+    renderApiStorageCard();
+  }
+
   function renderApiStorageCard() {
     const card = document.getElementById(STORAGE_CARD_ID);
     if (!card) return;
     if (!apiStorageState) apiStorageState = readApiStorageState();
     const isDirectory = apiStorageState.mode === "directory";
     const hasDirectory = Boolean(apiStorageState.directoryToken);
-    const directoryName = apiStorageState.directoryName || "尚未选择目录";
+    const directoryName =
+      apiStorageState.directoryName || API_CONFIG_APP_DATA_DIR;
+    const busyAction = apiStorageRuntime.busyAction;
+    const isBusy = Boolean(busyAction || apiStorageRuntime.writing);
+    const lastSavedAt = formatStorageTime(apiStorageState.lastSavedAt);
+    const lastRestoredAt = formatStorageTime(apiStorageState.lastRestoredAt);
+    const directoryMeta = [
+      hasDirectory
+        ? `已授权文件夹：${apiStorageState.directoryName || "未命名文件夹"}（浏览器安全限制：只显示文件夹名）`
+        : "",
+      lastSavedAt ? `最近保存：${lastSavedAt}` : "",
+      lastRestoredAt ? `最近恢复：${lastRestoredAt}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const nextHtml = `
       <div class="vendor-card__header">
         <div class="vendor-card__title">
@@ -926,50 +1384,44 @@
           </svg>
           <span class="vendor-name">API 配置存储</span>
         </div>
-        <span class="ms-api-storage-card__badge">${isDirectory ? "本地目录" : "浏览器存储"}</span>
       </div>
       <div class="ms-api-storage-card__body">
         <div class="ms-api-storage-card__row">
           <span class="ms-api-storage-card__label">保存位置</span>
-          <div class="settings-segmented" role="group" aria-label="API 配置保存位置">
-            <button type="button" class="settings-segmented__btn${isDirectory ? "" : " is-active"}" data-ms-storage-action="mode-browser" aria-pressed="${isDirectory ? "false" : "true"}">浏览器存储</button>
-            <button type="button" class="settings-segmented__btn${isDirectory ? " is-active" : ""}" data-ms-storage-action="mode-directory" aria-pressed="${isDirectory ? "true" : "false"}">本地目录</button>
-          </div>
+          <span class="ms-api-storage-card__label">${hasDirectory ? escapeHtml(directoryName) : "应用数据目录"}</span>
         </div>
         <p class="ms-api-storage-card__description">
           ${
-            isDirectory
-              ? "API 密钥、接口地址和模型勾选会同步写入所选目录中的 JSON 文件。"
-              : "默认保存在当前浏览器的本地存储中，修改后会立即续存；更换浏览器或清理站点数据后不会自动保留。"
+            hasDirectory
+              ? `API 密钥、接口地址和模型勾选会同步写入已授权文件夹「${escapeHtml(directoryName)}」中的 ${API_CONFIG_FILE_NAME}。`
+              : `API 密钥、接口地址和模型勾选会同步写入应用数据目录中的 JSON 文件。目标目录：${escapeHtml(API_CONFIG_APP_DATA_DIR)}，首次保存前需要手动授权一次。`
           }
         </p>
+        ${directoryMeta ? `<p class="ms-api-storage-card__meta">${escapeHtml(directoryMeta)}</p>` : ""}
         ${
           isDirectory
             ? `
-              <div class="ms-api-storage-card__directory">
-                <div class="ms-api-storage-card__directory-main">
-                  <span class="ms-api-storage-card__label">当前目录</span>
-                  <strong class="ms-api-storage-card__directory-name">${escapeHtml(directoryName)}</strong>
-                  <span class="ms-api-storage-card__directory-file">文件：${API_CONFIG_FILE_NAME}</span>
-                </div>
-                <span class="ms-api-storage-card__badge">JSON</span>
-              </div>
               <div class="ms-api-storage-card__actions">
-                <button type="button" class="path-picker__btn" data-ms-storage-action="choose-directory">${hasDirectory ? "更换目录" : "选择目录"}</button>
-                <button type="button" class="path-picker__btn" data-ms-storage-action="save" ${hasDirectory ? "" : "disabled"}>立即保存</button>
-                <button type="button" class="path-picker__btn" data-ms-storage-action="restore" ${hasDirectory ? "" : "disabled"}>从本地恢复</button>
+                <button type="button" class="path-picker__btn" data-ms-storage-action="save" ${isBusy ? "disabled" : ""}>${busyAction === "save" || apiStorageRuntime.writing ? "保存中…" : "立即保存"}</button>
+                <button type="button" class="path-picker__btn" data-ms-storage-action="restore" ${isBusy ? "disabled" : ""}>${busyAction === "restore" ? "读取中…" : "从本地恢复"}</button>
               </div>
-              <p class="ms-api-storage-card__hint">浏览器只显示目录名称，不会向网页暴露完整绝对路径；请确保该目录仅由你本人访问。</p>
+              <p class="ms-api-storage-card__hint">点击「立即保存」或「从本地恢复」时，若尚未授权目录，会自动弹出 Windows 目录选择窗口；选定后立即创建或更新 JSON。</p>
               <p class="ms-api-storage-card__warning">本地文件是明文 JSON，会包含 API 密钥，请不要放到公开目录或同步到公共网盘。</p>
             `
             : `
-              <p class="ms-api-storage-card__hint">点击「本地目录」会打开 Windows 目录选择窗口；选定后立即创建或更新 JSON。浏览器中的副本始终保留，切换存储方式不会删除本地文件。</p>
+              <p class="ms-api-storage-card__hint">点击「立即保存」或「从本地恢复」时，若尚未授权目录，会弹出 Windows 目录选择窗口；选定后立即创建或更新 JSON。</p>
             `
         }
         <div class="ms-api-storage-card__status" role="status" aria-live="polite"></div>
       </div>
     `;
-    if (card.innerHTML !== nextHtml) card.innerHTML = nextHtml;
+    // innerHTML 会把 disabled/checked 等布尔属性、空白规范化后再序列化，
+    // 用序列化结果与模板比较永远不相等，会导致卡片无限重绘、按钮点不动。
+    // 因此改为记住“上一次写入的模板”。
+    if (card.__msRenderedHtml !== nextHtml || card.childElementCount === 0) {
+      card.innerHTML = nextHtml;
+      card.__msRenderedHtml = nextHtml;
+    }
     updateApiStorageStatusElement();
   }
 
@@ -996,11 +1448,12 @@
 
   function ensureProfileStateForStorage() {
     if (profileState) return profileState;
-    const stored = readStoredProfiles();
-    if (!stored?.profiles?.length) return null;
-    profileState = loadProfileState(findNativeVendorCard());
-    saveProfileState();
+    profileState = hydrateBuiltinProfileFromCanvas(
+      loadProfileState(findNativeVendorCard()),
+    );
     apiStorageRuntime.profileLoaded = true;
+    saveProfileState({ skipStorage: true });
+    syncActiveToCanvas();
     return profileState;
   }
 
@@ -1028,7 +1481,7 @@
       !apiStorageState.directoryToken
     ) {
       if (manual) {
-        setApiStorageStatus("请先选择 API 配置的本地目录。", true);
+        setApiStorageStatus("请先选择应用数据目录。", true);
       }
       return false;
     }
@@ -1038,11 +1491,15 @@
     }
     if (apiStorageRuntime.writing) {
       apiStorageRuntime.pending = true;
+      if (manual) setApiStorageStatus("正在保存上一份配置，完成后会自动继续。", false, false);
       return false;
     }
 
     apiStorageRuntime.writing = true;
-    if (manual) setApiStorageStatus("正在保存 API 配置到本地目录…", false, false);
+    if (manual) {
+      setApiStorageStatus("正在保存 API 配置到应用数据目录…", false, false);
+      renderApiStorageCard();
+    }
     try {
       const content = apiConfigFileContent();
       const result = await window.electronAPI.saveApiConfigFile({
@@ -1052,17 +1509,21 @@
       });
       if (result?.directoryName && result.directoryName !== apiStorageState.directoryName) {
         apiStorageState.directoryName = result.directoryName;
-        saveApiStorageState();
-        renderApiStorageCard();
       }
+      apiStorageState.lastSavedAt = new Date().toISOString();
+      saveApiStorageState();
+      renderApiStorageCard();
       setApiStorageStatus(
-        `已保存到「${result?.directoryName || apiStorageState.directoryName || "本地目录"}」/${result?.fileName || API_CONFIG_FILE_NAME}`,
+        `保存成功：已写入「${apiStorageState.directoryName || API_CONFIG_APP_DATA_DIR}」/${result?.fileName || API_CONFIG_FILE_NAME}`,
+        false,
+        !manual,
       );
       return true;
     } catch (error) {
       setApiStorageStatus(
         `保存失败：${error?.message || String(error)}`,
         true,
+        false,
       );
       return false;
     } finally {
@@ -1090,29 +1551,38 @@
     }, delay);
   }
 
-  async function chooseApiConfigDirectory() {
+  async function chooseApiConfigDirectory(nextAction = "save") {
     if (!window.electronAPI?.pickApiConfigDirectory) {
-      setApiStorageStatus("当前浏览器桥接不支持选择本地目录，请刷新页面后重试。", true);
+      setApiStorageStatus("当前浏览器桥接不支持选择应用数据目录，请刷新页面后重试。", true);
       return;
     }
-    setApiStorageStatus("请在系统窗口中选择用于保存 API 配置的目录…", false, false);
+    let result;
     try {
-      const result = await window.electronAPI.pickApiConfigDirectory();
-      if (!result?.token) {
-        setApiStorageStatus("已取消选择目录。");
-        return;
-      }
-      apiStorageState.mode = "directory";
-      apiStorageState.directoryToken = result.token;
-      apiStorageState.directoryName = result.name || "本地目录";
-      saveApiStorageState();
-      renderApiStorageCard();
-      await writeApiConfigToDirectory(true);
+      // Keep showDirectoryPicker in the original click call stack so Chrome/Edge
+      // still treats this as a user-authorized directory selection.
+      result = await window.electronAPI.pickApiConfigDirectory();
     } catch (error) {
       setApiStorageStatus(
-        `选择目录失败：${error?.message || String(error)}`,
+        `选择应用数据目录失败：${error?.message || String(error)}`,
         true,
+        false,
       );
+      return;
+    }
+    if (!result?.token) {
+      setApiStorageStatus("已取消选择应用数据目录，原来的保存位置没有改变。", false, false);
+      return;
+    }
+    apiStorageState.mode = "directory";
+    apiStorageState.directoryToken = result.token;
+    apiStorageState.directoryName = result.name || API_CONFIG_APP_DATA_DIR;
+    apiStorageState.lastRestoredAt = "";
+    saveApiStorageState();
+    renderApiStorageCard();
+    if (nextAction === "restore") {
+      await restoreApiConfigFromDirectory();
+    } else {
+      await writeApiConfigToDirectory(true);
     }
   }
 
@@ -1121,10 +1591,10 @@
       !apiStorageState?.directoryToken ||
       !window.electronAPI?.readApiConfigFile
     ) {
-      setApiStorageStatus("请先选择 API 配置的本地目录。", true);
+      setApiStorageStatus("请先选择应用数据目录。", true);
       return;
     }
-    setApiStorageStatus("正在读取本地 API 配置…", false, false);
+    setApiStorageBusy("restore", "正在从本地 JSON 读取 API 配置…");
     try {
       const result = await window.electronAPI.readApiConfigFile({
         targetDir: apiStorageState.directoryToken,
@@ -1146,33 +1616,30 @@
       saveProfileState({ skipStorage: true });
       syncActiveToCanvas();
       renderManager(true);
+      apiStorageState.lastRestoredAt = new Date().toISOString();
+      saveApiStorageState();
+      renderApiStorageCard();
       setApiStorageStatus(
-        `已从「${result.directoryName || apiStorageState.directoryName || "本地目录"}」恢复 ${restored.profiles.length} 个 API 配置。`,
+        `恢复成功：已从「${apiStorageState.directoryName || API_CONFIG_APP_DATA_DIR}」读取 ${restored.profiles.length} 个 API 配置。`,
+        false,
+        false,
       );
     } catch (error) {
       setApiStorageStatus(
         `恢复失败：${error?.message || String(error)}`,
         true,
+        false,
       );
+    } finally {
+      clearApiStorageBusy();
     }
   }
 
   async function handleStorageAction(action) {
     if (!apiStorageState) apiStorageState = readApiStorageState();
-    if (action === "mode-browser") {
-      apiStorageState.mode = "browser";
-      saveApiStorageState();
-      window.clearTimeout(apiStorageRuntime.timer);
-      apiStorageRuntime.timer = null;
-      renderApiStorageCard();
-      setApiStorageStatus(
-        "已切换为浏览器存储；本地 JSON 未删除，再次切换到本地目录时会更新。",
-      );
-      return;
-    }
     if (action === "mode-directory") {
       if (!apiStorageState.directoryToken) {
-        await chooseApiConfigDirectory();
+        await chooseApiConfigDirectory("save");
         return;
       }
       apiStorageState.mode = "directory";
@@ -1182,14 +1649,37 @@
       return;
     }
     if (action === "choose-directory") {
-      await chooseApiConfigDirectory();
+      await chooseApiConfigDirectory("save");
       return;
     }
     if (action === "save") {
-      await writeApiConfigToDirectory(true);
+      if (!apiStorageState.directoryToken) {
+        setApiStorageStatus(
+          `正在打开目录选择窗口，请选择「${API_CONFIG_APP_DATA_DIR}」…`,
+          false,
+          false,
+        );
+        await chooseApiConfigDirectory("save");
+        return;
+      }
+      setApiStorageBusy("save", "正在保存 API 配置到应用数据目录…");
+      try {
+        await writeApiConfigToDirectory(true);
+      } finally {
+        clearApiStorageBusy();
+      }
       return;
     }
     if (action === "restore") {
+      if (!apiStorageState.directoryToken) {
+        setApiStorageStatus(
+          `正在打开目录选择窗口，请选择「${API_CONFIG_APP_DATA_DIR}」…`,
+          false,
+          false,
+        );
+        await chooseApiConfigDirectory("restore");
+        return;
+      }
       await restoreApiConfigFromDirectory();
     }
   }
@@ -1566,7 +2056,10 @@
         同一时间只会启用一个配置。API Key 仅保存在当前浏览器的本地存储中；切换配置后，后续请求会立即使用新的 Key 与 Base URL。
       </p>
     `;
-    if (force || root.innerHTML !== nextHtml) root.innerHTML = nextHtml;
+    if (force || root.__msRenderedHtml !== nextHtml || root.childElementCount === 0) {
+      root.innerHTML = nextHtml;
+      root.__msRenderedHtml = nextHtml;
+    }
     updateSectionCopy(root);
     profileState.profiles.forEach((profile) => scheduleAutoFetch(profile, 250));
   }
@@ -1602,6 +2095,8 @@
     renderQueued = true;
     window.requestAnimationFrame(() => {
       ensureApiStorageCard();
+      decorateAssetDirectoryInput();
+      decorateAssetDirectoryActions();
       ensureManagerMounted();
     });
   }
@@ -1631,11 +2126,6 @@
   }
 
   function handleClick(event) {
-    const storageButton = event.target.closest("[data-ms-storage-action]");
-    if (storageButton) {
-      void handleStorageAction(storageButton.dataset.msStorageAction);
-      return;
-    }
     const actionButton = event.target.closest("[data-ms-action]");
     if (!actionButton) return;
     const action = actionButton.dataset.msAction;
@@ -1735,6 +2225,22 @@
     }
   }
 
+  function handleStorageCardClick(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const storageButton = target?.closest("[data-ms-storage-action]");
+    if (!storageButton?.closest(`#${STORAGE_CARD_ID}`)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void handleStorageAction(storageButton.dataset.msStorageAction).catch((error) => {
+      clearApiStorageBusy();
+      setApiStorageStatus(
+        `操作失败：${error?.message || String(error)}`,
+        true,
+        false,
+      );
+    });
+  }
+
   function handleInput(event) {
     const field = event.target.closest("[data-ms-field]");
     if (!field) return;
@@ -1789,12 +2295,28 @@
 
   function init() {
     installStyles();
+    installAssetDirectoryBridgeWatch();
+    refreshLocalFolderOpenAvailability();
     const root = document.getElementById("root") || document.documentElement;
+    document.addEventListener("click", handleStorageCardClick, true);
+    document.addEventListener("click", handleDirectoryInspectorClick, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeDirectoryInspector();
+    });
+    window.addEventListener("manshiguang:directory-inspected", (event) => {
+      showDirectoryInspector(event.detail);
+    });
+    window.addEventListener("manshiguang:directory-opened", (event) => {
+      showStatus(
+        `已在 Windows 资源管理器中打开：${event.detail?.path || ASSET_DIRECTORY_DISPLAY_PATH}`,
+      );
+    });
     root.addEventListener("click", handleClick);
     root.addEventListener("input", handleInput);
     root.addEventListener("change", handleChange);
     root.addEventListener("pointerdown", rememberModelScroll, true);
-    new MutationObserver(queueRender).observe(root, {
+    const observeTarget = document.body || document.documentElement;
+    new MutationObserver(queueRender).observe(observeTarget, {
       childList: true,
       subtree: true,
     });

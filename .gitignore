@@ -1,0 +1,14 @@
+# 漫时光 · 本地资产与临时文件
+
+# 资产参考库原图/缩略图与索引（约 1.1GB），从本地 ai-pose-gallery-zh-main 复制而来，
+# 仅作为本地静态资源直读，不进入版本库。
+gallery/local-assets/
+
+# Python 与本地运行产物
+__pycache__/
+*.pyc
+server.log
+x.t
+
+# 会话临时脚本（一次性补丁写入器与 headless 自测），不进入版本库
+_scratch/

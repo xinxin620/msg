@@ -7,9 +7,81 @@
   const DB_VERSION = 1;
   const DIRECTORY_STORE = "directoryHandles";
   const DEFAULT_DIRECTORY_KEY = "bridge:default";
+  const MEDIA_PATHS_KEY = "bridge:mediaPaths";
+  const MAX_MEDIA_PATH_RECORDS = 1200;
+  const ASSET_DISPLAY_ROOT = "D:\\data\\workData\\漫时光\\画布";
+  const virtualBlobUrls = new Map();
+  const LOCAL_FOLDER_OPEN_PATHS = {
+    images: "D:\\data\\workData\\漫时光\\画布\\images",
+    msg: "C:\\Users\\liliang\\msg",
+  };
+  const nativeFetch = window.fetch.bind(window);
+  const nativeCreateObjectURL = URL.createObjectURL.bind(URL);
+  const nativeRevokeObjectURL = URL.revokeObjectURL.bind(URL);
   const directoryRecords = new Map();
   const temporaryUploads = new Map();
+  const createdObjectBlobs = new Map();
+  const MEDIA_EXTENSIONS = new Set([
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".svg",
+    ".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv",
+    ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac",
+  ]);
   let databasePromise;
+
+  URL.createObjectURL = (value) => {
+    const url = nativeCreateObjectURL(value);
+    if (value instanceof Blob) {
+      createdObjectBlobs.set(url, value);
+      window.setTimeout(() => createdObjectBlobs.delete(url), 60000);
+    }
+    return url;
+  };
+
+  URL.revokeObjectURL = (url) => {
+    nativeRevokeObjectURL(url);
+  };
+
+  window.fetch = async function patchedFetch(input, init) {
+    const rawUrl =
+      typeof input === "string" || input instanceof URL
+        ? String(input)
+        : input && typeof input === "object"
+          ? String(input.url || "")
+          : "";
+    if (isWindowsStylePath(rawUrl) || isFileUrlPath(rawUrl)) {
+      try {
+        const blob = await readAssetBlob(rawUrl);
+        return new Response(blob, { status: 200, statusText: "OK" });
+      } catch (error) {
+        return new Response(error?.message || "读取本地素材失败", {
+          status: 404,
+          statusText: "Not Found",
+        });
+      }
+    }
+    return nativeFetch(input, init);
+  };
+
+  function persistBlobUrl(blob) {
+    return nativeCreateObjectURL(blob);
+  }
+
+  // 旧版桥接写入的 webdir: 路径需要转成浏览器可用 URL；同一素材只生成一次，
+  // 避免节点反复渲染时不断泄漏 Blob。
+  function virtualPathToObjectUrl(path) {
+    const cached = virtualBlobUrls.get(path);
+    if (cached) return Promise.resolve(cached);
+    const pending = readVirtualBlob(path).then((blob) => {
+      const objectUrl = persistBlobUrl(blob);
+      virtualBlobUrls.set(path, objectUrl);
+      return objectUrl;
+    });
+    virtualBlobUrls.set(path, pending);
+    return pending.then((objectUrl) => {
+      virtualBlobUrls.set(path, objectUrl);
+      return objectUrl;
+    });
+  }
 
   function makeId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -102,7 +174,7 @@
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => {
-        console.warn("[简单画布] 无法打开目录授权数据库", request.error);
+        console.warn("[画布] 无法打开目录授权数据库", request.error);
         resolve(null);
       };
     });
@@ -128,7 +200,7 @@
       transaction.objectStore(DIRECTORY_STORE).put(value, key);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => {
-        console.warn("[简单画布] 无法保存目录授权", transaction.error);
+        console.warn("[画布] 无法保存目录授权", transaction.error);
         resolve();
       };
       transaction.onabort = () => resolve();
@@ -198,6 +270,112 @@
     return record;
   }
 
+  async function resolveDirectoryRecordOnly(root) {
+    const requested = typeof root === "string" ? root.trim() : "";
+    if (!requested || requested === DOWNLOAD_ROOT) {
+      return getDirectoryRecord(DEFAULT_DIRECTORY_KEY);
+    }
+    const token = requested.split("/")[0];
+    if (!token.startsWith("webdir:")) return null;
+    return getDirectoryRecord(token);
+  }
+
+  function normalizePathKey(value) {
+    return String(value || "")
+      .trim()
+      .replace(/[\\/]+/g, "\\")
+      .replace(/\\+$/, "")
+      .toLowerCase();
+  }
+
+  function toNativePath(root, segments) {
+    return [root, ...segments].join("\\");
+  }
+
+  function isWindowsStylePath(value) {
+    return /^[a-zA-Z]:[\\/]/.test(String(value || "").trim());
+  }
+
+  function isFileUrlPath(value) {
+    return /^file:\/\//i.test(String(value || "").trim());
+  }
+
+  function decodeFileUrlPath(value) {
+    const raw = String(value || "").trim().replace(/^file:\/\/?/i, "");
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+
+  // 浏览器拿不到 Windows 绝对路径，但打包画布只把 file:// 和「盘符:\\」开头的字符串
+  // 当作本地路径，其它格式会被原样塞进 <img src>，于是上传后只剩一个文件名。
+  // 这里落盘成功后登记一条「显示用绝对路径 -> 目录授权 token + 相对片段」映射，
+  // 读取时再按映射回到 File System Access handle，真实读写仍然不依赖这段文本。
+  function mediaRootFor(record) {
+    const name = String(record?.name || "").trim();
+    const known = LOCAL_FOLDER_OPEN_PATHS[name.toLowerCase()];
+    if (known) return known;
+    return toNativePath(ASSET_DISPLAY_ROOT, [name || "assets"]);
+  }
+
+  let mediaPathIndexPromise;
+
+  async function loadMediaPathIndex() {
+    const stored = await databaseGet(MEDIA_PATHS_KEY);
+    if (stored && typeof stored === "object") {
+      if (!Array.isArray(stored.records)) stored.records = [];
+      return stored;
+    }
+    return { records: [] };
+  }
+
+  function mediaPathIndex() {
+    if (!mediaPathIndexPromise) mediaPathIndexPromise = loadMediaPathIndex();
+    return mediaPathIndexPromise;
+  }
+
+  async function registerMediaPath(root, token, segments) {
+    const nativePath = toNativePath(root, segments);
+    const key = normalizePathKey(nativePath);
+    const index = await mediaPathIndex();
+    index.records = index.records.filter(
+      (item) => normalizePathKey(item?.path) !== key,
+    );
+    index.records.unshift({
+      path: nativePath,
+      token,
+      segments: segments.map((segment) => String(segment)),
+      savedAt: Date.now(),
+    });
+    if (index.records.length > MAX_MEDIA_PATH_RECORDS) {
+      index.records.length = MAX_MEDIA_PATH_RECORDS;
+    }
+    mediaPathIndexPromise = Promise.resolve(index);
+    await databasePut(MEDIA_PATHS_KEY, index);
+    return nativePath;
+  }
+
+  async function resolveMediaPath(value) {
+    const candidate = isFileUrlPath(value) ? decodeFileUrlPath(value) : String(value || "").trim();
+    if (!isWindowsStylePath(candidate)) return null;
+    const key = normalizePathKey(candidate);
+    const index = await mediaPathIndex();
+    for (const record of index.records) {
+      if (!record?.token || !Array.isArray(record.segments) || !record.segments.length) {
+        continue;
+      }
+      if (normalizePathKey(record.path) === key) {
+        return {
+          token: record.token,
+          segments: record.segments.map((segment) => String(segment)),
+        };
+      }
+    }
+    return null;
+  }
+
   function parseVirtualPath(value) {
     const match = /^webdir:([^:]+):([^/]+)\/(.+)$/.exec(value);
     if (!match) return null;
@@ -234,6 +412,22 @@
     return fileHandle.getFile();
   }
 
+  async function readAssetBlob(value) {
+    const raw = String(value || "").trim();
+    if (!raw) throw new Error("本地媒体路径为空");
+    if (raw.startsWith("webdir:")) return readVirtualBlob(raw);
+    if (isWindowsStylePath(raw) || isFileUrlPath(raw)) {
+      const resolved = await resolveMediaPath(raw);
+      if (!resolved) {
+        throw new Error(
+          `本地素材“${raw}”在当前浏览器中没有对应的目录授权。请在画布设置中重新选择资产目录，并重新上传该素材。`,
+        );
+      }
+      return readVirtualBlob(`${resolved.token}/${resolved.segments.join("/")}`);
+    }
+    throw new Error(`不支持的文件路径格式：${raw}`);
+  }
+
   async function ensureSubdirectory(rootHandle, segments) {
     let directory = rootHandle;
     for (const segment of segments) {
@@ -260,18 +454,210 @@
     throw new Error("同名素材过多，无法生成可用文件名");
   }
 
+  // 用户经常直接从资产目录里选图上传，此时同名文件已经存在。
+  // 旧策略一律加 -2/-3 后缀另存，于是「传一张照片多出两张一样的图」。
+  // 现在先按字节比较：内容完全相同就复用原文件，确实不同才另存新名。
+  async function hasIdenticalFile(directoryHandle, fileName, blob) {
+    let fileHandle;
+    try {
+      fileHandle = await directoryHandle.getFileHandle(fileName);
+    } catch (error) {
+      if (error?.name === "NotFoundError") return false;
+      throw error;
+    }
+    const existing = await fileHandle.getFile();
+    if (existing.size !== blob.size) return false;
+    const [before, after] = await Promise.all([existing.arrayBuffer(), blob.arrayBuffer()]);
+    const left = new Uint8Array(before);
+    const right = new Uint8Array(after);
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) return false;
+    }
+    return true;
+  }
+
+  async function writeOrReuseFile(directoryHandle, fileName, blob) {
+    if (await hasIdenticalFile(directoryHandle, fileName, blob)) return fileName;
+    return writeUniqueFile(directoryHandle, fileName, blob);
+  }
+
   function downloadBlob(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = sanitizeFileName(fileName);
     anchor.rel = "noopener";
+    anchor.dataset.manshiguangDirectDownload = "1";
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     return url;
+  }
+
+  function showAssetToast(message, isError = false) {
+    let host = document.getElementById("manshiguang-asset-toast");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "manshiguang-asset-toast";
+      host.setAttribute("role", "status");
+      host.setAttribute("aria-live", "polite");
+      host.style.cssText = [
+        "position:fixed",
+        "right:24px",
+        "bottom:24px",
+        "z-index:2147483647",
+        "max-width:min(440px,calc(100vw - 48px))",
+        "padding:12px 16px",
+        "border:1px solid rgba(94, 234, 212, .45)",
+        "border-radius:10px",
+        "background:rgba(7, 11, 24, .96)",
+        "color:#e8f7ff",
+        "font:14px/1.6 system-ui,-apple-system,'Microsoft YaHei',sans-serif",
+        "box-shadow:0 12px 36px rgba(0,0,0,.35)",
+        "opacity:0",
+        "transform:translateY(8px)",
+        "transition:opacity .18s ease,transform .18s ease",
+        "pointer-events:none",
+      ].join(";");
+      document.body.appendChild(host);
+    }
+    host.textContent = message;
+    host.style.borderColor = isError
+      ? "rgba(255, 111, 97, .65)"
+      : "rgba(94, 234, 212, .45)";
+    host.style.color = isError ? "#ffd9d5" : "#e8f7ff";
+    window.clearTimeout(showAssetToast.timer);
+    window.requestAnimationFrame(() => {
+      host.style.opacity = "1";
+      host.style.transform = "translateY(0)";
+    });
+    showAssetToast.timer = window.setTimeout(() => {
+      host.style.opacity = "0";
+      host.style.transform = "translateY(8px)";
+    }, isError ? 6000 : 3600);
+  }
+
+  function mediaKindFor(fileName, mimeType = "") {
+    const normalizedMime = String(mimeType || "").toLowerCase();
+    if (normalizedMime.startsWith("image/")) return "image";
+    if (normalizedMime.startsWith("video/")) return "video";
+    if (normalizedMime.startsWith("audio/")) return "audio";
+    const extension = splitFileName(fileName).extension.toLowerCase();
+    if (new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".svg"]).has(extension)) {
+      return "image";
+    }
+    if (new Set([".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv"]).has(extension)) {
+      return "video";
+    }
+    if (new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"]).has(extension)) {
+      return "audio";
+    }
+    return "";
+  }
+
+  function isMediaDownloadName(fileName) {
+    return MEDIA_EXTENSIONS.has(splitFileName(fileName).extension.toLowerCase());
+  }
+
+  function directoryMatchesAssetKind(directoryName, kind) {
+    const name = String(directoryName || "").trim().toLowerCase();
+    if (kind === "image") return name === "images" || name === "image";
+    if (kind === "video") return name === "videos" || name === "video";
+    return name === "audio" || name === "audios";
+  }
+
+  async function resolveAssetTarget(record, kind) {
+    const folder = kind === "image" ? "images" : kind === "video" ? "videos" : "audio";
+    if (directoryMatchesAssetKind(record.name, kind)) {
+      return {
+        directory: record.handle,
+        pathPrefix: record.token,
+        root: mediaRootFor(record),
+        segments: [],
+      };
+    }
+    const directory = await ensureSubdirectory(record.handle, [folder]);
+    return {
+      directory,
+      pathPrefix: `${record.token}/${folder}`,
+      root: mediaRootFor(record),
+      segments: [folder],
+    };
+  }
+
+  async function saveDownloadedMedia(blob, fileName) {
+    const record = await getDirectoryRecord(DEFAULT_DIRECTORY_KEY);
+    if (!record?.handle) return null;
+    await ensureDirectoryPermission(record.handle);
+    const kind = mediaKindFor(fileName, blob.type);
+    if (!kind) return null;
+    const target = await resolveAssetTarget(record, kind);
+    const finalName = fileNameWithExtension(fileName, kind, blob.type);
+    const savedName = await writeOrReuseFile(target.directory, finalName, blob);
+    return {
+      fileName: savedName,
+      filePath: await registerMediaPath(target.root, record.token, [
+        ...target.segments,
+        savedName,
+      ]),
+      virtualPath: `${target.pathPrefix}/${savedName}`,
+      directoryName: record.name,
+      kind,
+    };
+  }
+
+  function handleMediaDownload(event) {
+    if (event.defaultPrevented) return;
+    const anchor = event.target?.closest?.("a[download]");
+    if (!anchor || anchor.dataset.manshiguangDirectDownload === "1") return;
+    const href = String(anchor.href || "");
+    if (!href.startsWith("blob:") && !href.startsWith("data:")) return;
+    const requestedName = sanitizeFileName(anchor.download || "asset");
+    if (!isMediaDownloadName(requestedName)) return;
+
+    const cachedBlob = createdObjectBlobs.get(href);
+    const blobPromise = cachedBlob
+      ? Promise.resolve(cachedBlob)
+      : fetch(href).then((response) => {
+          if (!response.ok) throw new Error(`读取下载文件失败：HTTP ${response.status}`);
+          return response.blob();
+        });
+    event.preventDefault();
+
+    blobPromise
+      .then(async (blob) => {
+        const fileName = fileNameWithExtension(
+          requestedName,
+          mediaKindFor(requestedName, blob.type) || "image",
+          blob.type,
+        );
+        let saved = null;
+        try {
+          saved = await saveDownloadedMedia(blob, fileName);
+        } catch (error) {
+          showAssetToast(
+            `保存到资产目录失败，已改为浏览器下载：${error?.message || "目录不可用"}`,
+            true,
+          );
+          downloadBlob(blob, fileName);
+          return;
+        }
+        if (!saved) {
+          showAssetToast("尚未授权资产目录，已保存到浏览器默认下载目录。", true);
+          downloadBlob(blob, fileName);
+          return;
+        }
+        showAssetToast(`已保存到资产目录：${saved.directoryName}\${saved.fileName}`);
+        window.dispatchEvent(
+          new CustomEvent("manshiguang:download-saved", { detail: saved }),
+        );
+      })
+      .catch((error) => {
+        showAssetToast(`下载文件读取失败：${error?.message || "未知错误"}`, true);
+      });
   }
 
   function dataUrlToBlob(dataUrl) {
@@ -345,7 +731,13 @@
       if (!response.ok) throw new Error(`下载媒体失败：HTTP ${response.status}`);
       return response.blob();
     }
-    if (sourceUrl.startsWith("webdir:")) return readVirtualBlob(sourceUrl);
+    if (
+      sourceUrl.startsWith("webdir:") ||
+      isWindowsStylePath(sourceUrl) ||
+      isFileUrlPath(sourceUrl)
+    ) {
+      return readAssetBlob(sourceUrl);
+    }
     throw new Error(`网页版无法读取本地绝对路径“${sourceUrl}”`);
   }
 
@@ -430,6 +822,15 @@
     }
     if (file?.filePath && file.filePath.startsWith("webdir:")) {
       return readVirtualBlob(file.filePath);
+    }
+    if (file?.filePath && file.filePath.startsWith("data:")) {
+      return dataUrlToBlob(file.filePath);
+    }
+    if (
+      file?.filePath &&
+      (isWindowsStylePath(file.filePath) || isFileUrlPath(file.filePath))
+    ) {
+      return readAssetBlob(file.filePath);
     }
     if (file?.file instanceof Blob) return file.file;
     throw new Error(`无法读取上传文件“${file?.fileName || file?.filePath || "未命名文件"}”`);
@@ -545,15 +946,15 @@
     if (!String(payload.fileBase64 || "").trim()) throw new Error("缺少临时上传文件内容");
     const fileName = sanitizeFileName(payload.fileName || `upload-${Date.now()}.jpg`, "upload.jpg");
     const mimeType = payload.mimeType || mimeFromFileName(fileName);
+    const dataUrl = `data:${mimeType};base64,${payload.fileBase64}`;
     const token = `temp-upload:${makeId()}`;
     temporaryUploads.set(token, {
       blob: base64ToBlob(payload.fileBase64, mimeType),
       fileName,
       mimeType,
     });
-    return { filePath: token, fileName, mimeType };
+    return { filePath: dataUrl, fileName, mimeType };
   }
-
   async function hmacSha1Base64(secret, message) {
     if (!window.crypto?.subtle) {
       throw new Error("当前页面不是安全上下文，无法使用 Web Crypto 完成 OSS 签名");
@@ -644,31 +1045,52 @@
     const value = String(pathOrUrl || "").trim();
     if (!value) throw new Error("本地媒体路径为空");
     if (value.startsWith("data:")) return value;
+    if (value.startsWith("temp-upload:")) {
+      const record = temporaryUploads.get(value);
+      if (!record?.blob) throw new Error("临时上传文件已过期，请重新上传");
+      return blobToDataUrl(record.blob);
+    }
     if (value.startsWith("webdir:")) return blobToDataUrl(await readVirtualBlob(value));
+    if (isWindowsStylePath(value) || isFileUrlPath(value)) {
+      return blobToDataUrl(await readAssetBlob(value));
+    }
     if (value.startsWith("blob:") || /^https?:\/\//i.test(value)) {
-      const response = await fetch(value);
-      if (!response.ok) throw new Error(`读取媒体失败：HTTP ${response.status}`);
+      const response = await performFetch(String(value), { method: "GET" }, 180000, "本地媒体读取");
+      if (!response.ok) throw new Error(`媒体读取失败：HTTP ${response.status}`);
       return blobToDataUrl(await response.blob());
     }
-    throw new Error(
-      `网页版无法读取本地绝对路径“${value}”。请通过画布上传文件，或先选择浏览器素材目录。`,
-    );
+    if (/^[\w.\-\/_ ]+$/.test(value) && !value.includes("\\")) {
+      const response = await performFetch(`${window.location.origin}/__media/${encodeURIComponent(value)}`, { method: "GET" }, 180000, "本地媒体读取");
+      if (!response.ok) throw new Error(`媒体读取失败：HTTP ${response.status}`);
+      return blobToDataUrl(await response.blob());
+    }
+    throw new Error(`不支持的文件路径格式：${value}`);
   }
 
   async function getLocalMediaFileUrl(pathOrUrl) {
     const value = String(pathOrUrl || "").trim();
     if (!value) throw new Error("本地媒体路径为空");
+    if (value.startsWith("temp-upload:")) {
+      const record = temporaryUploads.get(value);
+      if (!record?.blob) throw new Error("临时上传文件已过期，请重新上传");
+      return URL.createObjectURL(record.blob);
+    }
     if (value.startsWith("data:") || value.startsWith("blob:") || /^https?:\/\//i.test(value)) {
       return value;
     }
     if (value.startsWith("webdir:")) {
-      return URL.createObjectURL(await readVirtualBlob(value));
+      return virtualPathToObjectUrl(value);
+    }
+    if (isWindowsStylePath(value) || isFileUrlPath(value)) {
+      return URL.createObjectURL(await readAssetBlob(value));
+    }
+    if (/^[\w.\-\/_ ]+$/.test(value) && !value.includes("\\")) {
+      return `${window.location.origin}/__media/${encodeURIComponent(value)}`;
     }
     throw new Error(
       `网页版无法访问本地绝对路径“${value}”。请通过画布上传文件，或先选择浏览器素材目录。`,
     );
   }
-
   async function saveMediaAsset(payload = {}) {
     const kind = payload.kind;
     if (kind !== "image" && kind !== "video" && kind !== "audio") {
@@ -683,7 +1105,8 @@
     );
     const record = await resolveDirectory(payload.assetRootDir);
     if (!record) {
-      const fileUrl = downloadBlob(blob, fileName);
+      downloadBlob(blob, fileName);
+      const fileUrl = persistBlobUrl(blob);
       return {
         filePath: fileUrl,
         fileUrl,
@@ -692,12 +1115,15 @@
       };
     }
 
-    const folder = kind === "image" ? "images" : kind === "video" ? "videos" : "audio";
-    const directory = await ensureSubdirectory(record.handle, [folder]);
-    const finalName = await writeUniqueFile(directory, fileName, blob);
-    const file = await (await directory.getFileHandle(finalName)).getFile();
+    const target = await resolveAssetTarget(record, kind);
+    const finalName = await writeOrReuseFile(target.directory, fileName, blob);
+    const file = await (await target.directory.getFileHandle(finalName)).getFile();
     return {
-      filePath: `${record.token}/${folder}/${finalName}`,
+      filePath: await registerMediaPath(target.root, record.token, [
+        ...target.segments,
+        finalName,
+      ]),
+      virtualPath: `${target.pathPrefix}/${finalName}`,
       fileUrl: URL.createObjectURL(file),
       fileName: finalName,
       mimeType,
@@ -714,7 +1140,8 @@
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const record = await resolveDirectory(payload.assetRootDir);
     if (!record) {
-      const fileUrl = downloadBlob(blob, fileName);
+      downloadBlob(blob, fileName);
+      const fileUrl = persistBlobUrl(blob);
       return {
         fileName,
         filePath: fileUrl,
@@ -723,11 +1150,15 @@
       };
     }
     const directory = await ensureSubdirectory(record.handle, ["texts"]);
-    const finalName = await writeUniqueFile(directory, fileName, blob);
+    const finalName = await writeOrReuseFile(directory, fileName, blob);
     const file = await (await directory.getFileHandle(finalName)).getFile();
     return {
       fileName: finalName,
-      filePath: `${record.token}/texts/${finalName}`,
+      filePath: await registerMediaPath(mediaRootFor(record), record.token, [
+        "texts",
+        finalName,
+      ]),
+      virtualPath: `${record.token}/texts/${finalName}`,
       fileUrl: URL.createObjectURL(file),
       mimeType: "text/plain",
     };
@@ -743,13 +1174,15 @@
     );
     const record = await resolveDirectory(payload.targetDir);
     if (!record) {
-      const fileUrl = downloadBlob(blob, fileName);
+      downloadBlob(blob, fileName);
+      const fileUrl = persistBlobUrl(blob);
       return { filePath: fileUrl, fileUrl, fileName, mimeType };
     }
-    const finalName = await writeUniqueFile(record.handle, fileName, blob);
+    const finalName = await writeOrReuseFile(record.handle, fileName, blob);
     const file = await (await record.handle.getFileHandle(finalName)).getFile();
     return {
-      filePath: `${record.token}/${finalName}`,
+      filePath: await registerMediaPath(mediaRootFor(record), record.token, [finalName]),
+      virtualPath: `${record.token}/${finalName}`,
       fileUrl: URL.createObjectURL(file),
       fileName: finalName,
       mimeType,
@@ -844,21 +1277,14 @@
     if (typeof window.showDirectoryPicker !== "function") {
       return DOWNLOAD_ROOT;
     }
-    const defaultRecord = await getDirectoryRecord(DEFAULT_DIRECTORY_KEY);
     let handle;
     try {
-      handle = await window.showDirectoryPicker({
-        mode: "readwrite",
-        startIn: defaultRecord?.handle,
-      });
+      // showDirectoryPicker must run before any await so the click still counts
+      // as a user activation. Looking up startIn from IndexedDB would consume it.
+      handle = await window.showDirectoryPicker({ mode: "readwrite" });
     } catch (error) {
       if (isAbortError(error)) return null;
-      try {
-        handle = await window.showDirectoryPicker({ mode: "readwrite" });
-      } catch (retryError) {
-        if (isAbortError(retryError)) return null;
-        throw retryError;
-      }
+      throw error;
     }
     const token = `webdir:${makeId()}:${encodeURIComponent(handle.name || "assets")}`;
     await saveDirectoryRecord(token, handle);
@@ -873,9 +1299,16 @@
     }
     let handle;
     try {
+      // Keep this call first in the handler; IndexedDB lookup before it loses
+      // transient user activation and prevents the Windows picker from opening.
       handle = await window.showDirectoryPicker({ mode: "readwrite" });
     } catch (error) {
-      if (isAbortError(error)) return null;
+      if (error?.name === "AbortError") return null;
+      if (error?.name === "NotAllowedError") {
+        throw new Error(
+          "浏览器阻止了目录选择。目标位置为 C:\Users\liliang\msg；请重新点击“本地目录”或“打开应用数据目录”后，在系统窗口中选择该目录。",
+        );
+      }
       throw error;
     }
     const token = `webdir:${makeId()}:${encodeURIComponent(handle.name || "api-config")}`;
@@ -948,14 +1381,124 @@
     return record?.token || DOWNLOAD_ROOT;
   }
 
-  async function openFolder() {
-    throw new Error(
-      "网页版无法打开系统文件管理器。请在浏览器下载记录中查看文件，或使用“选择素材目录”后到该目录查看。",
+  async function describeDirectoryContents(record, maxEntries = 120) {
+    const directories = [];
+    const files = [];
+    let truncated = false;
+    if (record?.handle?.entries) {
+      for await (const [name, handle] of record.handle.entries()) {
+        if (directories.length + files.length >= maxEntries) {
+          truncated = true;
+          break;
+        }
+        if (handle.kind === "directory") directories.push(name);
+        else files.push(name);
+      }
+    }
+    const sorter = (left, right) => left.localeCompare(right, "zh-CN");
+    directories.sort(sorter);
+    files.sort(sorter);
+    return {
+      token: record.token,
+      directoryName: record.name || "浏览器授权目录",
+      directories,
+      files,
+      truncated,
+      inspectedAt: new Date().toISOString(),
+    };
+  }
+
+  async function requestLocalFolderOpen(path) {
+    const response = await nativeFetch("/__open_folder", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Manshiguang-Action": "open-folder",
+      },
+      body: JSON.stringify({ path }),
+      cache: "no-store",
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload?.ok) {
+      throw new Error(
+        payload?.error || `本地打开服务不可用（HTTP ${response.status}）`,
+      );
+    }
+    return payload;
+  }
+
+  async function openFolder(root) {
+    // 普通浏览器不能直接启动资源管理器。start.bat 会启动本机 server.py，
+    // 由它只对固定目录执行打开操作；旧静态服务器下仍回退为页面内查看。
+    let record = null;
+    let openError = "";
+    try {
+      record = await resolveDirectoryRecordOnly(root);
+    } catch (error) {
+      openError = error?.message || String(error);
+    }
+
+    const localPath = record
+      ? LOCAL_FOLDER_OPEN_PATHS[String(record.name || "").trim().toLowerCase()]
+      : "";
+    if (record && localPath) {
+      try {
+        const opened = await requestLocalFolderOpen(localPath);
+        const detail = {
+          opened: true,
+          token: record.token,
+          directoryName: record.name || "浏览器授权目录",
+          path: opened.path || localPath,
+          openedAt: new Date().toISOString(),
+        };
+        window.dispatchEvent(
+          new CustomEvent("manshiguang:directory-opened", { detail }),
+        );
+        return detail;
+      } catch (error) {
+        openError =
+          `${error?.message || String(error)}。` +
+          "请关闭当前服务窗口，双击 stop.bat 后再双击 start.bat；下面先显示目录内容。";
+      }
+    }
+
+    let detail;
+    try {
+      if (!record) {
+        detail = {
+          directoryName: "",
+          directories: [],
+          files: [],
+          error:
+            openError ||
+            "尚未选择资产目录，请先点击「选择目录」并完成一次授权。",
+        };
+      } else {
+        await ensureDirectoryPermission(record.handle);
+        detail = await describeDirectoryContents(record);
+      }
+    } catch (error) {
+      detail = {
+        directoryName: "",
+        directories: [],
+        files: [],
+        error: error?.message || String(error),
+      };
+    }
+    if (openError && !detail.error) detail.openError = openError;
+    window.dispatchEvent(
+      new CustomEvent("manshiguang:directory-inspected", { detail }),
     );
+    return detail;
   }
 
   function appendDiagnosticLog(message) {
-    console.info(`[简单画布 ${new Date().toISOString()}]`, message);
+    console.info(`[画布 ${new Date().toISOString()}]`, message);
   }
 
   function getUserDataPath() {
@@ -1010,6 +1553,74 @@
     throw new Error(
       "网页版暂不支持 FFmpeg 视频剪辑。请使用原桌面版，或后续接入 ffmpeg.wasm。",
     );
+  }
+
+  // 历史工作流里可能还留着旧版桥接写入的 webdir: 路径。打包画布只认识 file:// 和
+  // 「盘符:\\」，其余字符串会被原样塞进 src，导致图片位只剩文件名。
+  // 这里在元素层做一次兜底解析，让旧数据不必重新上传也能显示。
+  function installLocalPathSrcFallback(prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "src");
+    if (!descriptor || descriptor.set === undefined || descriptor.get === undefined) return;
+    const nativeSet = descriptor.set;
+    const nativeGet = descriptor.get;
+    Object.defineProperty(prototype, "src", {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() {
+        return nativeGet.call(this);
+      },
+      set(value) {
+        const raw = String(value ?? "");
+        if (!raw.startsWith("webdir:")) {
+          nativeSet.call(this, raw);
+          return;
+        }
+        let token = this.__manshiguangSrcToken ?? 0;
+        token += 1;
+        this.__manshiguangSrcToken = token;
+        const element = this;
+        virtualPathToObjectUrl(raw)
+          .then((objectUrl) => {
+            if (element.__manshiguangSrcToken !== token) return;
+            nativeSet.call(element, objectUrl);
+          })
+          .catch((error) => {
+            console.warn("[画布] 旧素材路径无法读取", raw, error);
+            virtualBlobUrls.delete(raw);
+            if (element.__manshiguangSrcToken === token) nativeSet.call(element, raw);
+          });
+      },
+    });
+  }
+
+  installLocalPathSrcFallback(window.HTMLImageElement?.prototype);
+  installLocalPathSrcFallback(window.HTMLMediaElement?.prototype);
+
+  document.addEventListener("click", handleMediaDownload, true);
+
+  // 工作台顶层可以重新授权资产目录：handle 变了就丢掉内存缓存，
+  // 下一次读写直接从 IndexedDB 取新的授权，避免写到旧目录去。
+  function dropDirectoryCache(reason) {
+    if (directoryRecords.size) {
+      directoryRecords.clear();
+    }
+    if (reason) return;
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (data && data.source === "manshiguang-studio" && data.type === "directory-changed") {
+      dropDirectoryCache();
+    }
+  });
+
+  if (typeof BroadcastChannel === "function") {
+    const bridgeChannel = new BroadcastChannel("manshiguang-canvas-bridge");
+    bridgeChannel.addEventListener("message", (event) => {
+      const data = event.data;
+      if (data && data.type === "directory-changed") dropDirectoryCache();
+    });
   }
 
   window.electronAPI = {

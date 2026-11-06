@@ -8,7 +8,7 @@
     <meta http-equiv="pragma" content="no-cache" />
     <meta http-equiv="expires" content="0" />
     <link rel="icon" href="./icon.ico" />
-    <title>简单画布 · 漫时光</title>
+    <title>画布 · 漫时光</title>
     <style>
       html,
       body,
@@ -60,17 +60,26 @@
         color: #b42318;
       }
     </style>
-    <link rel="stylesheet" href="./assets/index-BfAuAU0s.css" />
-    <script src="./web-bridge.js"></script>
+    <script>
+      (() => {
+        const currentVersion = "20261107-5";
+        const url = new URL(window.location.href);
+        if (url.searchParams.get("v") === currentVersion) return;
+        url.searchParams.set("v", currentVersion);
+        window.location.replace(url.href);
+      })();
+    </script>    <link rel="stylesheet" href="./assets/index-BfAuAU0s.css" />
+    <script src="./web-bridge.js?v=20261107-5"></script>
     <script defer src="./assets/index-BN-uSJKj.js"></script>
-    <script defer src="./branding-patch.js?v=20261103-2"></script>
-    <script defer src="./api-profiles-patch.js?v=20261104-3"></script>
-    <script defer src="./model-patch.js?v=20261103-3"></script>
+    <script defer src="./branding-patch.js?v=20261107-5"></script>
+    <script defer src="./api-profiles-patch.js?v=20261107-5"></script>
+    <script defer src="./model-patch.js?v=20261107-5"></script>
+    <script defer src="./gallery-patch.js?v=20261107-5"></script>
   </head>
   <body>
     <div id="root"></div>
     <div id="canvasBoot" role="status" aria-live="polite">
-      <strong>正在打开简单画布…</strong>
+      <strong>正在打开画布…</strong>
       <small>正在恢复画布、工作流与本地设置</small>
     </div>
     <script>

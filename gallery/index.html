@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="漫时光资产参考库：浏览姿势、服装与人像参考，默认隐藏敏感内容。"
+    />
+    <meta name="theme-color" content="#eeecea" />
+    <title>资产参考库 · 漫时光</title>
+    <link rel="icon" href="../assets/favicon.ico?v=20261107-5" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32x32.png?v=20261107-5" />
+    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicon-16x16.png?v=20261107-5" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700&family=Zen+Maru+Gothic:wght@500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/gallery.css?v=20261107-5" />
+    <script src="assets/gallery.js?v=20261107-5" defer></script>
+  </head>
+  <body class="is-loading">
+    <a class="skip-link" href="#assetMain">跳到资产浏览</a>
+    <div class="site-noise" aria-hidden="true"></div>
+    <div class="starfield" id="starfield" aria-hidden="true"></div>
+    <div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
+
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="icon-back" viewBox="0 0 24 24">
+        <path d="M19 12H5M11 18l-6-6 6-6" />
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="6.5" />
+        <path d="m16 16 4.2 4.2" />
+      </symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="icon-left" viewBox="0 0 24 24">
+        <path d="m15 5-7 7 7 7" />
+      </symbol>
+      <symbol id="icon-right" viewBox="0 0 24 24">
+        <path d="m9 5 7 7-7 7" />
+      </symbol>
+      <symbol id="icon-spark" viewBox="0 0 24 24">
+        <path d="m12 2 2.2 6.1L20 10l-5.8 1.9L12 18l-2.2-6.1L4 10l5.8-1.9L12 2Z" />
+        <path d="m19 16 .9 2.1L22 19l-2.1.9L19 22l-.9-2.1L16 19l2.1-.9L19 16Z" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M5 20h14" />
+      </symbol>
+      <symbol id="icon-layers" viewBox="0 0 24 24">
+        <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+        <path d="m3 12 9 5 9-5M3 16l9 5 9-5" />
+      </symbol>
+    </svg>
+
+    <header class="gallery-header">
+      <a class="brand" href="../index.html" aria-label="返回漫时光首页">
+        <span class="brand-mark" aria-hidden="true">
+          <span class="brand-orbit"></span>
+          <span class="brand-core"></span>
+        </span>
+        <span class="brand-copy">
+          <strong>漫时光</strong>
+          <small>MANSHIGUANG</small>
+        </span>
+      </a>
+
+      <div class="header-title">
+        <span class="header-kicker">REFERENCE ARCHIVE</span>
+        <span>资产参考库</span>
+      </div>
+
+      <nav class="header-actions" aria-label="页面操作">
+        <a class="header-link" href="../index.html">
+          <svg class="icon"><use href="#icon-back"></use></svg>
+          <span>返回首页</span>
+        </a>
+        <a class="header-link header-link--accent" href="../canvas/index.html?v=20261107-5" target="_blank" rel="noopener">
+          打开画布
+          <svg class="icon"><use href="#icon-arrow"></use></svg>
+        </a>
+      </nav>
+    </header>
+
+    <main id="assetMain">
+      <section class="asset-hero page-shell" aria-labelledby="assetTitle">
+        <div class="hero-aurora hero-aurora--one" aria-hidden="true"></div>
+        <div class="hero-aurora hero-aurora--two" aria-hidden="true"></div>
+        <div class="hero-grid" aria-hidden="true"></div>
+
+        <div class="hero-copy">
+          <div class="hero-kicker">
+            <span class="live-dot"></span>
+            <span>CHARACTER REFERENCE ATLAS</span>
+            <span class="kicker-line"></span>
+            <span>本地只读索引</span>
+          </div>
+          <h1 id="assetTitle">
+            <span>把角色的</span>
+            <span class="title-accent">轮廓、衣装与神情</span>
+            <span>收进一片星海</span>
+          </h1>
+          <p class="hero-lead">
+            姿势、服装与人像三库合一。默认开启安全模式，隐藏「全身单人・性感系」「双人缠绵」与「内衣・睡衣」「性感穿搭」；支持中文检索、分类筛选、深度图与多视角切换。
+          </p>
+          <div class="hero-actions">
+            <a class="primary-button" href="#assetBrowser">
+              开始浏览
+              <svg class="icon"><use href="#icon-arrow"></use></svg>
+            </a>
+            <button class="ghost-button" id="safeModeButton" type="button" aria-pressed="true">
+              <span class="safe-dot" aria-hidden="true"></span>
+              <span id="safeModeLabel">安全模式 · 已开启</span>
+            </button>
+          </div>
+        </div>
+
+        <aside class="hero-aside" aria-label="资产库概览">
+          <div class="aside-orbit" aria-hidden="true"></div>
+          <p class="aside-label">ARCHIVE STATUS</p>
+          <div class="hero-stat">
+            <strong id="heroSafeCount">—</strong>
+            <span>当前可浏览条目</span>
+          </div>
+          <div class="hero-stat-row">
+            <div><strong id="heroPoseCount">—</strong><span>姿势</span></div>
+            <div><strong id="heroCostumeCount">—</strong><span>服装</span></div>
+            <div><strong id="heroPortraitCount">—</strong><span>人像</span></div>
+          </div>
+          <div class="aside-note">
+            <svg class="icon"><use href="#icon-spark"></use></svg>
+            <span id="archiveStatus">正在读取本地资产索引…</span>
+          </div>
+        </aside>
+      </section>
+
+      <section class="asset-browser page-shell" id="assetBrowser" aria-labelledby="browserTitle">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">THREE CONSTELLATIONS</p>
+            <h2 id="browserTitle">选择你的参考坐标</h2>
+          </div>
+          <p class="section-note" id="loadingNote" role="status" aria-live="polite">
+            正在连接本地资产目录…
+          </p>
+        </div>
+
+        <div class="library-tabs" role="tablist" aria-label="资产库">
+          <button class="library-tab is-active" type="button" role="tab" aria-selected="true" data-tab="poses">
+            <span class="tab-index">01</span>
+            <span class="tab-copy"><strong>姿势库</strong><small>姿态 · 视角 · 深度</small></span>
+            <span class="tab-count" data-count-for="poses">—</span>
+          </button>
+          <button class="library-tab" type="button" role="tab" aria-selected="false" data-tab="costumes">
+            <span class="tab-index">02</span>
+            <span class="tab-copy"><strong>服装库</strong><small>穿搭 · 历代 · 多视角</small></span>
+            <span class="tab-count" data-count-for="costumes">—</span>
+          </button>
+          <button class="library-tab" type="button" role="tab" aria-selected="false" data-tab="portraits">
+            <span class="tab-index">03</span>
+            <span class="tab-copy"><strong>人像库</strong><small>发型 · 氛围 · 精选</small></span>
+            <span class="tab-count" data-count-for="portraits">—</span>
+          </button>
+        </div>
+
+        <div class="filter-panel">
+          <label class="search-field" for="assetSearch">
+            <svg class="icon"><use href="#icon-search"></use></svg>
+            <input id="assetSearch" type="search" placeholder="搜索名称、编号、风格或标签…" autocomplete="off" />
+            <span class="search-hint">/</span>
+          </label>
+
+          <div class="filter-group" id="primaryFilters" aria-label="主要分类"></div>
+          <div class="filter-group filter-group--secondary" id="secondaryFilters" aria-label="次级筛选"></div>
+
+          <div class="filter-toolbar">
+            <div class="option-group" id="optionFilters" aria-label="显示选项"></div>
+            <button class="text-button" id="resetFilters" type="button">重置筛选</button>
+          </div>
+        </div>
+
+        <div class="result-bar">
+          <p><span id="resultCount">0</span> 个参考结果</p>
+          <div class="result-actions">
+            <span class="safe-badge" id="safeBadge">SFW 安全模式</span>
+            <button class="view-button is-active" id="loadAllButton" type="button" hidden>显示全部</button>
+          </div>
+        </div>
+
+        <div class="asset-grid" id="assetGrid" aria-live="polite"></div>
+
+        <div class="empty-state" id="emptyState" hidden>
+          <div class="empty-orbit" aria-hidden="true"></div>
+          <h3>这片星域暂时没有匹配项</h3>
+          <p>试试更短的关键词，或重置分类筛选。</p>
+          <button class="ghost-button" id="emptyReset" type="button">重置筛选</button>
+        </div>
+
+        <div class="load-more-wrap">
+          <button class="primary-button load-more" id="loadMore" type="button" hidden>
+            加载更多参考
+            <span id="remainingCount"></span>
+          </button>
+        </div>
+
+        <div class="archive-alert" id="archiveAlert" hidden role="alert"></div>
+      </section>
+
+      <section class="archive-notes page-shell" aria-labelledby="notesTitle">
+        <div class="notes-heading">
+          <p class="section-kicker">CREATOR CREDITS</p>
+          <h2 id="notesTitle">来源与使用边界</h2>
+        </div>
+        <div class="notes-grid">
+          <article>
+            <span class="note-index">A</span>
+            <h3>姿势与现实服装</h3>
+            <p>来源：ギア（@giaaibusi）。仅供个人学习、人体动态研究与合法艺术创作。</p>
+          </article>
+          <article>
+            <span class="note-index">B</span>
+            <h3>CharaDB 二次元服装</h3>
+            <p>来源：たき AI（CharaDB）。版权归原作者所有，请勿打包倒卖或用于侵权用途。</p>
+          </article>
+          <article>
+            <span class="note-index">C</span>
+            <h3>中国历代服装</h3>
+            <p>来源：Shisei / wquguru，CC0。内容为 AI 生成的参考形象，不是历史文物的精确复原。</p>
+          </article>
+        </div>
+        <p class="license-note">
+          图片与原始数据不适用 MIT 许可证。默认隐藏两类成人向姿势体系与两类敏感服装分类，禁止用于违法、淫秽或侵害他人权益的内容；未成年人请勿解锁成人向内容。
+          <a href="https://github.com/anhao/ai-pose-gallery-zh" target="_blank" rel="noopener">查看原项目</a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="gallery-footer">
+      <div class="page-shell footer-inner">
+        <div class="footer-brand">
+          <span class="brand-mark brand-mark--small" aria-hidden="true">
+            <span class="brand-orbit"></span>
+            <span class="brand-core"></span>
+          </span>
+          <span>漫时光 · 资产参考库</span>
+        </div>
+        <p>夜航星海中的角色素材索引。数据由本地目录只读提供，不上传到服务器。</p>
+        <a href="../index.html">回到漫时光</a>
+      </div>
+    </footer>
+
+    <dialog class="asset-dialog" id="assetDialog" aria-labelledby="dialogTitle">
+      <div class="dialog-shell">
+        <button class="dialog-close" id="dialogClose" type="button" aria-label="关闭预览">
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+        <div class="dialog-stage">
+          <div class="dialog-image-wrap" id="dialogImageWrap">
+            <img id="dialogImage" alt="" />
+          </div>
+          <button class="round-arrow round-arrow--prev" id="dialogPrev" type="button" aria-label="上一张">
+            <svg class="icon"><use href="#icon-left"></use></svg>
+          </button>
+          <button class="round-arrow round-arrow--next" id="dialogNext" type="button" aria-label="下一张">
+            <svg class="icon"><use href="#icon-right"></use></svg>
+          </button>
+          <span class="dialog-counter" id="dialogCounter"></span>
+        </div>
+        <aside class="dialog-info">
+          <p class="dialog-kicker" id="dialogKicker"></p>
+          <h2 id="dialogTitle"></h2>
+          <div class="dialog-badges" id="dialogBadges"></div>
+          <p class="dialog-description" id="dialogDescription"></p>
+          <div class="dialog-variants" id="dialogVariants"></div>
+          <dl class="dialog-meta" id="dialogMeta"></dl>
+          <div class="dialog-tags" id="dialogTags"></div>
+          <div class="dialog-actions">
+            <a class="primary-button" id="dialogOriginal" href="#" target="_blank" rel="noopener">
+              <svg class="icon"><use href="#icon-download"></use></svg>
+              <span>查看原图</span>
+            </a>
+            <button class="ghost-button" id="dialogDepth" type="button" hidden>切换到深度图</button>
+          </div>
+          <p class="dialog-hint">← → 切换条目 · Esc 关闭</p>
+          <div class="dialog-send-wrap">
+            <button class="primary-button dialog-send-btn" id="dialogSend" type="button">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              <span>发送到画布合成台</span>
+            </button>
+            <p class="dialog-send-hint">需画布页面已打开，选中后可在画布中使用</p>
+          </div>
+        </aside>
+      </div>
+    </dialog>
+
+    <noscript>
+      <p class="noscript-warning">资产库需要启用 JavaScript 才能读取本地索引。</p>
+    </noscript>
+  </body>
+</html>
+

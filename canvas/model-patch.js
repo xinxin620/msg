@@ -8,6 +8,8 @@
   const VENDOR_ID = "yunwu";
   const POLL_INTERVAL_MS = 2500;
   const POLL_TIMEOUT_MS = 6 * 60 * 1000;
+  const GENERATE_ENDPOINT = "/v1/api/generate";
+  const RESULT_ENDPOINT = "/v1/api/result";
 
 
   const state = {
@@ -127,6 +129,9 @@
 
   function apiKeyFor(base) {
     const profile = activeProfile();
+    if (profile && !profile.builtin) {
+      return profile.apiKey || "";
+    }
     if (profile && normalizeBase(profile.baseUrl || "") === base && profile.apiKey) {
       return profile.apiKey;
     }
@@ -158,22 +163,131 @@
     return /gpt-image/i.test(model) ? "gpt" : "banana";
   }
 
+  const GPT_RATIO_SIZES = {
+    "1:1": { "1K": "1024x1024", "2K": "2048x2048", "4K": "2880x2880" },
+    "16:9": { "1K": "1280x720", "2K": "2048x1152", "4K": "3840x2160" },
+    "9:16": { "1K": "720x1280", "2K": "1152x2048", "4K": "2160x3840" },
+    "4:3": { "1K": "1152x864", "2K": "2304x1728", "4K": "3264x2448" },
+    "3:4": { "1K": "864x1152", "2K": "1728x2304", "4K": "2448x3264" },
+    "3:2": { "1K": "1536x1024", "2K": "2048x1360", "4K": "3504x2336" },
+    "2:3": { "1K": "1024x1536", "2K": "1360x2048", "4K": "2336x3504" },
+    "5:4": { "1K": "1120x896", "2K": "2240x1792", "4K": "3200x2560" },
+    "4:5": { "1K": "896x1120", "2K": "1792x2240", "4K": "2560x3200" },
+    "21:9": { "1K": "1456x624", "2K": "2912x1248", "4K": "3840x1648" },
+    "9:21": { "1K": "624x1456", "2K": "1248x2912", "4K": "1648x3840" },
+    "1:3": { "2K": "688x2048", "4K": "1280x3840" },
+    "3:1": { "2K": "2048x688", "4K": "3840x1280" },
+    "2:1": { "1K": "1536x768", "2K": "3072x1536", "4K": "3840x1920" },
+    "1:2": { "1K": "768x1536", "2K": "1536x3072", "4K": "1920x3840" },
+  };
+
+  const GPT_2_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1672x941",
+    "9:16": "941x1672",
+    "4:3": "1443x1090",
+    "3:4": "1090x1443",
+    "3:2": "1536x1024",
+    "2:3": "1024x1536",
+    "5:4": "1408x1120",
+    "4:5": "1120x1408",
+    "21:9": "1920x832",
+    "9:21": "832x1920",
+    "1:2": "896x1792",
+    "2:1": "1792x896",
+  };
+
+  function normalizeRatio(value) {
+    const text = String(value || "").trim();
+    return /^(?:auto|\d+:\d+)$/i.test(text) ? text.toLowerCase() : "";
+  }
+
   function ratioFromSize(size) {
-    const match = /^(\d+)x(\d+)$/i.exec(String(size || "").trim());
-    if (!match) return "auto";
+    const text = String(size || "").trim();
+    const ratio = normalizeRatio(text);
+    if (ratio) return ratio;
+    const match = /^(\d+)x(\d+)$/i.exec(text);
+    if (!match) return "";
     const width = Number(match[1]);
     const height = Number(match[2]);
-    if (!width || !height) return "auto";
+    if (!width || !height) return "";
     const gcd = (a, b) => (b ? gcd(b, a % b) : a);
     const divisor = gcd(width, height);
     return `${width / divisor}:${height / divisor}`;
   }
 
-  function qualityFromSize(size) {
-    const match = /^(\d+)x(\d+)$/i.exec(String(size || "").trim());
-    if (!match) return "medium";
+  function imageSizeFromSize(size) {
+    const text = String(size || "").trim();
+    if (/^4k$/i.test(text)) return "4K";
+    if (/^2k$/i.test(text)) return "2K";
+    if (/^1k$/i.test(text)) return "1K";
+    const match = /^(\d+)x(\d+)$/i.exec(text);
+    if (!match) return "1K";
     const max = Math.max(Number(match[1]), Number(match[2]));
-    return max >= 1536 ? "high" : "medium";
+    if (max >= 3000) return "4K";
+    if (max >= 1800) return "2K";
+    return "1K";
+  }
+
+  function isPremiumGpt(model) {
+    return /gpt-image-2-vip|2\.5-flare|2\.5-sunburst/i.test(model);
+  }
+
+  function pixelSizeFromSize({ size, model, aspectRatio, imageSize }) {
+    const text = String(size || "").trim();
+    if (/^\d+x\d+$/i.test(text)) return text;
+    const ratio = normalizeRatio(aspectRatio) || ratioFromSize(text);
+    if (ratio === "auto") return "auto";
+    const resolution = imageSize || imageSizeFromSize(text);
+    if (isPremiumGpt(model)) {
+      const sizes = GPT_RATIO_SIZES[ratio];
+      return (
+        sizes?.[resolution] ||
+        sizes?.["1K"] ||
+        sizes?.["2K"] ||
+        sizes?.["4K"] ||
+        "1024x1024"
+      );
+    }
+    return GPT_2_RATIO_SIZES[ratio] || (ratio ? ratio : "1024x1024");
+  }
+
+  function qualityForModel(model, size, fallbackImageSize) {
+    const resolution = fallbackImageSize || imageSizeFromSize(size);
+    if (/gpt-image-2\.5-sunburst/i.test(model)) {
+      if (resolution === "4K") return "high";
+      return resolution === "2K" ? "medium" : "low";
+    }
+    if (/gpt-image-2\.5-flare/i.test(model)) {
+      return resolution === "1K" ? "low" : "medium";
+    }
+    if (/gpt-image-2-vip/i.test(model)) return "medium";
+    return "auto";
+  }
+
+  function buildGenerateBody({ model, prompt, size, aspectRatio, imageSize, urls }) {
+    const family = familyOf(model);
+    const images = Array.isArray(urls) ? urls : [];
+    const ratio = normalizeRatio(aspectRatio) || ratioFromSize(size) || "auto";
+    const resolution = imageSize || imageSizeFromSize(size);
+    if (family === "banana") {
+      return {
+        model,
+        prompt: prompt || " ",
+        images,
+        aspectRatio: ratio,
+        imageSize: resolution,
+        replyType: "async",
+      };
+    }
+    return {
+      model,
+      prompt: prompt || " ",
+      images,
+      aspectRatio: pixelSizeFromSize({ size, model, aspectRatio: ratio, imageSize: resolution }),
+      quality: qualityForModel(model, size, resolution),
+      replyType: "async",
+    };
   }
 
   function extractUrls(payload) {
@@ -233,28 +347,187 @@
     });
   }
 
+  function addImageValue(value, output, fallbackMime = "image/png") {
+    if (value == null) return;
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (!text) return;
+      if (/^data:image\//i.test(text) || /^https?:\/\//i.test(text)) {
+        output.push(text);
+      } else if (/^[A-Za-z0-9+/=\s]+$/.test(text) && text.replace(/\s+/g, "").length > 64) {
+        output.push(`data:${fallbackMime};base64,${text.replace(/\s+/g, "")}`);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => addImageValue(item, output, fallbackMime));
+      return;
+    }
+    if (typeof value !== "object") return;
+
+    const mime =
+      String(
+        value.mime_type || value.mimeType || value.metadata?.mimeType || fallbackMime,
+      ) || fallbackMime;
+    const base64 = value.data || value.base64 || value.image_base64 || value.imageBase64;
+    if (typeof base64 === "string" && base64.trim() && !/^https?:\/\//i.test(base64)) {
+      const text = base64.trim();
+      if (/^data:image\//i.test(text)) output.push(text);
+      else output.push(`data:${mime};base64,${text}`);
+    }
+    [
+      value.url,
+      value.image_url,
+      value.imageUrl,
+      value.file_url,
+      value.fileUrl,
+      value.file_uri,
+      value.fileUri,
+    ].forEach((item) => addImageValue(item, output, mime));
+    [
+      value.inline_data,
+      value.inlineData,
+      value.file_data,
+      value.fileData,
+      value.source,
+    ].forEach((item) => addImageValue(item, output, mime));
+  }
+
+  function geminiParts(payload) {
+    const parts = [];
+    const contents = Array.isArray(payload?.contents) ? payload.contents : [];
+    contents.forEach((content) => {
+      if (Array.isArray(content?.parts)) parts.push(...content.parts);
+    });
+    return parts;
+  }
+
+  function parseGeminiRequest(payload) {
+    const parts = geminiParts(payload);
+    const prompts = [];
+    const images = [];
+    parts.forEach((part) => {
+      if (typeof part?.text === "string" && part.text.trim()) prompts.push(part.text.trim());
+      addImageValue(part?.inline_data || part?.inlineData, images);
+      addImageValue(part?.file_data || part?.fileData, images);
+    });
+    const generationConfig = payload?.generationConfig || payload?.generation_config || {};
+    const imageConfig = generationConfig.imageConfig || generationConfig.image_config || {};
+    return {
+      prompt: prompts.join("\n").trim(),
+      size: "",
+      aspectRatio: normalizeRatio(imageConfig.aspectRatio || imageConfig.aspect_ratio),
+      imageSize: String(imageConfig.imageSize || imageConfig.image_size || "").toUpperCase(),
+      images,
+    };
+  }
+
+  function parseOpenAiRequest(parsed) {
+    const fields = parsed.kind === "json" ? parsed.value || {} : parsed.kind === "form" ? parsed.fields || {} : {};
+    const images = [];
+    [
+      fields.image,
+      fields.images,
+      fields.reference_image,
+      fields.reference_images,
+      fields.referenceImage,
+      fields.referenceImages,
+    ].forEach((value) => addImageValue(value, images));
+    return {
+      fields,
+      prompt: typeof fields.prompt === "string" ? fields.prompt.trim() : String(fields.prompt || "").trim(),
+      size: String(fields.size || "").trim(),
+      aspectRatio: "",
+      imageSize: "",
+      images,
+    };
+  }
+
+  async function parseRequest(kind, parsed) {
+    const request =
+      kind === "gemini"
+        ? parseGeminiRequest(parsed.kind === "json" ? parsed.value : {})
+        : parseOpenAiRequest(parsed);
+    const images = [...(request.images || [])];
+    if (parsed.kind === "form" && parsed.files?.length) {
+      for (const file of parsed.files) images.push(await blobToDataUrl(file));
+    }
+    request.urls = [...new Set(images.filter(Boolean))];
+    return request;
+  }
+
   function withTimeout(promise, ms) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     return promise(controller.signal).finally(() => clearTimeout(timer));
   }
 
-  async function submitGrsai({ base, apiKey, model, prompt, aspectRatio, quality, urls }) {
-    const family = familyOf(model);
-    const endpoint = family === "banana" ? "/v1/draw/nano-banana" : "/v1/draw/completions";
-    const body = {
-      model,
-      prompt: prompt || " ",
-      aspectRatio: aspectRatio || "auto",
-      quality,
-      webHook: "-1",
-      shutProgress: true,
-    };
-    if (urls && urls.length) body.urls = urls;
+  async function readResponsePayload(response) {
+    const text = await response.text();
+    if (!text.trim()) return { payload: null, text: "" };
+    try {
+      return { payload: JSON.parse(text), text };
+    } catch {
+      return { payload: null, text };
+    }
+  }
 
+  function upstreamMessage(payload, text) {
+    const error = payload?.error;
+    const value =
+      (error && typeof error === "object" ? error.message || error.type || JSON.stringify(error) : error) ||
+      payload?.errorMessage ||
+      payload?.fail_reason ||
+      payload?.msg ||
+      payload?.message ||
+      text ||
+      "上游未返回错误正文";
+    const message = String(value).replace(/\s+/g, " ").trim();
+    return message.length > 600 ? `${message.slice(0, 600)}…` : message;
+  }
+
+  function upstreamError(label, response, payload, text) {
+    return new Error(`${label} HTTP ${response.status}: ${upstreamMessage(payload, text)}`);
+  }
+
+  async function pollGrsaiResult({ base, apiKey, taskId }) {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const response = await fetch(
+        `${base}${RESULT_ENDPOINT}?id=${encodeURIComponent(taskId)}`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+        },
+      );
+      const { payload, text } = await readResponsePayload(response);
+      if (!response.ok) throw upstreamError("Grsai 查询结果", response, payload, text);
+      if (payload?.error) {
+        throw new Error(`Grsai 查询结果: ${upstreamMessage(payload, text)}`);
+      }
+      if (typeof payload?.code === "number" && payload.code !== 0) {
+        throw new Error(`Grsai 查询结果 code ${payload.code}: ${upstreamMessage(payload, text)}`);
+      }
+      const result = payload?.data ?? payload;
+      const found = extractUrls(result);
+      if (found.length) return found;
+      const status = String(result?.status || "").toLowerCase();
+      if (["failed", "failure", "error", "violation", "cancelled", "canceled"].includes(status)) {
+        throw new Error(`Grsai 生成失败: ${upstreamMessage(payload, text)}`);
+      }
+    }
+    throw new Error(`Grsai 生成超时，任务 ID：${taskId}`);
+  }
+
+  async function submitGrsai({ base, apiKey, model, prompt, size, aspectRatio, imageSize, urls }) {
+    const body = buildGenerateBody({ model, prompt, size, aspectRatio, imageSize, urls });
     const response = await withTimeout(
       (signal) =>
-        fetch(`${base}${endpoint}`, {
+        fetch(`${base}${GENERATE_ENDPOINT}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -266,41 +539,21 @@
         }),
       90 * 1000,
     );
-    if (!response.ok) throw new Error(`Grsai HTTP ${response.status}`);
-    const payload = await response.json();
-    if (payload?.error) throw new Error(payload.error.message || String(payload.error));
+    const { payload, text } = await readResponsePayload(response);
+    if (!response.ok) throw upstreamError("Grsai 生成", response, payload, text);
+    if (payload?.error) throw new Error(`Grsai 生成: ${upstreamMessage(payload, text)}`);
     if (typeof payload?.code === "number" && payload.code !== 0) {
-      throw new Error(payload.msg || `Grsai code ${payload.code}`);
+      throw new Error(`Grsai 生成 code ${payload.code}: ${upstreamMessage(payload, text)}`);
     }
-    let result = payload?.data ?? payload;
-    let found = extractUrls(result);
+
+    const result = payload?.data ?? payload;
+    const found = extractUrls(result);
     if (found.length) return found;
     const taskId = taskIdOf(payload);
-    if (!taskId) throw new Error("Grsai 未返回图片地址或任务 ID");
-
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      const poll = await fetch(`${base}/v1/draw/result`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ id: taskId }),
-      });
-      if (!poll.ok) throw new Error(`Grsai 轮询 HTTP ${poll.status}`);
-      const pollPayload = await poll.json();
-      if (typeof pollPayload?.code === "number" && pollPayload.code !== 0) {
-        throw new Error(pollPayload.msg || `Grsai 轮询 code ${pollPayload.code}`);
-      }
-      result = pollPayload?.data ?? pollPayload;
-      if (result?.error) throw new Error(result.error.message || String(result.error));
-      found = extractUrls(result);
-      if (found.length) return found;
-      const status = typeof result?.status === "string" ? result.status.toLowerCase() : "";
-      if (["failed", "failure", "error", "cancelled", "canceled"].includes(status)) {
-        throw new Error(result?.fail_reason || result?.errorMessage || "Grsai 生成失败");
-      }
+    if (!taskId) {
+      throw new Error(`Grsai 未返回图片地址或任务 ID：${upstreamMessage(payload, text)}`);
     }
-    throw new Error("Grsai 生成超时");
+    return pollGrsaiResult({ base, apiKey, taskId });
   }
 
   function jsonResponse(payload, status = 200) {
@@ -310,8 +563,11 @@
     });
   }
 
-  function isDrawTarget(url) {
-    return /\/v1\/images\/(generations|edits)\/?$/i.test(String(url || "").split("?")[0]);
+  function drawTargetKind(url) {
+    const path = String(url || "").split("?")[0];
+    if (/\/v1\/images\/(generations|edits)\/?$/i.test(path)) return "openai";
+    if (/\/v1beta\/models\/[^/]+:generateContent\/?$/i.test(path)) return "gemini";
+    return "";
   }
 
   const originalFetch = window.fetch.bind(window);
@@ -319,13 +575,19 @@
   window.fetch = async function patchedFetch(input, init) {
     const url = typeof input === "string" ? input : input?.url || "";
     const base = activeBase();
-    if (!isDrawTarget(url) || !isRemotePlatform(base) || !/grsai/i.test(base)) {
+    const targetKind = drawTargetKind(url);
+    if (!targetKind || !isRemotePlatform(base) || !/grsai/i.test(base)) {
       return originalFetch(input, init);
     }
     try {
       const parsed = await readRequestBody(init?.body);
-      const fields = parsed.kind === "json" ? parsed.value : parsed.kind === "form" ? parsed.fields : {};
-      const requestedModel = String(fields?.model || "");
+      const request = await parseRequest(targetKind, parsed);
+      const requestedModel =
+        targetKind === "gemini"
+          ? decodeURIComponent(
+              String(url).match(/\/v1beta\/models\/([^/]+):generateContent/i)?.[1] || "",
+            )
+          : String(request.fields?.model || "");
       const family = familyOf(requestedModel);
       const selectedModels = selectedModelsForActiveProfile();
       if (!selectedModels.length) {
@@ -338,19 +600,17 @@
       if (!chosen) {
         throw new Error("当前第三方 API 配置没有可用模型。");
       }
-      const urls =
-        parsed.kind === "form" && parsed.files?.length
-          ? await Promise.all(parsed.files.map((file) => blobToDataUrl(file)))
-          : [];
       const apiKey = apiKeyFor(base);
+      if (!apiKey) throw new Error("当前第三方 API 配置缺少 API Key。");
       const found = await submitGrsai({
         base,
         apiKey,
         model: chosen,
-        prompt: fields?.prompt,
-        aspectRatio: ratioFromSize(fields?.size),
-        quality: qualityFromSize(fields?.size),
-        urls,
+        prompt: request.prompt,
+        size: request.size,
+        aspectRatio: request.aspectRatio,
+        imageSize: request.imageSize,
+        urls: request.urls,
       });
       return jsonResponse({ created: Math.floor(Date.now() / 1000), data: found.map((item) => ({ url: item })) });
     } catch (error) {
