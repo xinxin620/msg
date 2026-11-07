@@ -34,7 +34,7 @@
   box-sizing: border-box;
 }
 
-html { scroll-behavior: auto; overflow: hidden; }
+html { scroll-behavior: auto; }
 
 body {
   margin: 0;
@@ -3682,7 +3682,7 @@ input:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; overflow: hidden; }
+  html { scroll-behavior: auto; }
 
   *,
   *::before,
@@ -3703,5 +3703,8 @@ input:focus-visible,
 
 
 
-body.view-hero main > section:not([id='top'],[id='continue']) { display: none !important; }
-
+/* Tab navigation layout */
+body { overflow: hidden; }
+#main { height: calc(100vh - 72px); overflow: hidden; }
+main > section { display: none; width: 100%; height: 100%; overflow-y: auto; padding-top: 20px; }
+main > section.is-visible { display: block; }
