@@ -751,27 +751,24 @@ function setupHeader() {
   const navLinks = $$(".desktop-nav a");
   const sectionIds = ["top", "library", "schedule", "ranking", "community"];
 
-  const updateNav = () => {
-    let current = "top";
-    sectionIds.forEach((id) => {
-      const section = document.getElementById(id);
-      if (section && section.getBoundingClientRect().top <= 180) {
-        current = id;
-      }
-    });
+                  const sections = { "#top": "top", "#library": "library", "#schedule": "schedule", "#ranking": "ranking", "#community": "community" };
     navLinks.forEach((link) => {
-      const isActive = link.getAttribute("href") === `#${current}`;
-      link.classList.toggle("is-active", isActive);
-      if (isActive) {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const target = link.getAttribute("href");
+        if (sections[target]) {
+          document.querySelectorAll("section").forEach(s => s.style.display = "none");
+          const mainSection = document.getElementById(sections[target]);
+          if (mainSection) mainSection.style.display = "";
+        }
+        navLinks.forEach((l) => {
+          l.classList.remove("is-active");
+          l.removeAttribute("aria-current");
+        });
+        link.classList.add("is-active");
         link.setAttribute("aria-current", "page");
-      } else {
-        link.removeAttribute("aria-current");
-      }
+      });
     });
-  };
-
-  updateNav();
-  window.addEventListener("scroll", updateNav, { passive: true });
 }
 
 function setupHeroTilt() {
@@ -987,3 +984,8 @@ function init() {
 }
 
 init();
+
+
+
+
+

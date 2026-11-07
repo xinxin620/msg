@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #070b18;
   --bg-deep: #040712;
   --bg-soft: #0a1020;
@@ -34,10 +34,7 @@
   box-sizing: border-box;
 }
 
-html {
-  scroll-behavior: smooth;
-  scrollbar-color: rgba(124, 92, 255, 0.6) var(--bg-deep);
-}
+html { scroll-behavior: auto; overflow: hidden; }
 
 body {
   margin: 0;
@@ -3685,16 +3682,14 @@ input:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
+  html { scroll-behavior: auto; overflow: hidden; }
 
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
+    scroll-behavior: smooth !important;
     transition-duration: 0.01ms !important;
   }
 
@@ -3703,3 +3698,10 @@ input:focus-visible,
     transform: none;
   }
 }
+
+
+
+
+
+body.view-hero main > section:not([id='top'],[id='continue']) { display: none !important; }
+

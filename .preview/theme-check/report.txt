@@ -1,0 +1,15 @@
+PASS theme=canvas :: canvas
+PASS 页面滚动条转暖色 :: rgba(138, 106, 69, 0.55) rgb(236, 232, 227)
+PASS 侧栏文字深色 :: rgb(26, 26, 26)
+PASS 侧栏浅底 :: linear-gradient(rgba(255, 253, 250, 0.94), rgb
+PASS 顶栏浅底 :: rgba(255, 253, 250, 0.78)
+PASS 舞台底色=画布米白 :: rgb(238, 236, 234)
+PASS theme=night :: night
+PASS 页面滚动条回紫青 :: rgba(124, 92, 255, 0.6) rgb(4, 7, 18)
+PASS 侧栏文字浅色 :: rgb(247, 248, 255)
+PASS 舞台底色回深色 :: rgb(13, 20, 40)
+PASS 规划页仍深色
+PASS 切回画布恢复浅色 :: canvas/rgb(238, 236, 234)
+PASS 画布 iframe 未被销毁
+PASS 首帧即为浅色(无闪白/闪黑) :: http://127.0.0.1:4173/studio/index.html?v=20261107-6,http://127.0.0.1:4173/canvas/index.html?v=20261107-6
+PASS 无页面报错 :: 
