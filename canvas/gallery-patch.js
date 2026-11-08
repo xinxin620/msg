@@ -550,39 +550,29 @@
     }
     if (!target) return;
 
-    // 三个资产库入口
-    const libs = [
-      { tab: "poses", label: "姿势库", icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"></circle><path d="M10 22h4"></path><path d="M10 14h4"></path><path d="m12 14v-5"></path><line x1="8" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="16" y2="8"></line><circle cx="12" cy="22" r="6"></circle></svg>' },
-      { tab: "costumes", label: "服装库", icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4m0 0a4 4 0 0 0 4 4h0a4 4 0 0 0 4-4h0a4 4 0 0 0-4-4h0a4 4 0 0 0-4 4Z"></path><path d="M8 10h8v3a8 8 0 0 1-8 0v-3Z"></path><line x1="8" y1="22" x2="16" y2="22"></line></svg>' },
-      { tab: "portraits", label: "人像库", icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 4-7 8-7s8 3 8 7"></path></svg>' }
-    ];
-
-    let firstBtn = null;
-    libs.forEach((lib) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "sidebar__icon-btn";
-      btn.title = lib.label + "（点击在画布内打开 · Ctrl+点击开新标签页）";
-      btn.setAttribute("data-ms-gallery-btn", lib.tab);
-      btn.innerHTML = lib.icon;
-      btn.addEventListener("click", (event) => {
-        if (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1) {
-          window.open(GALLERY_URL + "&tab=" + lib.tab, "_blank", "noopener");
-          return;
-        }
-        toggleDrawer(lib.tab);
-      });
-      target.parentNode.insertBefore(btn, target);
-      if (!firstBtn) firstBtn = btn;
+    // Single asset button
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sidebar__icon-btn";
+    btn.title = "资产（点击在画布内打开 · Ctrl+点击开新标签页）";
+    btn.setAttribute("data-ms-gallery-btn", "assets");
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+    btn.addEventListener("click", (event) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1) {
+        window.open(GALLERY_URL, "_blank", "noopener");
+        return;
+      }
+      toggleDrawer("poses");
     });
+    target.parentNode.insertBefore(btn, target);
 
-    // Inject badge for received assets on the first button
-    firstBtn.style.position = "relative";
+    // Inject badge for received assets
+    btn.style.position = "relative";
     badgeEl = document.createElement("span");
     badgeEl.id = "ms-asset-badge";
     badgeEl.style.display = "none";
     badgeEl.textContent = "0";
-    firstBtn.appendChild(badgeEl);
+    btn.appendChild(badgeEl);
 
     // Click badge to toggle panel
     badgeEl.addEventListener("click", (e) => {
