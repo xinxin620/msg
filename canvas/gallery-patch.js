@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   "use strict";
 
   const GALLERY_URL = "../gallery/index.html?v=20261108-6";
@@ -990,16 +990,21 @@
 
         // Find image node panel and inject file
         var panel = document.querySelector(".action-panel--image");
-        if (!panel) {
-          showToast("请先打开图片节点面板，再拖入资产", "error");
-          return;
+        var fileInput = null;
+        if (panel) {
+          fileInput = panel.querySelector('input[type="file"]');
         }
-        var fileInput = panel.querySelector('input[type="file"]');
+        // Fallback: try the hidden sidebar file input (same as click path)
         if (!fileInput) {
-          showToast("未找到图片上传入口", "error");
+          var sidebarInput = document.querySelector('.sidebar input[type="file"]');
+          if (sidebarInput) {
+            fileInput = sidebarInput;
+          }
+        }
+        if (!fileInput) {
+          showToast("请先点击画布中的图片节点，再拖入资产", "error");
           return;
         }
-
         var ext = blob.type === "image/png" ? ".png" : blob.type === "image/webp" ? ".webp" : ".jpg";
         var file = new File([blob], "asset" + ext, { type: blob.type });
         var dt = new DataTransfer();
@@ -1009,11 +1014,6 @@
         var ev = new Event("change", { bubbles: true });
         Object.defineProperty(ev, "target", { value: fileInput, enumerable: true });
         fileInput.dispatchEvent(ev);
-        setTimeout(function() {
-          var ev2 = new Event("change", { bubbles: true });
-          Object.defineProperty(ev2, "target", { value: fileInput, enumerable: true });
-          fileInput.dispatchEvent(ev2);
-        }, 100);
 
         showToast("已注入到图片节点");
       } catch (err) {
