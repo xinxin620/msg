@@ -1,4 +1,4 @@
-﻿/*
+/*
  * 漫时光 · 资产参考库
  * 零依赖静态索引：只读加载本地资产数据，所有动态文本通过 DOM API 写入。
  */
@@ -1045,6 +1045,7 @@
       renderFilters();
       renderGrid(false);
       finishLoading();
+      updateHero();
       // 支持 URL ?tab= 直达对应库
       var urlParams = new URLSearchParams(window.location.search);
       var startTab = urlParams.get("tab");
