@@ -1,4 +1,4 @@
-/*
+﻿/*
  * 漫时光 · 资产参考库
  * 零依赖静态索引：只读加载本地资产数据，所有动态文本通过 DOM API 写入。
  */
@@ -632,7 +632,7 @@
       });
     });
     // Set initial active state
-    var initialBtn = document.querySelector(".size-btn[data-size="" + state.size + ""]");
+      var initialBtn = document.querySelector(".size-btn[data-size=\"" + state.size + "\"]");
     if (initialBtn) initialBtn.classList.add("is-active");
   }
 

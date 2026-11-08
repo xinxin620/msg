@@ -1,7 +1,7 @@
-(() => {
+﻿(() => {
   "use strict";
 
-  const GALLERY_URL = "../gallery/index.html?v=20261107-5";
+  const GALLERY_URL = "../gallery/index.html?v=20261108-6";
   const SETTINGS_TITLE = "模型与接口设置";
   const ROOT_SEL = ".sidebar";
   const CHANNEL_NAME = "manshiguang:asset-transfer";
