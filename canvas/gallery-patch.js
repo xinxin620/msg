@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const GALLERY_URL = "../gallery/index.html?v=20261108-6";
+  const GALLERY_URL = "../gallery/index.html?v=20261109-2";
   const SETTINGS_TITLE = "模型与接口设置";
   const ROOT_SEL = ".sidebar";
   const CHANNEL_NAME = "manshiguang:asset-transfer";
@@ -346,7 +346,7 @@
   let drawerPendingTab = "";
 
   function drawerUrl(tab) {
-    return GALLERY_URL + "&embed=1&tab=" + encodeURIComponent(tab || "poses");
+    return GALLERY_URL + "&embed=1&host=canvas&tab=" + encodeURIComponent(tab || "poses");
   }
 
   function createDrawer() {
@@ -938,93 +938,9 @@
   // ======= 初始化 =======
 
 
-  // 全局拖放目标：监听 drop 事件，注入到图片节点
-  function setupDropTarget() {
-    document.addEventListener("dragover", function(e) {
-      // Only allow drop when dragging an asset URL from the gallery panel
-      // Don't interfere with canvas native drop handling
-      var dt = e.dataTransfer;
-      if (!dt) return;
-      var types = dt.types || [];
-      var isAssetUrl = types.includes("text/uri-list") || types.includes("text/plain");
-      if (isAssetUrl) {
-        // Check if target is inside gallery panel - if so, allow; otherwise skip
-        var target = e.target;
-        var inAssetPanel = false;
-        while (target) {
-          if (target.id === "ms-asset-panel" || target.closest && target.closest("#ms-asset-panel")) {
-            inAssetPanel = true;
-            break;
-          }
-          target = target.parentElement;
-        }
-        // Only prevent default when dragging from asset panel
-        if (inAssetPanel) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      }
-    });
-
-    document.addEventListener("drop", async function(e) {
-      var url = "";
-      if (e.dataTransfer) {
-        url = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
-      }
-      if (!url) return;
-      if (!url.match(/^https?:\/\//i)) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      showToast("正在加载拖入的图片...");
-      try {
-        var resp = await window.fetch(url, { mode: "cors" }).catch(function(){ return null; });
-        if (!resp || !resp.ok) {
-          showToast("CORS 限制无法加载，已复制地址到剪贴板", "error");
-          navigator.clipboard.writeText(url).catch(function(){});
-          return;
-        }
-        var blob = await resp.blob();
-        var blobUrl = URL.createObjectURL(blob);
-
-        // Find image node panel and inject file
-        var panel = document.querySelector(".action-panel--image");
-        var fileInput = null;
-        if (panel) {
-          fileInput = panel.querySelector('input[type="file"]');
-        }
-        // Fallback: try the hidden sidebar file input (same as click path)
-        if (!fileInput) {
-          var sidebarInput = document.querySelector('.sidebar input[type="file"]');
-          if (sidebarInput) {
-            fileInput = sidebarInput;
-          }
-        }
-        if (!fileInput) {
-          showToast("请先点击画布中的图片节点，再拖入资产", "error");
-          return;
-        }
-        var ext = blob.type === "image/png" ? ".png" : blob.type === "image/webp" ? ".webp" : ".jpg";
-        var file = new File([blob], "asset" + ext, { type: blob.type });
-        var dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-
-        var ev = new Event("change", { bubbles: true });
-        Object.defineProperty(ev, "target", { value: fileInput, enumerable: true });
-        fileInput.dispatchEvent(ev);
-
-        showToast("已注入到图片节点");
-      } catch (err) {
-        showToast("加载失败：" + (err.message || err), "error");
-      }
-    });
-  }
   function init() {
     injectStyles();
     ensureChannel();
-    setupDropTarget();
     window.addEventListener("message", handleHostMessage);
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !drawerVisible) return;

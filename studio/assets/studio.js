@@ -1,7 +1,7 @@
 ﻿(() => {
   "use strict";
 
-  const VERSION = "20261108-6";
+  const VERSION = "20261109-2";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";
@@ -26,7 +26,7 @@
       kicker: "ASSET ATELIER",
       icon: "icon-assets",
       type: "frame",
-      url: "../gallery/index.html?v=" + VERSION + "&embed=1&tab=poses",
+      url: "../gallery/index.html?v=" + VERSION + "&embed=1&host=studio&tab=poses",
       state: "在线",
       tabs: [
         { value: "poses", label: "姿势" },
@@ -165,7 +165,7 @@
 
   function buildUrl(workspace, tab) {
     if (workspace.id !== "assets") return workspace.url;
-    return "../gallery/index.html?v=" + VERSION + "&embed=1&tab=" + encodeURIComponent(tab || "poses");
+    return "../gallery/index.html?v=" + VERSION + "&embed=1&host=studio&tab=" + encodeURIComponent(tab || "poses");
   }
 
   function renderRail() {

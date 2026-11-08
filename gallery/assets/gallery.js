@@ -30,6 +30,9 @@
   // 嵌入模式：画布右侧抽屉用 iframe 打开，只加载当前库、隐藏站点装饰。
   var EMBED = false;
   var EMBED_TAB = "";
+  // 宿主场景：studio = 工作台图片工坊，canvas = 画布内资产抽屉，standalone = 独立资产页。
+  // 三者的尺寸档位互不影响，因此各自使用独立的 localStorage 键。
+  var HOST = "standalone";
   var loadedLibraries = { poses: false, costumes: false, portraits: false };
   try {
     var bootParams = new URLSearchParams(window.location.search);
@@ -37,6 +40,13 @@
     var bootTab = bootParams.get("tab");
     if (bootTab === "poses" || bootTab === "costumes" || bootTab === "portraits") {
       EMBED_TAB = bootTab;
+    }
+
+    var bootHost = bootParams.get("host");
+    if (bootHost === "studio" || bootHost === "canvas") {
+      HOST = bootHost;
+    } else if (EMBED) {
+      HOST = "embed";
     }
 
   } catch (_) { EMBED = false; }
@@ -72,10 +82,27 @@
     dialogDepth: false,
   };
   
-  // 尺寸持久化
-  var SIZE_STORAGE_KEY = "manshiguang:gallery:size";
+  // 尺寸持久化：按宿主场景分键，工作台图片工坊、画布抽屉与独立资产页互不影响。
+  var SIZE_STORAGE_KEY =
+    HOST === "standalone"
+      ? "manshiguang:gallery:size"
+      : "manshiguang:gallery:size:" + HOST;
+  var LEGACY_SIZE_STORAGE_KEY = "manshiguang:gallery:size";
   try {
     var savedSize = localStorage.getItem(SIZE_STORAGE_KEY);
+    if (
+      !savedSize &&
+      HOST !== "standalone" &&
+      localStorage.getItem(SIZE_STORAGE_KEY + ":inherited") !== "1"
+    ) {
+      // 分键后的第一次：沿用旧的全局档位，避免两边同时回到默认值；此后各自独立、互不影响。
+      savedSize = localStorage.getItem(LEGACY_SIZE_STORAGE_KEY);
+      if (savedSize === "compact" || savedSize === "standard" || savedSize === "large") {
+        // 继承值同时落到本宿主自己的键，下一次加载直接读它，不再回落到默认档位。
+        try { localStorage.setItem(SIZE_STORAGE_KEY, savedSize); } catch (_) {}
+      }
+      try { localStorage.setItem(SIZE_STORAGE_KEY + ":inherited", "1"); } catch (_) {}
+    }
     if (savedSize === "compact" || savedSize === "standard" || savedSize === "large") {
       state.size = savedSize;
     }
@@ -108,6 +135,14 @@
     var value = String(raw);
     if (/^(data:|https?:\/\/|\/)/i.test(value)) return value;
     return ASSET_PREFIX + value.replace(/^\.?\//, "");
+  }
+
+  // 资产 URL 转绝对：送给画布合成台与嵌入 postMessage 两条链路共用同一份实现，
+  // 避免以前两处局部副本各自漂移。
+  function toAbsoluteUrl(url) {
+    if (!url || /^(data:|https?:\/\/)/i.test(url)) return url || "";
+    try { return new URL(url, window.location.href).href; }
+    catch (_) { return url; }
   }
 
   function poseDepthPath(raw) {
@@ -254,11 +289,6 @@
     var type = state.tab;
     var name = cardTitle(item, type);
     // Use preview size for the URL to keep it reasonable
-    function toAbsoluteUrl(url) {
-      if (!url || /^(data:|https?:\/\/)/i.test(url)) return url || "";
-      try { return new URL(url, window.location.href).href; }
-      catch (_) { return url; }
-    }
     var imageUrl = toAbsoluteUrl(displayImage(item, type, "preview", state.dialogView || ""));
     var originalUrl = toAbsoluteUrl(displayImage(item, type, "original", state.dialogView || ""));
     var thumbUrl = toAbsoluteUrl(cardImage(item, type));
@@ -288,11 +318,6 @@
   function buildAssetPayload(item) {
     if (!item) return null;
     var type = state.tab;
-    function toAbsoluteUrl(url) {
-      if (!url || /^(data:|https?:\/\/)/i.test(url)) return url || "";
-      try { return new URL(url, window.location.href).href; }
-      catch (_) { return url; }
-    }
     var imageUrl = toAbsoluteUrl(displayImage(item, type, "preview", state.dialogView || ""));
     if (!imageUrl) return null;
     return {

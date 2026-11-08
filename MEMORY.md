@@ -67,6 +67,9 @@
 - 2026-11-03 新增 canvas/model-patch.js：启用非内置云雾 API 时只读取当前 Profile 的 `selectedModels` 注入图片节点下拉，不再自行拉取、缓存 10 分钟或失败回退内置清单；下拉只高亮当前节点正在使用的模型，单次选择（含 `lastPicked`）写入 localStorage["manshiguang:canvas-model-choice"]，取消勾选或切回云雾时清理失效选择并恢复原生文案。2026-11-04 起 Grsai 请求统一改写为 `POST /v1/api/generate`，兼容 OpenAI 图片接口与 `/v1beta/models/<model>:generateContent`：nano-banana 发送 `aspectRatio + imageSize`，gpt-image 发送像素尺寸与 `quality`，参考图统一转为 `images`，再用 `GET /v1/api/result?id=...` 轮询；未勾选模型或缺少 Key 时返回明确中文错误。canvas/api-profiles-patch.js 会先归一化 Base URL，去掉重复的 /v1、/v1/api/*、/v1/draw/*、/v1/images/* 后缀。
 
 - 2026-11-05 新增 `gallery/` 资产参考库，主站桌面与移动导航在「画布」后增加「资产」，使用新标签页打开。数据来自本机外部目录 `D:\data\workData\codex\Projects\ai-pose-gallery-zh-main`（参考站点 `https://ai-pose-gallery.anhao.app/`），不复制图片或索引到仓库，也不修改外部项目；页面通过 `server.py` 的 `/__gallery_asset/data|thumbs|img/*` 只读代理加载，目录可用 `MSG_GALLERY_DIR` 覆盖。三库合计姿势 `1,439`、服装 `3,224`、人像 `1,499`；安全模式下 `4,769` 条，关闭后 `6,162` 条。安全模式默认隐藏「全身单人・性感系」「双人缠绵」姿势，以及「内衣・睡衣」「性感穿搭」和 `敏感: true` 服装，关闭前有 18+ 确认。已用 headless Chrome 验证三库切换、首屏 60 条与加载更多、中文搜索与重置、Shisei 四视角、深度图切换、详情方向键/`Esc`、安全模式数量与 390px 无横向溢出；代理已验证 JSON/JPG/WebP 正常返回，路径穿越与其他根目录被拒绝。CharaDB 与「ギア・动漫」远程图片的 CORS、防盗链与长期可用性尚未逐一验证；未做人工视觉验收。资产页必须由新版 `server.py`/`start.bat` 提供外部索引，旧 4173 服务需要关闭后重启。
+- 2026-11-09 `20261109-1` 按用户要求把资产库「紧凑 / 标准 / 放大」三档拆成三处独立状态。此前工作台图片工坊与画布抽屉都加载同一份 `gallery/index.html?embed=1&tab=`，共用 `localStorage["manshiguang:gallery:size"]`，改一边另一边重载后跟着变。现在宿主 URL 各带 `host=studio` / `host=canvas`，`gallery.js` 按 `HOST` 选键：独立页仍用 `manshiguang:gallery:size`，工作台用 `:size:studio`，画布抽屉用 `:size:canvas`，未知嵌入宿主（只带 `embed=1`）落到 `:size:embed` 第三档，绝不与前两者混用。分键后的首次加载一次性继承旧的全局档位并落盘到本宿主自己的键（`<键>:inherited` 标记），避免两边同时回到默认值。`canvas/gallery-patch.js`、`studio/assets/studio.js` 只改 URL 拼接各一行，尺寸逻辑全部在 `gallery.js` 内。headless Chrome 17 项断言全过：含画布抽屉改紧凑时工作台仍保持原档位、两边重载各保持各的、工作台与画布外壳 iframe 真实 `src` 与真实列数（4/6/8 列）核对。`AGENTS.md` 已同步 2.3 表格、3 目录结构、3.2/3.3 职责、4.3 宿主内嵌契约与新增验收项 18a。
+- 2026-11-09 `20261109-2` 版本号统一升级，并清掉 `gallery/assets/gallery.js` 里两处逐字节相同的局部 `toAbsoluteUrl` 副本（分别写在 `sendToCanvas()` 与 `buildAssetPayload()` 函数体内，作用域隔离，不会互相覆盖，属重复代码而非 bug）。现提为 `assetPath()` 下方的模块级单一实现，调用点未改。A/B 验证：同一页面分别加载改动前(HEAD)与当前 `gallery.js`，抓取 BroadcastChannel（独立标签页→合成台）与 postMessage（工作台/画布抽屉嵌入）两条链路真实发出的载荷逐字节一致，字段集合、顺序、绝对地址均相同，详情弹层发送分支也一致，共 11 项断言通过；分档回归 17 项仍全过。`AGENTS.md` 同步 `2.3 存储`、`4.3 宿主内嵌契约`、验收项 `18a`。
+- 2026-11-09 分档与去重改动以本地为主推送：本地 `737de74` 是远端 `b9b080b` 的 amend 改写版，`git diff b9b080b 737de74` 为空（文件树完全相同），强推不丢内容。GitHub 直连被 `Connection was reset`，按本文件「Git 代理配置」走 `git -c http.proxy=socks5://127.0.0.1:7897 push origin main --force-with-lease`。`canvas/gallery-patch.js` 同时删除了 `setupDropTarget()`（用户 11-08 为修「拖动资产生成双图」所做的未提交改动，随本次一起入库）。
 - 2026-11-04 主站图标定稿为「夜航星海」MSG 图标：完整保留用户原版 MSG 字形、字距与比例，不作重描，统一改为星空金 `#FFD166`；深蓝渐变底 `#111A3E → #070B18`，中央蓝紫光晕、青蓝 `#22D3EE` 倾斜椭圆轨道、金色/青色/粉色星点，圆角约占边长 24%。主站使用 `assets/favicon.ico`（16/32/48/64/128/256 六档）、16/32px PNG、Apple Touch Icon 和 `assets/site.webmanifest`，画布 `canvas/icon.ico` 同步替换；原 `assets/favicon.svg` 已移除。
 
 ## 已实现范围
@@ -115,3 +118,36 @@ git -c http.proxy=socks5://127.0.0.1:7897 push -u origin main
 ```powershell
 git -c http.proxy=socks5://127.0.0.1:7897 push origin main --force
 ```
+
+---
+## 2026-11-08 开发约束（必须遵守）
+
+---
+## 2026-11-08 最小改动原则（必须遵守）
+
+### 原则1：精确修改范围
+**只修改明确要求改动的代码，禁止触碰其他任何内容。**
+- 修复 bug 时不得意外修改无关代码
+- 添加功能时不得改变现有函数的实现逻辑  
+- 禁止在修复过程中进行格式化或重构不相关的部分
+
+### 原则2：本次具体教训
+**问题**：从资产库拖动姿势图到画布产生双图
+**根因**：自定义 drop handler 与画布原生 handler 同时触发
+**修复**：移除 canvas/gallery-patch.js 第941-1023行的 setupDropTarget() 函数
+**验证**：每次修改后用 git diff 确认只改了预期的代码
+
+---
+## 2026-11-08 最小改动原则（必须遵守）
+
+### 约束1：精确修改范围
+**只修改明确要求改动的代码，禁止触碰其他任何内容。**
+- 修复 bug 时不得意外修改无关代码
+- 添加功能时不得改变现有函数的实现逻辑
+- 禁止在修复过程中进行格式化或重构不相关的部分
+
+### 约束2：本次具体教训
+**问题**：从资产库拖动姿势图到画布产生双图
+**根因**：自定义 drop handler 与画布原生 handler 同时触发
+**修复**：移除 canvas/gallery-patch.js 第941-1023行的 setupDropTarget() 函数
+**验证**：每次修改后用 git diff 确认只改了预期的代码

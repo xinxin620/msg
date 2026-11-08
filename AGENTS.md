@@ -59,10 +59,10 @@
 | 脚本 | `gallery/assets/gallery.js`，传统 IIFE，无 ESM、无框架、无构建 |
 | 数据 | 外部只读目录 `D:\data\workData\codex\Projects\ai-pose-gallery-zh-main`，可用 `MSG_GALLERY_DIR` 覆盖 |
 | 数据入口 | 资产图与索引已复制到 `gallery/local-assets/`（约 1.1GB，由 `.gitignore` 排除，不进版本库），由静态服务器直接提供；`server.py` 的 `/__gallery_asset/` 外部只读代理仍保留可用 |
-| 嵌入模式 | `gallery/index.html?embed=1&tab=poses\|costumes\|portraits`，供画布右侧抽屉以 iframe 使用：隐藏站点装饰、按需只加载当前库、网格改为两列 |
+| 嵌入模式 | `gallery/index.html?embed=1&host=<studio\|canvas>&tab=poses\|costumes\|portraits`，供工作台图片工坊与画布右侧抽屉以 iframe 使用：隐藏站点装饰、按需只加载当前库 |
 | 数据规模 | 安全模式 `4,769` 条；关闭安全模式 `6,162` 条。姿势 `1,439`、服装 `3,224`、人像 `1,499` |
 | 图片来源 | 部分本地 WebP、部分外部站点 URL；远程站点可用性与跨域未做长期承诺 |
-| 存储 | 页面不使用 `localStorage` 保存浏览状态；安全模式只在当前页面会话中切换 |
+| 存储 | 只有「紧凑 / 标准 / 放大」尺寸档位持久化，且按宿主场景分键：`manshiguang:gallery:size`（独立资产页）、`manshiguang:gallery:size:studio`（工作台图片工坊）、`manshiguang:gallery:size:canvas`（画布抽屉），三处互不影响；其余筛选、搜索与安全模式只在当前页面会话中保存 |
 
 #### 2.4 AI 创作工作台
 
@@ -120,7 +120,7 @@ msg/
 │  │                          运行时加载的阿亮啊支付宝收款码卡片
 │  └─ icon.ico                画布图标
 ├─ gallery/
-│  ├─ index.html              资产参考库宿主页，支持 ?embed=1&tab= 嵌入模式
+│  ├─ index.html              资产参考库宿主页，支持 ?embed=1&host=&tab= 嵌入模式
 │  ├─ assets/
 │  │  ├─ gallery.css          资产页视觉、断点与嵌入模式紧凑样式
 │  │  └─ gallery.js           三库索引读取、筛选、详情与安全模式逻辑
@@ -155,7 +155,7 @@ msg/
 - `canvas/branding-patch.js`：通过 `MutationObserver` 将标题栏产品名和 Logo 替代文本统一为「画布」，把标题栏 Logo 图片切换为 `../assets/favicon-32x32.png?v=20261104-2`，并替换设置侧栏的作者信息文本（`大桶子ai` → `阿亮啊`、`wmxwz1` → `liangliang_0314`、`hub.datong-ai.cn` → `https://github.com/xinxin620`），并把收款码切换到带日期的唯一文件名并追加版本参数，以避免旧 URL 缓存；补丁必须独立于原始 bundle，更新二维码或升级画布后同步提升脚本/图片版本并重新核对选择器。
 - `canvas/api-profiles-patch.js`：隐藏原始云雾 vendor 卡片，在原位置插入多配置管理区；支持内置云雾与任意多个第三方 API，每项包含名称、申请地址、API Key、Base URL，每张卡保留「申请」并在右侧提供「启用/已启用」。状态使用 `localStorage["manshiguang:canvas-api-profiles"]`，`activeId` 保证同一时间只有一个启用；切换时同步到画布原有 `canvas-api-settings`、`state.vendorConfigs.yunwu` 和云雾输入框。第三方 Profile 还保存 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`：填写或变更 Base URL / API Key 后自动尝试 `${base}/v1/models` 和 `${base}/models`，也提供「拉取全部模型」「全选图片」「清空」。首次或接口地址变化时默认勾选全部图片模型；同源刷新保留仍存在的既有勾选，不无故覆盖用户选择。Base URL 会归一化掉 `/v1/api/*`、`/v1/draw/*`、`/v1/images/*`、`/v1/models`、`/v1` 等路径。补丁只挂在页面 DOM 上，不修改压缩 bundle。「常规设置 → API 配置存储」卡片紧跟「资产存储目录」：不再提供浏览器存储切换，固定显示应用数据目录 `C:\Users\liliang\msg`。旧存储状态会自动迁移为目录模式；目录需预先存在，首次点击「立即保存」或「从本地恢复」会打开一次浏览器目录选择器并授权该目录。首次保存时若还没有 API Profile，会从画布原生输入框补建默认云雾配置，避免出现“点了没反应”。授权后写入或读取明文 JSON `manshiguang-api-config.json`，API Key、Base URL 或模型勾选变化时自动续写；读取只更新浏览器状态，不立即回写源文件。保存/恢复必须显示操作中、持久成功或失败状态和最近时间，完成或失败后按钮必须恢复可用；错误提示要自动滚动到可见位置。浏览器只会返回文件夹名，不能伪造 Windows 绝对路径；显示层在授权目录名为 `images` 时按用户确认固定标注 `D:\data\workData\漫时光\画布\images`，该文本不参与读写，真实读写仍使用 File System Access handle。资产目录与 API 配置目录使用各自独立的 token；补丁会在选择器返回后主动刷新资产目录的友好回显，避免点「立即保存」时看起来像资产目录被改写。资产卡的原生「打开目录」在显示层改为「查看目录」，由桥接层读取并展示目录内容，不伪装为已打开 Windows 资源管理器。
 - `canvas/model-patch.js`：当启用的 API 不是内置云雾时，只读取当前 Profile 的 `selectedModels` 注入图片节点模型下拉；没有勾选时显示明确空状态，不回退到内置清单。用户选择写入 `localStorage["manshiguang:canvas-model-choice"]`（按 `banana` / `gpt` 两个族保存），选中后通过点击原生下拉项让 React 更新节点状态；取消勾选或切回云雾时清理失效选择并恢复原生按钮文案。请求侧劫持 `window.fetch`：命中 `/v1/images/generations`、`/v1/images/edits` 或 `/v1beta/models/<model>:generateContent` 且当前平台为 Grsai 时，强制从当前 Profile 的 `selectedModels` 选择模型，未勾选或缺少 API Key 则返回明确中文错误；解析 OpenAI JSON/FormData 与 Gemini parts，把提示词、参考图、比例和清晰度统一改写为 `${base}/v1/api/generate`。nano-banana 系列发送 `aspectRatio + imageSize`，gpt-image 系列发送像素尺寸与 `quality`，参考图统一放进 `images`；异步任务随后用 `GET ${base}/v1/api/result?id=<taskId>` 轮询，最后回填成 OpenAI 风格的 `{ data: [{ url }] }`。
-- `canvas/gallery-patch.js`：画布内的资产库集成层。负责三件事：一是把侧边栏「姿势库/服装库/人像库」三个按钮改为在画布右侧滑出 iframe 抽屉（`embed=1&tab=`），而不是跳新标签页，Ctrl/中键点击仍开新标签；二是接收抽屉或独立标签页发来的选中资产（`window.message` 校验同源 + `BroadcastChannel` 两路），写入合成台列表；三是维护合成台面板与角标。只有抽屉（嵌入）路径会自动新建 Image Asset 节点——它复用画布侧边栏隐藏的 `input[type="file"]` 并派发 `change` 事件，走与手动「+ → 上传」完全相同的建节点与落盘流程；独立标签页的 `BroadcastChannel` 路径仍只加入合成台列表，不自动建节点。抽屉与合成台面板同在右侧，打开一个会收起另一个，`Esc` 关闭抽屉。去重只作用于合成台列表，重复点同一资产仍会插入新节点。
+- `canvas/gallery-patch.js`：画布内的资产库集成层。负责三件事：一是把侧边栏「姿势库/服装库/人像库」三个按钮改为在画布右侧滑出 iframe 抽屉（`embed=1&host=canvas&tab=`），而不是跳新标签页，Ctrl/中键点击仍开新标签；二是接收抽屉或独立标签页发来的选中资产（`window.message` 校验同源 + `BroadcastChannel` 两路），写入合成台列表；三是维护合成台面板与角标。只有抽屉（嵌入）路径会自动新建 Image Asset 节点——它复用画布侧边栏隐藏的 `input[type="file"]` 并派发 `change` 事件，走与手动「+ → 上传」完全相同的建节点与落盘流程；独立标签页的 `BroadcastChannel` 路径仍只加入合成台列表，不自动建节点。抽屉与合成台面板同在右侧，打开一个会收起另一个，`Esc` 关闭抽屉。去重只作用于合成台列表，重复点同一资产仍会插入新节点。
 - `canvas/assets/index-*.js` 与 `index-*.css`：外部已打包产物，默认视为只读。若需升级画布，整体替换 bundle 并重新核对桥接 API，不要局部修改压缩代码。
 
 #### 3.3 资产参考库职责
@@ -165,7 +165,7 @@ msg/
   - `DATA_FILES`：列出声势、服装与人像索引文件；服装合并 `costume-zh`、`costume-shisei-zh`、`costume-gia-anime-zh`、`costume-anime-zh`。
   - `state`：当前库、搜索词、筛选、安全模式、首屏分页、姿势显示模式和详情状态。
   - `loadLibrary()` / `loadLibraryFiles()`：读取 `local-assets/data/*.json`，单文件失败时保留其余可用库并显示错误提示；嵌入模式只加载当前 tab 对应的索引，切库时按需补加载，用 `loadingLibraries` 计数防止并发重复请求。
-  - `EMBED` / `notifyParent()`：嵌入模式下 `sendToCanvas()` 走 `postMessage`（`source: "manshiguang-asset-embed"`）通知宿主画布，不再依赖 `BroadcastChannel`；未加载的库在 tab 上显示「…」而不是 0。
+  - `HOST` / `SIZE_STORAGE_KEY`：按 URL `host` 参数（`studio` / `canvas`）或独立资产页选出各自的尺寸档位存储键，三处互不影响；首次分键时一次性继承旧的全局档位并落盘到本宿主键。`EMBED` / `notifyParent()`：嵌入模式下 `sendToCanvas()` 走 `postMessage`（`source: "manshiguang-asset-embed"`）通知宿主画布，不再依赖 `BroadcastChannel`；未加载的库在 tab 上显示「…」而不是 0。
   - `renderFilters()`、`renderGrid()`、`updateDialog()`：筛选、卡片和详情渲染入口。
   - `setupEvents()`：搜索、重置、加载更多、安全模式、详情导航、键盘快捷键和图片失败态。
   - `assetPath()` / `poseDepthPath()`：将相对资源映射到只读代理；本地绝对路径不应写进页面代码。
@@ -220,7 +220,7 @@ msg/
 - **搜索与筛选状态**：当前库、关键词、主要分类、次级分类、标签、视角、发长、热门/精选与首屏数量，全部为页面内状态。
 - **安全模式**：默认 `true`，关闭前必须显示 18+ 确认；安全模式切换会重置筛选与分页。
 - **详情预览**：上一张/下一张、`←` / `→`、`Esc`；姿势支持白模/深度图切换，服装支持多视角切换。
-- **宿主内嵌契约**：画布抽屉与工作台图片工坊都通过 `gallery/index.html?v=<版本>&embed=1&tab=<库>` 加载；iframe 内向宿主发送 `{ source: "manshiguang-asset-embed", type: "asset-select", asset }` 与 `{ ..., type: "close-drawer" }`，宿主向 iframe 发送 `{ source: "manshiguang-asset-host", type: "switch-tab", tab }`。所有消息都校验 `event.origin === window.location.origin`。独立标签页仍沿用 `BroadcastChannel("manshiguang:asset-transfer")`。
+- **宿主内嵌契约**：画布抽屉与工作台图片工坊都通过 `gallery/index.html?v=<版本>&embed=1&host=<canvas|studio>&tab=<库>` 加载。`host` 决定尺寸档位使用哪个 localStorage 键：`studio`、`canvas` 与独立资产页（无 `host` 且无 `embed`）各自独立，改一边不影响另一边；缺少 `host` 但带 `embed=1` 的旧链接回退到 `embed` 独立档位，绝不与 `studio`/`canvas` 混用。分键后的首次加载会继承旧的全局档位并写入本宿主自己的键，之后完全脱钩。iframe 内向宿主发送 `{ source: "manshiguang-asset-embed", type: "asset-select", asset }` 与 `{ ..., type: "close-drawer" }`，宿主向 iframe 发送 `{ source: "manshiguang-asset-host", type: "switch-tab", tab }`。所有消息都校验 `event.origin === window.location.origin`。独立标签页仍沿用 `BroadcastChannel("manshiguang:asset-transfer")`。iframe 内向宿主发送 `{ source: "manshiguang-asset-embed", type: "asset-select", asset }` 与 `{ ..., type: "close-drawer" }`，宿主向 iframe 发送 `{ source: "manshiguang-asset-host", type: "switch-tab", tab }`。所有消息都校验 `event.origin === window.location.origin`。独立标签页仍沿用 `BroadcastChannel("manshiguang:asset-transfer")`。
 - **只读资产接口**：
   - `GET /__gallery_asset/data/*.json`
   - `GET /__gallery_asset/thumbs/*`
@@ -313,8 +313,9 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 15. 搜索、分类/来源/标签/发长筛选与「重置筛选」可用；姿势切换「素体白模/深度图」后卡片、详情徽标、详情按钮文案和图片 URL 同步变化。
 16. 服装库选择 Shisei 条目，详情应出现正面、斜侧、侧面、背面多视角按钮，切换后主图与「查看原图」目标同步；`←` / `→` 切换条目，`Esc` 关闭。
 17. 以 390px 宽度打开资产页，确认 `document.documentElement.scrollWidth <= window.innerWidth`，不得出现横向滚动；`server.py` 的代理接口应拒绝路径穿越与其他根目录。
-18. 在画布工作流页点击侧边栏「姿势库/服装库/人像库」：必须在画布同页右侧滑出 iframe 抽屉而不是开新标签；抽屉内为紧凑两列布局，看不到站点页头、主视觉与来源说明；点卡片上的发送按钮后画布新增 Image Asset 节点、右下角提示「已插入…到画布」、合成台列表与角标同步；重复点同一张资产应再新增一个节点（合成台列表不重复计数）。Ctrl/中键点击库按钮仍开新标签页；`Esc` 或再次点同一按钮关闭抽屉；抽屉与合成台面板互斥显示；切到未加载过的库时原地补加载并显示该库条目。独立打开的 `gallery/index.html` 布局必须保持原样（五列、显示页头与主视觉）。`20261107-2` 已用 headless Chrome 真实鼠标点击跑通 18 项断言；未在 Windows 原生授权目录人工验收。
+18. 在画布工作流页点击侧边栏「姿势库/服装库/人像库」：必须在画布同页右侧滑出 iframe 抽屉而不是开新标签；抽屉内为嵌入紧凑布局（默认「标准」档 6 列，可用「紧凑 / 标准 / 放大」切到 8 / 6 / 4 列，档位与工作台图片工坊互相独立），看不到站点页头、主视觉与来源说明；点卡片上的发送按钮后画布新增 Image Asset 节点、右下角提示「已插入…到画布」、合成台列表与角标同步；重复点同一张资产应再新增一个节点（合成台列表不重复计数）。Ctrl/中键点击库按钮仍开新标签页；`Esc` 或再次点同一按钮关闭抽屉；抽屉与合成台面板互斥显示；切到未加载过的库时原地补加载并显示该库条目。独立打开的 `gallery/index.html` 布局必须保持原样（五列、显示页头与主视觉）。`20261107-2` 已用 headless Chrome 真实鼠标点击跑通 18 项断言；未在 Windows 原生授权目录人工验收。
 
+18a. 「紧凑 / 标准 / 放大」三档在工作台图片工坊、画布抽屉与独立资产页三处必须各自独立：在画布抽屉切到紧凑后，工作台图片工坊与独立资产页的档位和列数都不得改变，反向同理；三处各自重载后仍保持自己的档位。`20261109-2` 已用 headless Chrome 复跑 17 项断言全过（含 iframe 真实列数、localStorage 键值，以及两条发送链路载荷与重构前逐字节一致的 A/B 对比）。
 19. 打开 AI 创作工作台：左侧栏为「画布 / 图片工坊 / 剧情导演台 / 设定与出图 / 数字人视频 / 任务与成片」六项，前两项标为在线、后四项标为规划中并给出用途、输入、产出和与现有能力的关系，不提供假按钮。
 20. 在工作台点「画布」：iframe 内画布应用完成渲染，切到「图片工坊」再切回「画布」时工作流与滚动状态仍在（iframe 只隐藏不销毁），只有「重载」会重新载入。
 21. 在工作台左下角点「授权资产目录」并选择 `D:\data\workData\漫时光\画布\images`：状态条变为已授权并显示目录名；随后在画布 iframe 内「+ → 上传」选本地图片，节点必须直接显示图片内容，文件落在该目录且不产生 `-2` 副本。这一步验证的是「顶层授权 + iframe 复用」链路，画布内部不需要再弹一次目录选择器。
