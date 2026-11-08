@@ -530,6 +530,13 @@ body.is-embed .asset-card__send {
   right: 7px;
 }
 
+/* 工作台图片工坊（host=studio）：隐藏卡片右上角「发送到画布合成台」图标。
+   画布抽屉 host=canvas、独立资产页以及只带 embed=1 的旧链接都不受影响；
+   工作台内仍可点开卡片用详情弹层里的发送按钮把资产送进画布。 */
+body.is-embed-host-studio .asset-card__send {
+  display: none;
+}
+
 body.is-embed .load-more-wrap { padding-top: 16px; }
 body.is-embed .primary-button,
 body.is-embed .ghost-button { width: 100%; min-height: 40px; font-size: 12px; }

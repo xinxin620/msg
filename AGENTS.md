@@ -165,7 +165,7 @@ msg/
   - `DATA_FILES`：列出声势、服装与人像索引文件；服装合并 `costume-zh`、`costume-shisei-zh`、`costume-gia-anime-zh`、`costume-anime-zh`。
   - `state`：当前库、搜索词、筛选、安全模式、首屏分页、姿势显示模式和详情状态。
   - `loadLibrary()` / `loadLibraryFiles()`：读取 `local-assets/data/*.json`，单文件失败时保留其余可用库并显示错误提示；嵌入模式只加载当前 tab 对应的索引，切库时按需补加载，用 `loadingLibraries` 计数防止并发重复请求。
-  - `HOST` / `SIZE_STORAGE_KEY`：按 URL `host` 参数（`studio` / `canvas`）或独立资产页选出各自的尺寸档位存储键，三处互不影响；首次分键时一次性继承旧的全局档位并落盘到本宿主键。`EMBED` / `notifyParent()`：嵌入模式下 `sendToCanvas()` 走 `postMessage`（`source: "manshiguang-asset-embed"`）通知宿主画布，不再依赖 `BroadcastChannel`；未加载的库在 tab 上显示「…」而不是 0。
+  - `HOST` / `SIZE_STORAGE_KEY`：按 URL `host` 参数（`studio` / `canvas`）或独立资产页选出各自的尺寸档位存储键，三处互不影响；首次分键时一次性继承旧的全局档位并落盘到本宿主键。嵌入模式下 `boot()` 还会把 `is-embed-host-<HOST>` 追加到 `body`，供宿主差异化样式使用（目前用于在工作台隐藏卡片发送按钮，见 4.3）。`EMBED` / `notifyParent()`：嵌入模式下 `sendToCanvas()` 走 `postMessage`（`source: "manshiguang-asset-embed"`）通知宿主画布，不再依赖 `BroadcastChannel`；未加载的库在 tab 上显示「…」而不是 0。
   - `renderFilters()`、`renderGrid()`、`updateDialog()`：筛选、卡片和详情渲染入口。
   - `setupEvents()`：搜索、重置、加载更多、安全模式、详情导航、键盘快捷键和图片失败态。
   - `assetPath()` / `poseDepthPath()`：将相对资源映射到只读代理；本地绝对路径不应写进页面代码。
@@ -220,7 +220,8 @@ msg/
 - **搜索与筛选状态**：当前库、关键词、主要分类、次级分类、标签、视角、发长、热门/精选与首屏数量，全部为页面内状态。
 - **安全模式**：默认 `true`，关闭前必须显示 18+ 确认；安全模式切换会重置筛选与分页。
 - **详情预览**：上一张/下一张、`←` / `→`、`Esc`；姿势支持白模/深度图切换，服装支持多视角切换。
-- **宿主内嵌契约**：画布抽屉与工作台图片工坊都通过 `gallery/index.html?v=<版本>&embed=1&host=<canvas|studio>&tab=<库>` 加载。`host` 决定尺寸档位使用哪个 localStorage 键：`studio`、`canvas` 与独立资产页（无 `host` 且无 `embed`）各自独立，改一边不影响另一边；缺少 `host` 但带 `embed=1` 的旧链接回退到 `embed` 独立档位，绝不与 `studio`/`canvas` 混用。分键后的首次加载会继承旧的全局档位并写入本宿主自己的键，之后完全脱钩。iframe 内向宿主发送 `{ source: "manshiguang-asset-embed", type: "asset-select", asset }` 与 `{ ..., type: "close-drawer" }`，宿主向 iframe 发送 `{ source: "manshiguang-asset-host", type: "switch-tab", tab }`。所有消息都校验 `event.origin === window.location.origin`。独立标签页仍沿用 `BroadcastChannel("manshiguang:asset-transfer")`。iframe 内向宿主发送 `{ source: "manshiguang-asset-embed", type: "asset-select", asset }` 与 `{ ..., type: "close-drawer" }`，宿主向 iframe 发送 `{ source: "manshiguang-asset-host", type: "switch-tab", tab }`。所有消息都校验 `event.origin === window.location.origin`。独立标签页仍沿用 `BroadcastChannel("manshiguang:asset-transfer")`。
+- **宿主内嵌契约**：画布抽屉与工作台图片工坊都通过 `gallery/index.html?v=<版本>&embed=1&host=<canvas|studio>&tab=<库>` 加载。`host` 决定尺寸档位使用哪个 localStorage 键：`studio`、`canvas` 与独立资产页（无 `host` 且无 `embed`）各自独立，改一边不影响另一边；缺少 `host` 但带 `embed=1` 的旧链接回退到 `embed` 独立档位，绝不与 `studio`/`canvas` 混用。分键后的首次加载会继承旧的全局档位并写入本宿主自己的键，之后完全脱钩。iframe 内向宿主发送 `{ source: "manshiguang-asset-embed", type: "asset-select", asset }` 与 `{ ..., type: "close-drawer" }`，宿主向 iframe 发送 `{ source: "manshiguang-asset-host", type: "switch-tab", tab }`。所有消息都校验 `event.origin === window.location.origin`。独立标签页仍沿用 `BroadcastChannel("manshiguang:asset-transfer")`。
+- **卡片发送按钮可见性**：卡片右上角的 `.asset-card__send`（「发送到画布合成台」）按宿主区分——`body.is-embed-host-studio`（工作台图片工坊）下 `display: none`；画布抽屉（`host=canvas`）、独立资产页与只带 `embed=1` 的旧链接一律保留可见。工作台内仍可点开卡片用详情弹层的 `#dialogSend` 把资产送进画布，该入口不受影响。规则只写在 `gallery/assets/gallery.css`，靠 `gallery.js` 追加的宿主类名生效，不得改动画布压缩 bundle。
 - **只读资产接口**：
   - `GET /__gallery_asset/data/*.json`
   - `GET /__gallery_asset/thumbs/*`
@@ -316,6 +317,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 18. 在画布工作流页点击侧边栏「姿势库/服装库/人像库」：必须在画布同页右侧滑出 iframe 抽屉而不是开新标签；抽屉内为嵌入紧凑布局（默认「标准」档 6 列，可用「紧凑 / 标准 / 放大」切到 8 / 6 / 4 列，档位与工作台图片工坊互相独立），看不到站点页头、主视觉与来源说明；点卡片上的发送按钮后画布新增 Image Asset 节点、右下角提示「已插入…到画布」、合成台列表与角标同步；重复点同一张资产应再新增一个节点（合成台列表不重复计数）。Ctrl/中键点击库按钮仍开新标签页；`Esc` 或再次点同一按钮关闭抽屉；抽屉与合成台面板互斥显示；切到未加载过的库时原地补加载并显示该库条目。独立打开的 `gallery/index.html` 布局必须保持原样（五列、显示页头与主视觉）。`20261107-2` 已用 headless Chrome 真实鼠标点击跑通 18 项断言；未在 Windows 原生授权目录人工验收。
 
 18a. 「紧凑 / 标准 / 放大」三档在工作台图片工坊、画布抽屉与独立资产页三处必须各自独立：在画布抽屉切到紧凑后，工作台图片工坊与独立资产页的档位和列数都不得改变，反向同理；三处各自重载后仍保持自己的档位。`20261109-2` 已用 headless Chrome 复跑 17 项断言全过（含 iframe 真实列数、localStorage 键值，以及两条发送链路载荷与重构前逐字节一致的 A/B 对比）。
+
+18b. 卡片右上角「发送到画布合成台」图标只在工作台图片工坊隐藏：`gallery/index.html?embed=1&host=studio` 下 `.asset-card__send` 必须 `display: none`，而 `host=canvas`（画布抽屉）、独立 `gallery/index.html` 与只带 `embed=1` 的旧链接都必须仍然可见可点；工作台详情弹层的发送按钮必须保留可用。`20261109-3` 已用 headless Chrome（含工作台外壳真实 iframe）跑通 8 项断言并截图核对。
 19. 打开 AI 创作工作台：左侧栏为「画布 / 图片工坊 / 剧情导演台 / 设定与出图 / 数字人视频 / 任务与成片」六项，前两项标为在线、后四项标为规划中并给出用途、输入、产出和与现有能力的关系，不提供假按钮。
 20. 在工作台点「画布」：iframe 内画布应用完成渲染，切到「图片工坊」再切回「画布」时工作流与滚动状态仍在（iframe 只隐藏不销毁），只有「重载」会重新载入。
 21. 在工作台左下角点「授权资产目录」并选择 `D:\data\workData\漫时光\画布\images`：状态条变为已授权并显示目录名；随后在画布 iframe 内「+ → 上传」选本地图片，节点必须直接显示图片内容，文件落在该目录且不产生 `-2` 副本。这一步验证的是「顶层授权 + iframe 复用」链路，画布内部不需要再弹一次目录选择器。

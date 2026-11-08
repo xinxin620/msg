@@ -1,7 +1,7 @@
 ﻿(() => {
   "use strict";
 
-  const VERSION = "20261109-2";
+  const VERSION = "20261109-3";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";

@@ -1116,6 +1116,9 @@
   function boot() {
     if (EMBED) {
       document.body.classList.add("is-embed");
+      // 宿主场景类名：工作台图片工坊与画布抽屉共用同一份嵌入样式，但卡片右上角
+      // 「发送到画布合成台」按钮只在工作台隐藏，画布抽屉与独立资产页保持原样。
+      document.body.classList.add("is-embed-host-" + HOST);
       if (state.size) document.body.classList.add("is-embed-size-" + state.size);
       if (EMBED_TAB) state.tab = EMBED_TAB;
       listenHostCommands();
