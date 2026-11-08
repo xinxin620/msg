@@ -177,6 +177,16 @@ button { color: inherit; font: inherit; cursor: pointer; }
 .size-btn[data-size="standard"]:before { content: "\25A0 "; }
 .size-btn[data-size="large"]:before { content: "\25A3 "; }
 
+.bar-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); color: var(--muted);
+  font-size: 13px; font-weight: 500;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  white-space: nowrap;
+}
+
 .bar-btn:hover { border-color: var(--primary); color: var(--text); background: rgba(26, 26, 26, 0.06); }
 
 .studio-stage { position: relative; flex: 1; min-height: 0; }
@@ -233,7 +243,7 @@ button { color: inherit; font: inherit; cursor: pointer; }
 
 @media (max-width: 760px) {
   :root { --rail-width: 68px; --bar-height: 78px; }
-  .bar-desc, .bar-btn span { display: none; }
+  .bar-desc { display: none; }
   .soon-head { grid-template-columns: 1fr; }
   .soon-state { justify-self: start; }
 }
