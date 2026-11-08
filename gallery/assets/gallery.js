@@ -651,9 +651,10 @@
       button.setAttribute("aria-selected", String(selected));
     });
     // 嵌入模式按需加载：切到没读过的库先补索引，再渲染。
-    if (EMBED && !library[tab].length && !loadingLibraries[tab] && !loadedLibraries[tab]) {
+    if (EMBED && !library[tab].length && !loadedLibraries[tab]) {
       setLoadingNote("正在读取" + tabLabel(tab) + "索引…");
-      loadLibraryFiles([tab]).then(function () {
+      var pending = pendingLibraries[tab];
+      (pending || loadLibraryFiles([tab])).then(function () {
         renderFilters();
         renderGrid(true);
       });
@@ -991,6 +992,9 @@
   // 只拉某个库需要的索引文件，避免嵌入时一次读 4 个大 JSON。
   // 一个库可能对应多个文件，因此用 in-flight 计数，全部完成才标记已加载。
   var loadingLibraries = { poses: 0, costumes: 0, portraits: 0 };
+  // 每个库正在进行中的加载 Promise：切 Tab 时直接等待它，
+  // 既不会重复请求，也不会在数据没到之前渲染出空列表。
+  var pendingLibraries = {};
 
   function loadLibraryFiles(types) {
     var list = Array.isArray(types) ? types : [types];
@@ -1000,13 +1004,14 @@
       if (loadedLibraries[type] || loadingLibraries[type]) return;
       wanted[type] = true;
     });
+    var groups = {};
     var requests = DATA_FILES.filter(function (entry) {
       return wanted[entry[0]];
     }).map(function (entry) {
       var key = entry[0];
       var path = entry[1];
       loadingLibraries[key] += 1;
-      return fetch(ASSET_PREFIX + path, { cache: "no-store" })
+      var req = fetch(ASSET_PREFIX + path, { cache: "no-store" })
         .then(function (response) {
           if (!response.ok) throw new Error(path + " HTTP " + response.status);
           return response.json().then(function (data) {
@@ -1023,8 +1028,32 @@
             loadedLibraries[key] = library[key].length > 0;
           }
         });
+      (groups[key] = groups[key] || []).push(req);
+      return req;
+    });
+    Object.keys(groups).forEach(function (key) {
+      pendingLibraries[key] = Promise.all(groups[key]).then(function () {
+        delete pendingLibraries[key];
+      });
     });
     return Promise.all(requests);
+  }
+
+  // 嵌入模式首屏只读当前库，其余库在浏览器空闲时后台补齐，
+  // 这样未选中的 Tab 也能显示真实数量，而不是长期停在省略号。
+  function loadIdleLibraries() {
+    if (!EMBED) return;
+    var rest = ["poses", "costumes", "portraits"].filter(function (type) {
+      return !loadedLibraries[type] && !loadingLibraries[type];
+    });
+    if (!rest.length) return;
+    var run = function () {
+      loadLibraryFiles(rest).then(function () {
+        updateHero();
+      });
+    };
+    if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 4000 });
+    else window.setTimeout(run, 1200);
   }
 
   function loadLibrary() {
@@ -1046,6 +1075,7 @@
       renderGrid(false);
       finishLoading();
       updateHero();
+      loadIdleLibraries();
       // 支持 URL ?tab= 直达对应库
       var urlParams = new URLSearchParams(window.location.search);
       var startTab = urlParams.get("tab");
