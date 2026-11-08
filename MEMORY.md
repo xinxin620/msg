@@ -100,3 +100,18 @@
 - 新增视觉内容应延续「夜航星海」，并优先使用原创或已授权素材。
 - 不要手改 `canvas/assets/index-*.js` / `index-*.css`；画布的浏览器适配写在 `canvas/web-bridge.js`、`canvas/index.html`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/gallery-patch.js`、`studio/assets/studio.js` 和 `canvas/model-patch.js`。
 - 修改画布能力、外部接口、存储格式或技术栈时，同步更新 `AGENTS.md`、`README.md` 与本文件中的长期有效信息。
+
+
+## Git 代理配置
+
+当 GitHub 直连超时（`Failed to connect to github.com:443`）时使用 socks5 代理推送：
+
+```powershell
+git -c http.proxy=socks5://127.0.0.1:7897 push -u origin main
+```
+
+或用 `--force` 覆盖远端历史：
+
+```powershell
+git -c http.proxy=socks5://127.0.0.1:7897 push origin main --force
+```
