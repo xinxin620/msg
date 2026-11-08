@@ -358,7 +358,6 @@
         <span class="ms-asset-drawer__title" id="msDrawerTitle">${DRAWER_TAB_LABEL[drawerTab] || "资产库"}</span>
         <span class="ms-asset-drawer__hint">点「插入画布」直接建节点</span>
         <div class="ms-asset-drawer__actions">
-          <button class="ms-asset-drawer__btn" id="msDrawerOpenTab" type="button" title="在独立标签页打开完整资产库">新标签页</button>
           <button class="ms-asset-drawer__btn" id="msDrawerClose" type="button" title="关闭资产抽屉">✕</button>
         </div>
       </div>
@@ -367,9 +366,6 @@
     document.body.appendChild(drawerEl);
     drawerTitleEl = drawerEl.querySelector("#msDrawerTitle");
     drawerEl.querySelector("#msDrawerClose").addEventListener("click", hideDrawer);
-    drawerEl.querySelector("#msDrawerOpenTab").addEventListener("click", () => {
-      window.open(GALLERY_URL + "&tab=" + encodeURIComponent(drawerTab), "_blank", "noopener");
-    });
   }
 
   function ensureDrawerFrame() {
