@@ -136,7 +136,8 @@
   const barKicker = document.getElementById("barKicker");
   const barTitle = document.getElementById("barTitle");
   const barDesc = document.getElementById("barDesc");
-  const barSeg = document.getElementById("barSeg");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const openTabBtn = document.getElementById("openTabBtn");
   const soonTemplate = document.getElementById("soonTemplate");
 
   const frames = new Map();
@@ -203,21 +204,6 @@
     barKicker.textContent = workspace.kicker;
     barTitle.textContent = workspace.label;
     barDesc.textContent = workspace.tagline;
-    barSeg.replaceChildren();
-    if (workspace.tabs) {
-      const savedTab = readState().assetTab || "poses";
-      barSeg.hidden = false;
-      workspace.tabs.forEach((tab) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = tab.label;
-        button.className = tab.value === savedTab ? "is-active" : "";
-        button.addEventListener("click", () => switchAssetTab(tab.value));
-        barSeg.appendChild(button);
-      });
-    } else {
-      barSeg.hidden = true;
-    }
   }
 
   function ensureFrame(workspace) {
@@ -478,7 +464,32 @@
   }
 
   dirChip.addEventListener("click", requestDirectory);
-window.addEventListener("message", (event) => {
+
+  refreshBtn.addEventListener("click", () => {
+    const workspace = findWorkspace(activeId);
+    if (!workspace) return;
+    if (workspace.type !== "frame") {
+      activate(workspace.id);
+      return;
+    }
+    const entry = frames.get(workspace.id);
+    if (!entry) return;
+    stageBoot.dataset.ready = "false";
+    entry.ready = false;
+    entry.iframe.src = buildUrl(workspace, readState().assetTab);
+    window.setTimeout(setBootReady, 14000);
+  });
+
+  openTabBtn.addEventListener("click", () => {
+    const workspace = findWorkspace(activeId);
+    if (!workspace) return;
+    const url = workspace.type === "frame"
+      ? buildUrl(workspace, readState().assetTab)
+      : "../canvas/index.html?v=" + VERSION;
+    window.open(url, "_blank", "noopener");
+  });
+
+  window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data || data.source !== "manshiguang-asset-embed") return;
