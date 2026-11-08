@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #eeecea;
   --bg-deep: #e5e3e0;
   --bg-soft: #f8f5f1;
@@ -143,7 +143,40 @@ button { color: inherit; font: inherit; cursor: pointer; }
 .bar-seg button { padding: 6px 13px; border: 0; border-radius: 99px; background: transparent; color: var(--muted); font-size: 12px; transition: 0.16s ease; }
 .bar-seg button:hover { color: var(--text); }
 .bar-seg button.is-active { background: var(--primary); color: #fff; }
-.bar-btn { display: flex; align-items: center; gap: 7px; padding: 8px 13px; border: 1px solid var(--border); border-radius: 99px; background: rgba(255, 255, 255, 0.7); color: var(--muted); font-size: 12px; transition: 0.16s ease; }
+/* Size toggle buttons in bar-seg */
+.bar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.size-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: 0.18s ease;
+  white-space: nowrap;
+}
+.size-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.9);
+}
+.size-btn.is-active {
+  border-color: var(--primary);
+  background: var(--bg-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+.size-btn[data-size="compact"]:before { content: "\25C6 "; }
+.size-btn[data-size="standard"]:before { content: "\25A0 "; }
+.size-btn[data-size="large"]:before { content: "\25A3 "; }
+
 .bar-btn:hover { border-color: var(--primary); color: var(--text); background: rgba(26, 26, 26, 0.06); }
 
 .studio-stage { position: relative; flex: 1; min-height: 0; }

@@ -38,6 +38,7 @@
     if (bootTab === "poses" || bootTab === "costumes" || bootTab === "portraits") {
       EMBED_TAB = bootTab;
     }
+
   } catch (_) { EMBED = false; }
   var LOAD_PAGE = EMBED ? 24 : PAGE_SIZE;
 
@@ -55,6 +56,7 @@
     }
   }
   var state = {
+    size: "standard",
     tab: "poses",
     query: "",
     main: "all",
@@ -69,6 +71,16 @@
     dialogView: "",
     dialogDepth: false,
   };
+  
+  // 尺寸持久化
+  var SIZE_STORAGE_KEY = "manshiguang:gallery:size";
+  try {
+    var savedSize = localStorage.getItem(SIZE_STORAGE_KEY);
+    if (savedSize === "compact" || savedSize === "standard" || savedSize === "large") {
+      state.size = savedSize;
+    }
+  } catch (_) {}
+
 
   function $(selector, root) {
     return (root || document).querySelector(selector);
@@ -603,6 +615,27 @@
     }
   }
 
+  // 尺寸切换
+  function setupSizeToggle() {
+    var btns = document.querySelectorAll(".size-btn");
+    btns.forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var size = this.dataset.size;
+        if (size === state.size) return;
+        state.size = size;
+        try { localStorage.setItem(SIZE_STORAGE_KEY, size); } catch (_) {}
+        document.body.className = document.body.className.replace(/is-embed-size-\w+/g, "");
+        document.body.classList.add("is-embed-size-" + size);
+        btns.forEach(function(b) { b.classList.remove("is-active"); });
+        btn.classList.add("is-active");
+        renderGrid(true);
+      });
+    });
+    // Set initial active state
+    var initialBtn = document.querySelector(".size-btn[data-size="" + state.size + ""]");
+    if (initialBtn) initialBtn.classList.add("is-active");
+  }
+
   function setTab(tab) {
     state.tab = tab;
     state.main = "all";
@@ -1008,6 +1041,7 @@
       }
       if (!EMBED) createStarfield();
       setupEvents();
+      setupSizeToggle();
       renderFilters();
       renderGrid(false);
       finishLoading();
@@ -1026,6 +1060,7 @@
   function boot() {
     if (EMBED) {
       document.body.classList.add("is-embed");
+      if (state.size) document.body.classList.add("is-embed-size-" + state.size);
       if (EMBED_TAB) state.tab = EMBED_TAB;
       listenHostCommands();
     } else {
