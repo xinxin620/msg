@@ -8,7 +8,9 @@ import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+import urllib.request
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -45,6 +47,30 @@ GALLERY_CONTENT_TYPES = {
     ".gif": "image/gif",
     ".avif": "image/avif",
 }
+
+
+COMFY_PREFIX = "/__comfy/"
+COMFY_MAX_BODY_BYTES = 64 * 1024 * 1024
+COMFY_TIMEOUT_SECONDS = 60
+COMFY_ALLOWED_SCHEMES = {"http", "https"}
+
+
+def comfy_target(raw: str) -> str | None:
+    """把用户填写的 ComfyUI 地址归一化；只允许本机 http 或任意 https。"""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if not text.lower().startswith(("http://", "https://")):
+        text = "http://" + text
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    if parsed.scheme not in COMFY_ALLOWED_SCHEMES or not parsed.hostname:
+        return None
+    if parsed.scheme == "http" and parsed.hostname.lower() not in LOOPBACK_HOSTS:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
 
 
 def is_path_within(child: Path, parent: Path) -> bool:
@@ -138,6 +164,9 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if path.startswith("/__media/"):
             self.handle_media_asset(path)
             return
+        if path.startswith(COMFY_PREFIX):
+            self.handle_comfy_proxy(path, "GET")
+            return
         if path.startswith("/__"):
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "接口不存在"})
             return
@@ -183,6 +212,9 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path.startswith(COMFY_PREFIX):
+            self.handle_comfy_proxy(path, "POST")
+            return
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length > 65536:
             self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "请求体过大"})
@@ -193,6 +225,87 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             self.handle_open_folder_post(body)
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "POST 接口不存在"})
+
+    def handle_comfy_proxy(self, request_path: str, method: str):
+        """转发 ComfyUI 请求。
+
+        ComfyUI 默认只放行同源来源，画布页面发起的跨源请求会被它直接 403 拒掉；
+        这里由本机服务代为请求，并且刻意不带上 Origin，ComfyUI 会按本机请求放行。
+        """
+        if not self.is_loopback_client():
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "仅允许本机访问"})
+            return
+        params = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+        target = comfy_target((params.get("base") or [""])[0])
+        if not target:
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": "ComfyUI 地址无效，只允许本机 http 或 https 地址"},
+            )
+            return
+        # ComfyUI 的 /api/userdata/{file} 路由要求文件路径里的斜杠保持百分号编码
+        # （例如 workflows%2Ffoo.json），因此转发时必须保留原始编码，只对解码后的
+        # 副本做越界与异常字符检查。
+        suffix = request_path[len(COMFY_PREFIX):].strip("/")
+        decoded = unquote(suffix)
+        if (
+            not suffix
+            or ".." in decoded.split("/")
+            or decoded.startswith("/")
+            or "\\" in decoded
+            or any(ord(char) < 32 for char in decoded)
+        ):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "ComfyUI 接口路径无效"})
+            return
+        query = urlencode(
+            {key: value for key, value in params.items() if key != "base"},
+            doseq=True,
+        )
+        url = f"{target}/{suffix}"
+        if query:
+            url = f"{url}?{query}"
+
+        body = b""
+        if method == "POST":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > COMFY_MAX_BODY_BYTES:
+                self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "请求体过大"})
+                return
+            body = self.rfile.read(length) if length > 0 else b""
+
+        headers = {"User-Agent": "manshiguang-comfy-proxy/1.0"}
+        content_type = self.headers.get("Content-Type")
+        if content_type:
+            headers["Content-Type"] = content_type
+        comfy_key = (self.headers.get("X-MS-Comfy-Key") or "").strip()
+        if comfy_key:
+            headers["Authorization"] = f"Bearer {comfy_key}"
+
+        request = urllib.request.Request(
+            url,
+            data=body if method == "POST" else None,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=COMFY_TIMEOUT_SECONDS) as response:
+                payload = response.read()
+                status = response.status
+                upstream_type = response.headers.get("Content-Type", "application/octet-stream")
+        except HTTPError as exc:
+            payload = exc.read()
+            status = exc.code
+            upstream_type = (exc.headers or {}).get("Content-Type", "application/json")
+        except (URLError, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", None) or exc
+            self.send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": f"ComfyUI 不可达：{reason}"})
+            return
+
+        self.send_response(status)
+        self.send_header("Content-Type", upstream_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def handle_open_folder_post(self, body: bytes):
         if not self.is_loopback_client():

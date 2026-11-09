@@ -591,7 +591,7 @@
       const family = familyOf(requestedModel);
       const selectedModels = selectedModelsForActiveProfile();
       if (!selectedModels.length) {
-        throw new Error("当前第三方 API 配置未勾选模型，请先到「API 来源设置」拉取并勾选。");
+        throw new Error("当前第三方 API 配置未勾选模型，请先到「图片API来源设置」拉取并勾选。");
       }
       const familyChoice = state.choice[family];
       const chosen = selectedModels.includes(familyChoice)
@@ -698,7 +698,7 @@
     if (!models.length) {
       const note = document.createElement("div");
       note.className = "ms-model-list__empty";
-      note.textContent = "当前第三方配置还没有勾选模型。请到「模型与接口设置 → API 来源设置」拉取并勾选。";
+      note.textContent = "当前第三方配置还没有勾选模型。请到「模型与接口设置 → 图片API来源设置」拉取并勾选。";
       wrap.appendChild(note);
     }
     return wrap;

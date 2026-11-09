@@ -20,6 +20,10 @@
   const DEFAULT_BASE_URL = "https://api.openlux.ai/v1";
   const BUILTIN_APPLY_URL = "https://api.openlux.ai/register?aff=MYE2";
   const MODEL_FETCH_DEBOUNCE_MS = 700;
+  // 原生 bundle 的设置侧栏项叫「API 来源设置」，按用户要求在显示层改为「图片API来源设置」，
+  // 不修改压缩代码；两个常量分别是原文本与目标文本。
+  const NATIVE_API_SECTION_TITLE = "API 来源设置";
+  const API_SECTION_TITLE = "图片API来源设置";
 
   let profileState = null;
   let apiStorageState = null;
@@ -1460,7 +1464,7 @@
   function apiConfigFileContent() {
     const state = ensureProfileStateForStorage();
     if (!state) {
-      throw new Error("尚未加载 API 配置，请先打开「API 来源设置」并填写一个配置。");
+      throw new Error("尚未加载 API 配置，请先打开「图片API来源设置」并填写一个配置。");
     }
     return JSON.stringify(
       {
@@ -2064,6 +2068,18 @@
     profileState.profiles.forEach((profile) => scheduleAutoFetch(profile, 250));
   }
 
+  function renameApiSectionTitle() {
+    const labels = [
+      ...document.querySelectorAll(".settings-sidebar__item span"),
+      ...document.querySelectorAll(".settings-section__header h3"),
+    ];
+    for (const label of labels) {
+      const text = label.textContent?.trim();
+      if (text !== NATIVE_API_SECTION_TITLE && text !== API_SECTION_TITLE) continue;
+      if (label.textContent !== API_SECTION_TITLE) label.textContent = API_SECTION_TITLE;
+    }
+  }
+
   function updateSectionCopy(root) {
     const description = root
       ?.closest(".settings-section")
@@ -2097,6 +2113,7 @@
       ensureApiStorageCard();
       decorateAssetDirectoryInput();
       decorateAssetDirectoryActions();
+      renameApiSectionTitle();
       ensureManagerMounted();
     });
   }

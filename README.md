@@ -95,13 +95,23 @@ python server.py 4173
 - 独立入口：`canvas/index.html`（不经主站导航，适合需要完整窗口尺寸时用）
 - 打开方式：均为浏览器新标签页（`target="_blank"`）
 
-画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js` 和 `canvas/model-patch.js`、`canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，模型补丁只展示已选模型并适配 Grsai 请求协议，不修改压缩 bundle。
+画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js` 和 `canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，不修改压缩 bundle。
 
 ### API 来源配置
 
-「模型与接口设置 → API 来源设置」支持在保留内置「云雾」的同时新增任意多个第三方 API。每张配置卡都包含申请地址、API Key 和 Base URL，并保留「申请」按钮；其右侧的「启用」按钮用于切换当前配置，同一时间只有一个配置处于启用状态。
+「模型与接口设置 → 图片API来源设置」支持在保留内置「云雾」的同时新增任意多个第三方 API。每张配置卡都包含申请地址、API Key 和 Base URL，并保留「申请」按钮；其右侧的「启用」按钮用于切换当前配置，同一时间只有一个配置处于启用状态。
 
 配置保存在 `localStorage["manshiguang:canvas-api-profiles"]`，刷新页面后继续保留。启用项会同步到画布原有的 `canvas-api-settings`，后续请求使用当前配置的 Key 与 Base URL。
+
+### ComfyUI 设置
+
+「模型与接口设置 → 图片API来源设置」正下方新增独立「ComfyUI设置」tab，内含「本地 ComfyUI」和「云端 ComfyUI」两张配置卡，同一时间只启用一个。
+
+本地默认地址为 `http://127.0.0.1:8188`，仅允许本机 `http` 地址；云端需要填写 `https` 地址，服务要求鉴权时可在「访问密钥」中填写。密钥通过本地代理的 `X-MS-Comfy-Key` 请求头传给 `server.py`，由服务转为上游 `Authorization: Bearer`，不会写进 URL。
+
+「测试连接」会经 `server.py` 的 `/__comfy/system_stats?base=...` 转发，避免浏览器与 ComfyUI 的跨源限制；测试时需要 `server.py` 正在运行。启用本地 ComfyUI 后，卡片会自动读取真实 `workflows` 目录，支持搜索、刷新和点击选择；选中时会读取工作流 JSON 并校验 `nodes` 数组，保存节点数量、文件大小和更新时间。
+
+配置与选中的工作流保存在 `localStorage["manshiguang:canvas-comfyui"]`，当前启用项会发布到 `window.__MS_COMFY__`。当前版本只完成连接、工作流选择与校验，尚未把 ComfyUI 生成任务、进度和结果回填接入画布节点。
 
 ### API 配置存储
 
@@ -203,6 +213,7 @@ msg/
 │  ├─ web-bridge.js           浏览器兼容桥接层
 │  ├─ branding-patch.js       标题栏 Logo、设置页作者信息与收款码品牌补丁
 │  ├─ api-profiles-patch.js   云雾/第三方 API 多配置、唯一启用、模型勾选与 API 配置存储
+│  ├─ comfy-patch.js          ComfyUI 设置 tab、本地/云端连接配置、测试与工作流选择
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ gallery-patch.js       画布内资产抽屉、合成台面板与资产插入节点
 │  ├─ assets/
@@ -232,6 +243,7 @@ node --check assets/app.js
 node --check canvas/web-bridge.js
 node --check canvas/branding-patch.js
 node --check canvas/api-profiles-patch.js
+node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
 node --check studio/assets/studio.js

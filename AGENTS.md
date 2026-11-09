@@ -45,7 +45,7 @@
 | 本地数据 | Dexie / idb-keyval；浏览器桥接另用 IndexedDB |
 | 图形与编辑 | PixiJS、react-image-crop、lucide-react |
 | 桌面原实现 | Electron preload + IPC + Node.js 文件系统、FFmpeg、undici |
-| 当前宿主 | `canvas/index.html` + `canvas/web-bridge.js` + `canvas/branding-patch.js` + `canvas/api-profiles-patch.js` + `canvas/model-patch.js`，在普通浏览器中提供兼容层、品牌替换、API 来源多配置管理和第三方模型列表/协议适配 |
+| 当前宿主 | `canvas/index.html` + `canvas/web-bridge.js` + `canvas/branding-patch.js` + `canvas/api-profiles-patch.js` + `canvas/comfy-patch.js` + `canvas/model-patch.js`，在普通浏览器中提供兼容层、品牌替换、API 来源多配置管理、ComfyUI 连接设置和第三方模型列表/协议适配 |
 | 构建 | 本仓库不构建画布 bundle；不要手改压缩后的 `index-*.js` / `index-*.css` |
 
 #### 2.3 资产参考库
@@ -83,7 +83,7 @@
 - **Java 版本：不适用。** 本项目没有 Java 源码、JVM 构建或 Java 运行时要求。
 - **Spring Boot / Spring Cloud / Spring MVC：不适用。**
 - **Redis、RabbitMQ、MySQL：不适用。** 没有消息队列、缓存服务或关系数据库。
-- **数据库表：无。** 主站收藏使用 `localStorage`；画布偏好/workflow 由打包应用保存在浏览器存储；API 多配置使用 `localStorage["manshiguang:canvas-api-profiles"]`，当前启用项再同步到原有 `canvas-api-settings`；目录授权使用 IndexedDB 数据库 `manshiguang-canvas-bridge` 的 `directoryHandles` object store；资产落盘后的「显示用绝对路径 → 目录 token + 相对片段」映射记录在同库 `bridge:mediaPaths`。API 配置以浏览器 `localStorage` 维护运行状态，并默认写入应用数据目录 `C:\Users\liliang\msg\manshiguang-api-config.json`；位置元数据使用 `localStorage["manshiguang:canvas-api-storage"]`。目录 handle 使用独立 token 保存，不复用或覆盖素材目录；首次使用需要由用户在浏览器目录选择器中授权一次。
+- **数据库表：无。** 主站收藏使用 `localStorage`；画布偏好/workflow 由打包应用保存在浏览器存储；API 多配置使用 `localStorage["manshiguang:canvas-api-profiles"]`，当前启用项再同步到原有 `canvas-api-settings`；ComfyUI 本地/云端连接配置使用 `localStorage["manshiguang:canvas-comfyui"]`；目录授权使用 IndexedDB 数据库 `manshiguang-canvas-bridge` 的 `directoryHandles` object store；资产落盘后的「显示用绝对路径 → 目录 token + 相对片段」映射记录在同库 `bridge:mediaPaths`。API 配置以浏览器 `localStorage` 维护运行状态，并默认写入应用数据目录 `C:\Users\liliang\msg\manshiguang-api-config.json`；位置元数据使用 `localStorage["manshiguang:canvas-api-storage"]`。目录 handle 使用独立 token 保存，不复用或覆盖素材目录；首次使用需要由用户在浏览器目录选择器中授权一次。
 - 后续若引入后端，应先明确 API、鉴权、数据模型和部署边界，再修改本文件；不要把模板中的 Java/Spring/MySQL 假设套到当前项目上。
 
 ### 3. 目录结构与职责
@@ -109,6 +109,7 @@ msg/
 │  ├─ web-bridge.js           浏览器兼容桥接层，向画布暴露 window.electronAPI
 │  ├─ branding-patch.js       标题栏产品名/Logo、设置页作者信息与收款码补丁，不修改压缩 bundle
 │  ├─ api-profiles-patch.js   云雾/第三方 API 多配置管理与唯一启用补丁
+│  ├─ comfy-patch.js          「ComfyUI设置」侧栏 tab、本地/云端连接配置、测试与工作流选择补丁
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ gallery-patch.js        画布内资产抽屉、合成台面板与资产插入节点补丁
 │  ├─ assets/
@@ -153,7 +154,8 @@ msg/
 - `canvas/index.html`：加载桥接脚本、品牌/API 补丁、画布 bundle、React 根节点和启动遮罩；遮罩只在 React 根节点产生内容后消失，12 秒未加载时显示诊断提示。页面在启动脚本前校验地址中的 `v` 参数，缺少或过期时自动重定向到当前版本，避免已打开的旧标签页继续运行缓存中的旧补丁。
 - `canvas/web-bridge.js`：浏览器兼容层，负责网络、文件、目录、API 配置 JSON 读写、窗口、诊断和 OSS 请求；不得把桌面 Node/Electron 能力伪装成成功。素材落盘后返回的是「显示用绝对路径」（如 `D:\data\workData\漫时光\画布\images\SPR-0010.webp`），而不是 `webdir:` 虚拟标识：压缩 bundle 只识别 `file://` 与「盘符:\\」两种本地路径，其余字符串会被原样写进 `<img src>`，导致上传后只剩文件名。桥接层用 `bridge:mediaPaths` 记录把该路径映射回目录 handle，并在 `getLocalMediaFileUrl`、`readLocalMediaDataUrl`、`sourceToBlob`、multipart 与 `window.fetch` 上按映射解析；同时对历史遗留的 `webdir:` 路径包装 `HTMLImageElement`/`HTMLMediaElement` 的 `src` setter 做兜底转换（带 blob 缓存）。真实读写仍以 File System Access handle 为准，路径文本只是键。落盘统一走 `writeOrReuseFile`：同名且字节一致时复用原文件，避免从资产目录自身重复上传时不断产生 `-2` / `-3` 副本。
 - `canvas/branding-patch.js`：通过 `MutationObserver` 将标题栏产品名和 Logo 替代文本统一为「画布」，把标题栏 Logo 图片切换为 `../assets/favicon-32x32.png?v=20261104-2`，并替换设置侧栏的作者信息文本（`大桶子ai` → `阿亮啊`、`wmxwz1` → `liangliang_0314`、`hub.datong-ai.cn` → `https://github.com/xinxin620`），并把收款码切换到带日期的唯一文件名并追加版本参数，以避免旧 URL 缓存；补丁必须独立于原始 bundle，更新二维码或升级画布后同步提升脚本/图片版本并重新核对选择器。
-- `canvas/api-profiles-patch.js`：隐藏原始云雾 vendor 卡片，在原位置插入多配置管理区；支持内置云雾与任意多个第三方 API，每项包含名称、申请地址、API Key、Base URL，每张卡保留「申请」并在右侧提供「启用/已启用」。状态使用 `localStorage["manshiguang:canvas-api-profiles"]`，`activeId` 保证同一时间只有一个启用；切换时同步到画布原有 `canvas-api-settings`、`state.vendorConfigs.yunwu` 和云雾输入框。第三方 Profile 还保存 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`：填写或变更 Base URL / API Key 后自动尝试 `${base}/v1/models` 和 `${base}/models`，也提供「拉取全部模型」「全选图片」「清空」。首次或接口地址变化时默认勾选全部图片模型；同源刷新保留仍存在的既有勾选，不无故覆盖用户选择。Base URL 会归一化掉 `/v1/api/*`、`/v1/draw/*`、`/v1/images/*`、`/v1/models`、`/v1` 等路径。补丁只挂在页面 DOM 上，不修改压缩 bundle。「常规设置 → API 配置存储」卡片紧跟「资产存储目录」：不再提供浏览器存储切换，固定显示应用数据目录 `C:\Users\liliang\msg`。旧存储状态会自动迁移为目录模式；目录需预先存在，首次点击「立即保存」或「从本地恢复」会打开一次浏览器目录选择器并授权该目录。首次保存时若还没有 API Profile，会从画布原生输入框补建默认云雾配置，避免出现“点了没反应”。授权后写入或读取明文 JSON `manshiguang-api-config.json`，API Key、Base URL 或模型勾选变化时自动续写；读取只更新浏览器状态，不立即回写源文件。保存/恢复必须显示操作中、持久成功或失败状态和最近时间，完成或失败后按钮必须恢复可用；错误提示要自动滚动到可见位置。浏览器只会返回文件夹名，不能伪造 Windows 绝对路径；显示层在授权目录名为 `images` 时按用户确认固定标注 `D:\data\workData\漫时光\画布\images`，该文本不参与读写，真实读写仍使用 File System Access handle。资产目录与 API 配置目录使用各自独立的 token；补丁会在选择器返回后主动刷新资产目录的友好回显，避免点「立即保存」时看起来像资产目录被改写。资产卡的原生「打开目录」在显示层改为「查看目录」，由桥接层读取并展示目录内容，不伪装为已打开 Windows 资源管理器。
+- `canvas/api-profiles-patch.js`：隐藏原始云雾 vendor 卡片，在原位置插入多配置管理区；同时把设置弹窗侧栏项与分区标题的原文本「API 来源设置」在显示层统一改为「图片API来源设置」：原文本保留为常量 `NATIVE_API_SECTION_TITLE`，由 `queueRender` 中的 `renameApiSectionTitle()` 遍历 `.settings-sidebar__item span` 与 `.settings-section__header h3` 完成，不手改压缩 bundle；支持内置云雾与任意多个第三方 API，每项包含名称、申请地址、API Key、Base URL，每张卡保留「申请」并在右侧提供「启用/已启用」。状态使用 `localStorage["manshiguang:canvas-api-profiles"]`，`activeId` 保证同一时间只有一个启用；切换时同步到画布原有 `canvas-api-settings`、`state.vendorConfigs.yunwu` 和云雾输入框。第三方 Profile 还保存 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`：填写或变更 Base URL / API Key 后自动尝试 `${base}/v1/models` 和 `${base}/models`，也提供「拉取全部模型」「全选图片」「清空」。首次或接口地址变化时默认勾选全部图片模型；同源刷新保留仍存在的既有勾选，不无故覆盖用户选择。Base URL 会归一化掉 `/v1/api/*`、`/v1/draw/*`、`/v1/images/*`、`/v1/models`、`/v1` 等路径。补丁只挂在页面 DOM 上，不修改压缩 bundle。「常规设置 → API 配置存储」卡片紧跟「资产存储目录」：不再提供浏览器存储切换，固定显示应用数据目录 `C:\Users\liliang\msg`。旧存储状态会自动迁移为目录模式；目录需预先存在，首次点击「立即保存」或「从本地恢复」会打开一次浏览器目录选择器并授权该目录。首次保存时若还没有 API Profile，会从画布原生输入框补建默认云雾配置，避免出现“点了没反应”。授权后写入或读取明文 JSON `manshiguang-api-config.json`，API Key、Base URL 或模型勾选变化时自动续写；读取只更新浏览器状态，不立即回写源文件。保存/恢复必须显示操作中、持久成功或失败状态和最近时间，完成或失败后按钮必须恢复可用；错误提示要自动滚动到可见位置。浏览器只会返回文件夹名，不能伪造 Windows 绝对路径；显示层在授权目录名为 `images` 时按用户确认固定标注 `D:\data\workData\漫时光\画布\images`，该文本不参与读写，真实读写仍使用 File System Access handle。资产目录与 API 配置目录使用各自独立的 token；补丁会在选择器返回后主动刷新资产目录的友好回显，避免点「立即保存」时看起来像资产目录被改写。资产卡的原生「打开目录」在显示层改为「查看目录」，由桥接层读取并展示目录内容，不伪装为已打开 Windows 资源管理器。
+- `canvas/comfy-patch.js`：在设置弹窗侧栏「图片API来源设置」之后追加独立「ComfyUI设置」tab。React 每次切换 tab 都会重建 `.settings-modal__body`，因此补丁用 `MutationObserver` 等待设置弹窗出现并持续校正挂载，不假设弹窗在页面加载时已存在。点击该 tab 后先给 body 加 `ms-comfy-view`，用 CSS 隐藏原生分区并注入 `#ms-comfy-section`；切回任一原生 tab 时移除分区、恢复原生 footer 文案。分区内含「本地 ComfyUI」与「云端 ComfyUI」两张卡，同一时间只启用一个，配置写入 `localStorage["manshiguang:canvas-comfyui"]`，并把当前启用项发布到 `window.__MS_COMFY__` 与 `manshiguang:comfy-changed` 事件。测试连接请求统一走 `${PROXY_PREFIX}system_stats?base=<地址>`，由 `server.py` 的 `/__comfy/` 转发；云端卡填写的访问密钥通过 `X-MS-Comfy-Key` 请求头传给本地服务，再由服务转成 `Authorization: Bearer`，密钥不写进 URL。启用卡还会自动读取 `${PROXY_PREFIX}userdata?dir=workflows&recurse=true&split=false&full_info=true` 列出 ComfyUI 已保存的工作流，支持本地搜索、手动刷新和点击选择；单项读取使用 `${PROXY_PREFIX}api/userdata/<encodeURIComponent("workflows/"+path)>`，必须校验 JSON 含 `nodes` 数组后才写入 `selectedWorkflow`。当前只完成工作流选择与持久化，不提交生成任务、不轮询进度、不回填结果。补丁不修改压缩 bundle。
 - `canvas/model-patch.js`：当启用的 API 不是内置云雾时，只读取当前 Profile 的 `selectedModels` 注入图片节点模型下拉；没有勾选时显示明确空状态，不回退到内置清单。用户选择写入 `localStorage["manshiguang:canvas-model-choice"]`（按 `banana` / `gpt` 两个族保存），选中后通过点击原生下拉项让 React 更新节点状态；取消勾选或切回云雾时清理失效选择并恢复原生按钮文案。请求侧劫持 `window.fetch`：命中 `/v1/images/generations`、`/v1/images/edits` 或 `/v1beta/models/<model>:generateContent` 且当前平台为 Grsai 时，强制从当前 Profile 的 `selectedModels` 选择模型，未勾选或缺少 API Key 则返回明确中文错误；解析 OpenAI JSON/FormData 与 Gemini parts，把提示词、参考图、比例和清晰度统一改写为 `${base}/v1/api/generate`。nano-banana 系列发送 `aspectRatio + imageSize`，gpt-image 系列发送像素尺寸与 `quality`，参考图统一放进 `images`；异步任务随后用 `GET ${base}/v1/api/result?id=<taskId>` 轮询，最后回填成 OpenAI 风格的 `{ data: [{ url }] }`。
 - `canvas/gallery-patch.js`：画布内的资产库集成层。负责三件事：一是把侧边栏「姿势库/服装库/人像库」三个按钮改为在画布右侧滑出 iframe 抽屉（`embed=1&host=canvas&tab=`），而不是跳新标签页，Ctrl/中键点击仍开新标签；二是接收抽屉或独立标签页发来的选中资产（`window.message` 校验同源 + `BroadcastChannel` 两路），写入合成台列表；三是维护合成台面板与角标。只有抽屉（嵌入）路径会自动新建 Image Asset 节点——它复用画布侧边栏隐藏的 `input[type="file"]` 并派发 `change` 事件，走与手动「+ → 上传」完全相同的建节点与落盘流程；独立标签页的 `BroadcastChannel` 路径仍只加入合成台列表，不自动建节点。抽屉与合成台面板同在右侧，打开一个会收起另一个，`Esc` 关闭抽屉。去重只作用于合成台列表，重复点同一资产仍会插入新节点。
 - `canvas/assets/index-*.js` 与 `index-*.css`：外部已打包产物，默认视为只读。若需升级画布，整体替换 bundle 并重新核对桥接 API，不要局部修改压缩代码。
@@ -201,6 +203,8 @@ msg/
 - **Provider / API 配置**：云端文本/图片服务商、API Key、Base URL、模型映射；浏览器 `localStorage` 维护运行状态，并同步写入应用数据目录中的明文 JSON，不存在服务端同步或共享。画布设置页可维护任意多个 API Profile，但 `activeId` 只能指向一个配置。
 - **API Profile**：`id`、`name`、`apiKey`、`baseUrl`、`applyUrl`、`builtin`，以及第三方专用的 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`；内置云雾 ID 固定为 `yunwu`，第三方 ID 在新增时生成。默认云雾仍使用画布原生模型和展示，不参与第三方模型勾选。
 - **API 配置存储设置**：`version`、`mode`、`directoryToken`、`directoryName`、`lastSavedAt`、`lastRestoredAt`，保存在 `localStorage["manshiguang:canvas-api-storage"]`。当前网页版固定按 `directory` 处理，旧 `browser` 记录也会迁移为 `directory`；时间字段使用 ISO 8601，界面按本地时区展示。
+- **ComfyUI 连接配置**：`version`、`activeId`、`profiles`；`profiles` 固定为 `local`（本地 ComfyUI）与 `cloud`（云端 ComfyUI）两项，每项含 `name`、`baseUrl`、`apiKey`，以及可选的 `selectedWorkflow`（`path`、`name`、`size`、`modified`、`nodeCount`、`fetchedAt`、`baseUrl`）。`activeId` 同时只能指向一个配置，保存于 `localStorage["manshiguang:canvas-comfyui"]`；启用项与其工作流选择发布到 `window.__MS_COMFY__`。地址变化时该配置的工作流选择立即失效。
+- **ComfyUI 只读代理**：`GET /__comfy/<path>?base=<encoded-url>` 与 `POST /__comfy/<path>?base=<encoded-url>`，默认转发到 `base` 后拼接 `<path>`；只允许本机 http 或任意 https，拒绝远程 http 与越界路径，仅接受本机客户端；可选 `X-MS-Comfy-Key` 请求头会转换为上游 `Authorization: Bearer <key>`。转发时保留路径中的原始百分号编码，只对解码副本做越界、反斜杠、控制字符检查，确保 ComfyUI 的 `userdata/workflows%2F<file>` 单文件路由可用。
 - **本地 API 配置文件**：固定名 `manshiguang-api-config.json`；外层为 `version`、`kind: "manshiguang-api-config"`、`savedAt`、`state`，`state` 即 `manshiguang:canvas-api-profiles` 的完整结构。文件明文包含 API Key。
 - **目录授权记录**：IndexedDB 中的 File System Access directory handle；虚拟目录 token 形如 `webdir:<uuid>:<encoded-name>`。素材目录与 API 配置存储目录使用各自的 token，API 配置目录不会成为素材默认目录。
 - **素材路径映射**：`bridge:mediaPaths`（IndexedDB）保存 `{ path, token, segments, savedAt }` 列表，`path` 为显示用 Windows 绝对路径，最多保留 1200 条。`saveMediaAsset`、`exportMediaFile`、`saveGeneratedTextAsset` 与媒体下载拦截统一返回该 `path`，原 `webdir:` 标识保留在附加字段 `virtualPath` 中。映射缺失时必须抛出中文错误并提示重新选择目录/重新上传，不得静默回退。
@@ -272,6 +276,7 @@ node --check assets/app.js
 node --check canvas/web-bridge.js
 node --check canvas/branding-patch.js
 node --check canvas/api-profiles-patch.js
+node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
 node --check studio/assets/studio.js
@@ -299,7 +304,9 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 5. `window.electronAPI` 的对象存在且方法数量与桥接层一致。
 6. 移动菜单也能打开 AI 创作工作台。
 7. 进入任一工作流并打开「模型与接口设置」，确认作者信息为「抖音/B站/小红书：阿亮啊」「微信：liangliang_0314」「资料主站：https://github.com/xinxin620」，且收款码实际加载 `canvas/donation-qr-liangliang-20261103.png`，中心为真人头像、底部为「恋心心 (*亮)」。
-8. 在「API 来源设置」添加 3 个第三方配置后，4 张卡片全部显示；每张保留「申请」并有「启用/已启用」，任意时刻仅一个启用；切换后刷新页面仍保持，且原云雾输入框与 `canvas-api-settings` 同步为当前配置。
+
+7a. 设置侧栏必须依次为「常规设置 / 快捷键设置 / 图片API来源设置 / ComfyUI设置」，ComfyUI 项位于图片 API 项正下方。点击后只显示 ComfyUI 分区，含本地与云端两张卡；切回「图片API来源设置」时 ComfyUI 分区必须移除、footer 恢复「保存配置」；再次切回仍能显示两张卡。关闭设置重新打开后 tab 仍在，但默认回到「常规设置」。填本机地址并点「测试连接」应经 `server.py` 返回 ComfyUI 版本，填 `http://` 远程地址应给出中文错误；启用后刷新仍保持，`window.__MS_COMFY__` 与 `localStorage["manshiguang:canvas-comfyui"]` 同步。启用卡应自动列出真实 ComfyUI `workflows` 目录中的工作流；搜索能过滤名称与路径，刷新能重新读取。点击一项后应读取单文件并校验 `nodes` 数组，显示节点数量、文件大小与更新时间，并把 `selectedWorkflow` 写进 localStorage 与 `window.__MS_COMFY__`；非法 JSON 必须报中文错误且不覆盖原选择。
+8. 在「图片API来源设置」添加 3 个第三方配置后，4 张卡片全部显示；每张保留「申请」并有「启用/已启用」，任意时刻仅一个启用；切换后刷新页面仍保持，且原云雾输入框与 `canvas-api-settings` 同步为当前配置。
 9. 启用 Grsai（Base URL 可填 `https://grsai.dakka.com.cn` 或 `https://grsai.dakka.com.cn/v1/api/generate` 的完整地址）后，确认自动拉取 30 个模型并默认勾选 16 个图片模型；打开图片节点模型下拉，只应显示当前 `selectedModels`，且只有当前节点正在使用的模型显示黑色选中态，切换后高亮、按钮文案和 `lastPicked` 同步更新。取消若干勾选并刷新后选择仍保留；再次点击「拉取全部模型」不得无故覆盖既有勾选；「清空」后下拉应显示空提示而不是回退原生模型。生成请求必须命中 `POST /v1/api/generate`，结果查询必须命中 `GET /v1/api/result?id=...`。
 10. 进入「常规设置」，确认「API 配置存储」紧跟「资产存储目录」，只显示应用数据目录 `C:\Users\liliang\msg`，不再出现「浏览器存储」。清除 API Profile 后首次点击「立即保存」应立即显示“正在打开目录选择窗口”，随后弹出系统目录选择窗口；首次点击「从本地恢复」也应具备同样行为。选定目录后应补建默认云雾配置并显示已授权说明，保存时生成或覆盖 `manshiguang-api-config.json`，文件内容包含当前 API Key、Base URL 和模型勾选。修改配置应自动续写；两个按钮在保存或读取期间显示操作中状态，完成后显示持久成功提示和最近保存/恢复时间，并恢复可用；「从本地恢复」不立刻覆盖源文件。刷新后目录模式、目录名称和授权 handle 应保持，旧 `browser` 存储状态应自动迁移为目录模式。
 11. 选择一个素材目录并确认授权后，点击图片节点的下载按钮：文件应写入该目录，页面右下角提示保存文件名，浏览器下载栏不应新增同名文件；若授权目录名恰好是 `images`，文件应直接位于该目录而不出现 `images\images`。撤销目录授权或让写入失败时，应显示失败提示并回退浏览器下载。工作流 `.json` / `.dtworkflow` 和文本下载不应被媒体拦截逻辑改写。`20261104-25` 已用 OPFS 模拟目录验证媒体下载落盘与内容一致，未在 Windows 原生授权目录实测。
