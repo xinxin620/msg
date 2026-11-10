@@ -23,9 +23,22 @@
   let tabButton = null;
   let section = null;
   let syncQueued = false;
-  const runtime = { status: new Map(), timers: new Map(), workflows: new Map() };
+  const runtime = { status: new Map(), timers: new Map(), workflows: new Map(), runs: new Map(), details: new Map() };
 
   const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  // 写入前用「浏览器规范化后的 HTML」比较，避免属性序列化差异（属性顺序、多余空格、
+  // 布尔属性写法等）被误判为「内容变了」，从而把同一份标记反复重写。
+  // 反复重写会让按钮在 mousedown 与 mouseup 之间被销毁替换，用户表现为「点不动」。
+  function setHtmlIfChanged(el, html) {
+    if (!el) return false;
+    if (el.innerHTML === html) return false;
+    const probe = document.createElement("template");
+    probe.innerHTML = html;
+    if (el.innerHTML === probe.innerHTML) return false;
+    el.innerHTML = html;
+    return true;
+  }
 
   function normalizeComfyUrl(raw) {
     const text = String(raw || "").trim();
@@ -172,7 +185,7 @@
     const status = runtime.status.get(id) || { kind: "idle", text: "" };
     const result = card.querySelector(".ms-comfy__result");
     if (result) {
-      result.textContent = status.text;
+      if (result.textContent !== status.text) result.textContent = status.text;
       result.className = `ms-comfy__result ${statusClass(status.kind)}`.trim();
       result.hidden = !status.text;
     }
@@ -226,6 +239,26 @@
       .ms-comfy__workflow-meta { color: #8b7c6f; font-size: 11px; }
       .ms-comfy__workflow-path { color: #a29488; font-size: 10px; line-height: 1.4; word-break: break-all; }
       .ms-comfy__workflow-empty { padding: 12px; border: 1px dashed #e4dcd4; border-radius: 11px; color: #8b7c6f; font-size: 12px; line-height: 1.6; text-align: center; }
+      .ms-comfy__run { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px dashed #e4dcd4; }
+      .ms-comfy__run-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .ms-comfy__run-heading { display: flex; align-items: baseline; gap: 8px; }
+      .ms-comfy__run-title { color: #3f352e; font-size: 13px; font-weight: 700; }
+      .ms-comfy__run-phase { color: #ff6a1a; font-size: 11px; font-weight: 700; }
+      .ms-comfy__run-actions { display: flex; gap: 8px; }
+      .ms-comfy__run-status { margin: 0; font-size: 12px; line-height: 1.6; color: #6d5e52; word-break: break-word; }
+      .ms-comfy__run-status.is-error { color: #b42318; }
+      .ms-comfy__run-note { margin: 0; font-size: 12px; line-height: 1.7; color: #6d5e52; }
+      .ms-comfy__run-note.is-error { color: #b42318; }
+      .ms-comfy__run-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+      .ms-comfy__run-field { display: flex; flex-direction: column; gap: 4px; }
+      .ms-comfy__run-field.is-wide { grid-column: 1 / -1; }
+      .ms-comfy__run-field-label { color: #6d5e52; font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
+      .ms-comfy__run-field-label em { color: #a29488; font-size: 10px; font-style: normal; }
+      .ms-comfy__run-input { width: 100%; box-sizing: border-box; font: inherit; }
+      .ms-comfy__run-more { align-self: flex-start; padding: 4px 10px; border: 1px solid #e8e1da; border-radius: 9px; background: #fff; color: #6d5e52; font-size: 11px; cursor: pointer; }
+      .ms-comfy__results { display: flex; flex-wrap: wrap; gap: 8px; }
+      .ms-comfy__thumb { display: block; width: 92px; height: 92px; border: 1px solid #e4dcd4; border-radius: 11px; overflow: hidden; background: #fffdfa; }
+      .ms-comfy__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     `;
     document.head.appendChild(style);
   }
@@ -279,7 +312,7 @@
       const isSelected = selected?.path === item.path;
       const isBusy = cache?.detailLoading === item.path;
       return `
-        <button type="button" class="ms-comfy__workflow${isSelected ? " is-selected" : ""}${isBusy ? " is-busy" : ""}" data-ms-comfy-workflow-index="${index}" ${isBusy ? "disabled" : ""}>
+        <button type="button" class="ms-comfy__workflow${isSelected ? " is-selected" : ""}${isBusy ? " is-busy" : ""}" data-ms-comfy-workflow-index="${index}"${isBusy ? " disabled" : ""}>
           <span class="ms-comfy__workflow-name">${escapeHtml(item.name)}</span>
           <span class="ms-comfy__workflow-meta">${formatBytes(item.size)} · ${formatWorkflowTime(item.modified)}${isSelected && selected?.nodeCount ? ` · ${selected.nodeCount} 个节点` : ""}</span>
           <span class="ms-comfy__workflow-path">${escapeHtml(item.path)}</span>
@@ -309,7 +342,7 @@
         <input class="ms-api-card__input ms-comfy__workflow-search" data-ms-comfy-workflow-search type="search" autocomplete="off" placeholder="搜索工作流名称或路径" />
         <p data-ms-comfy-workflow-message hidden></p>
         <div class="ms-comfy__workflows-list" data-ms-comfy-workflow-list></div>
-        <p class="ms-comfy__footnote">当前只保存工作流选择与校验结果；提交任务和结果回填将在下一步接入。</p>
+        <p class="ms-comfy__footnote">选中工作流后，下方「生成」区会自动解析出可修改的参数；提交后结果会作为图片节点插入画布。</p>
       </div>`;
   }
 
@@ -324,7 +357,7 @@
     const list = block.querySelector("[data-ms-comfy-workflow-list]");
     const search = block.querySelector("[data-ms-comfy-workflow-search]");
     if (count && count.textContent !== parts.count) count.textContent = parts.count;
-    if (selected && selected.innerHTML !== parts.selectedHtml) selected.innerHTML = parts.selectedHtml;
+    setHtmlIfChanged(selected, parts.selectedHtml);
     if (search && document.activeElement !== search) {
       const nextSearch = workflowCache(profile)?.search || "";
       if (search.value !== nextSearch) search.value = nextSearch;
@@ -334,7 +367,7 @@
       if (message.className !== parts.messageClass) message.className = parts.messageClass;
       if (message.hidden === Boolean(parts.message)) message.hidden = !parts.message;
     }
-    if (list && list.innerHTML !== parts.listHtml) list.innerHTML = parts.listHtml;
+    setHtmlIfChanged(list, parts.listHtml);
   }
 
   function renderComfyCard(profile, meta, isActive) {
@@ -354,8 +387,8 @@
             <span class="ms-api-card__badge">${escapeHtml(meta.badge)}</span>
           </div>
           <div class="ms-api-card__actions">
-            <button type="button" class="ms-api-card__button" data-ms-comfy-action="test" ${status.kind === "testing" ? "disabled" : ""}>${status.kind === "testing" ? "检测中…" : "测试连接"}</button>
-            <button type="button" class="ms-api-card__button ms-api-card__button--enable${isActive ? " is-active" : ""}" data-ms-comfy-action="enable" ${isActive ? "disabled" : ""}>${isActive ? "已启用" : "启用"}</button>
+            <button type="button" class="ms-api-card__button" data-ms-comfy-action="test"${status.kind === "testing" ? " disabled" : ""}>${status.kind === "testing" ? "检测中…" : "测试连接"}</button>
+            <button type="button" class="ms-api-card__button ms-api-card__button--enable${isActive ? " is-active" : ""}" data-ms-comfy-action="enable"${isActive ? " disabled" : ""}>${isActive ? "已启用" : "启用"}</button>
           </div>
         </div>
         <div class="ms-api-card__form">
@@ -404,7 +437,10 @@
     if (section.parentElement !== body || body.lastElementChild !== section) body.appendChild(section);
     (comfyState?.profiles || []).forEach(p => {
       applyStatusToDom(p.id);
-      if (p.id === comfyState.activeId) renderWorkflowPanel(p);
+      if (p.id === comfyState.activeId) {
+        renderWorkflowPanel(p);
+        renderRunPanel(p);
+      }
     });
   }
 
@@ -634,7 +670,9 @@
         fetchedAt: Date.now(),
         baseUrl: url,
       };
+      runtime.details.set(runKey(profile), payload);
       saveComfyState();
+      prepareRun(profile, true);
       cache.detailLoading = "";
       cache.notice = { kind: "ok", text: `已选择「${item.name}」：校验通过，共 ${payload.nodes.length} 个节点。` };
     } catch (error) {
@@ -644,12 +682,394 @@
     renderWorkflowPanel(profile);
   }
 
+  // ── 生成执行：解析参数 → 提交任务 → 轮询进度 → 结果回填画布 ──────────────
+  const RUN_POLL_MS = 1500;
+  const RUN_MAX_WAIT_MS = 30 * 60 * 1000;
+  const RUN_PRIMARY_RE = /(prompt|^text$|^image$|seed|steps|cfg|denoise|width|height|batch_size|sampler_name|scheduler|filename_prefix|lora_name|unet_name|vae_name|clip_name|checkpoint)/i;
+  const RUN_PHASE_LABEL = { idle: "", prepared: "待生成", blocked: "无法自动转换", preparing: "解析中", running: "生成中", done: "已完成", error: "失败" };
+
+  function runKey(profile) {
+    const selected = profile?.selectedWorkflow;
+    if (!selected?.path) return "";
+    return `${normalizeComfyUrl(profile.baseUrl)}::${selected.path}`;
+  }
+
+  function runState(profile, create = false) {
+    let state = runtime.runs.get(profile.id);
+    if (!state && create) {
+      state = { phase: "idle", text: "", promptId: "", signature: "", prompt: null, fields: [], edits: {}, advanced: false, images: [], videos: [], timer: 0, startedAt: 0 };
+      runtime.runs.set(profile.id, state);
+    }
+    return state || null;
+  }
+
+  function stopRun(profile) {
+    const state = runtime.runs.get(profile.id);
+    if (state?.timer) window.clearTimeout(state.timer);
+    if (state) state.timer = 0;
+  }
+
+  function resetRun(profile, phase, text) {
+    stopRun(profile);
+    runtime.runs.set(profile.id, {
+      phase, text: text || "", promptId: "", signature: "", prompt: null,
+      fields: [], edits: {}, advanced: false, images: [], videos: [], timer: 0, startedAt: 0,
+    });
+  }
+
+  function blockerText(blockers) {
+    const kinds = new Set((blockers || []).map(item => item.kind));
+    const names = [...new Set((blockers || []).map(item => item.type).filter(Boolean))].slice(0, 3);
+    let reason = "这个工作流包含画布无法安全转换的节点。";
+    if (kinds.has("subgraph")) reason = "这个工作流里包含「子图」节点，画布无法安全还原成可执行任务。请在 ComfyUI 里展开子图后另存为新工作流再选。";
+    else if (kinds.has("virtual")) reason = "这个工作流使用了只在前端生效的节点（分组开关、取值/存值等），画布无法安全转换。";
+    else if (kinds.has("legacy-widgets")) reason = "这个工作流里有些节点的参数没有命名记录（较早版本保存的格式）。请在 ComfyUI 里重新保存一次该工作流，再回来刷新选择。";
+    return `${reason}${names.length ? ` 涉及节点：${names.join("、")}。` : ""}`;
+  }
+
+  function viewUrl(profile, item) {
+    const params = new URLSearchParams({
+      filename: String(item.filename || ""),
+      type: String(item.type || "output"),
+      subfolder: String(item.subfolder || ""),
+      rand: String(Math.random()),
+      base: normalizeComfyUrl(profile.baseUrl),
+    });
+    return `${PROXY_PREFIX}view?${params.toString()}`;
+  }
+
+  async function ensureWorkflowRaw(profile) {
+    const key = runKey(profile);
+    if (!key) return null;
+    if (runtime.details.has(key)) return runtime.details.get(key);
+    const selected = profile.selectedWorkflow;
+    const url = normalizeComfyUrl(profile.baseUrl);
+    const response = await fetch(
+      `${PROXY_PREFIX}api/userdata/${encodeURIComponent(`workflows/${selected.path}`)}?base=${encodeURIComponent(url)}`,
+      { method: "GET", cache: "no-store", headers: workflowHeaders(profile) },
+    );
+    const text = await response.text();
+    let payload = null;
+    try { payload = JSON.parse(text); } catch { payload = null; }
+    if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+    if (!payload || !Array.isArray(payload.nodes)) throw new Error("这个文件不是可执行的 ComfyUI 工作流（缺少 nodes 数组）");
+    runtime.details.set(key, payload);
+    return payload;
+  }
+
+  async function prepareRun(profile, force = false) {
+    const helper = window.__MS_COMFY_WORKFLOW__;
+    const selected = profile.selectedWorkflow;
+    const signature = runKey(profile);
+    if (!selected) return;
+    if (force) { stopRun(profile); runtime.runs.delete(profile.id); }
+    if (!helper) {
+      resetRun(profile, "error", "工作流转换模块未加载，请刷新画布页面后重试。");
+      renderRunPanel(profile, true);
+      return;
+    }
+    const current = runtime.runs.get(profile.id);
+    if (current?.signature === signature && (current.phase === "prepared" || current.phase === "blocked" || current.phase === "preparing")) return;
+
+    resetRun(profile, "preparing", "正在把工作流解析成可执行任务…");
+    runtime.runs.get(profile.id).signature = signature;
+    renderRunPanel(profile, true);
+    try {
+      const raw = await ensureWorkflowRaw(profile);
+      if (runKey(profile) !== signature) return;
+      const verdict = helper.analyze(raw);
+      if (!verdict.ok) {
+        resetRun(profile, "blocked", blockerText(verdict.blockers));
+        runtime.runs.get(profile.id).signature = signature;
+        renderRunPanel(profile, true);
+        return;
+      }
+      const prompt = helper.convert(raw);
+      const state = runtime.runs.get(profile.id) || {};
+      Object.assign(state, {
+        phase: "prepared",
+        text: `已准备好「${selected.name}」，共 ${Object.keys(prompt).length} 个节点。可修改参数后点「开始生成」。`,
+        signature, prompt, fields: helper.editableFields(prompt),
+        edits: {}, advanced: false, images: [], videos: [], promptId: "", timer: 0,
+      });
+      runtime.runs.set(profile.id, state);
+    } catch (error) {
+      resetRun(profile, "error", `解析失败：${error?.message || error}`);
+      runtime.runs.get(profile.id).signature = signature;
+    }
+    renderRunPanel(profile, true);
+  }
+
+  function isPrimaryField(field) {
+    return RUN_PRIMARY_RE.test(String(field.key || "")) || RUN_PRIMARY_RE.test(String(field.classType || ""));
+  }
+
+  function editValue(state, field) {
+    const edited = state?.edits?.[field.nodeId]?.[field.key];
+    return edited === undefined ? field.value : edited;
+  }
+
+  function fieldMarkup(state, field) {
+    const value = editValue(state, field);
+    const dataKey = `${field.nodeId}|${field.key}`;
+    const numeric = typeof field.value === "number";
+    const boolish = typeof field.value === "boolean";
+    const wide = typeof value === "string" && value.length > 48;
+    const control = boolish
+      ? `<select class="ms-api-card__input ms-comfy__run-input" data-ms-comfy-run-field="${escapeHtml(dataKey)}"><option value="true"${value === true ? " selected" : ""}>是</option><option value="false"${value === false ? " selected" : ""}>否</option></select>`
+      : wide
+        ? `<textarea class="ms-api-card__input ms-comfy__run-input" rows="3" data-ms-comfy-run-field="${escapeHtml(dataKey)}">${escapeHtml(value)}</textarea>`
+        : `<input class="ms-api-card__input ms-comfy__run-input" data-ms-comfy-run-field="${escapeHtml(dataKey)}" type="${numeric ? "number" : "text"}" step="any" value="${escapeHtml(value)}" />`;
+    return `<label class="ms-comfy__run-field${wide ? " is-wide" : ""}"><span class="ms-comfy__run-field-label">${escapeHtml(field.key)}<em>节点 ${escapeHtml(field.nodeId)} · ${escapeHtml(field.classType)}</em></span>${control}</label>`;
+  }
+
+  function runPanelMarkup(profile) {
+    const state = runState(profile);
+    const phase = state?.phase || "idle";
+    const busy = phase === "preparing" || phase === "running";
+    const canRun = (phase === "prepared" || phase === "done" || phase === "error") && !busy;
+    let body = "";
+    if (!state?.fields?.length) {
+      body = `<p class="ms-comfy__run-note${phase === "error" || phase === "blocked" ? " is-error" : ""}">${escapeHtml(state?.text || (phase === "idle" ? "点「准备生成」把工作流解析成可执行任务。" : ""))}</p>`;
+    } else {
+      const shown = state.advanced ? state.fields : state.fields.filter(isPrimaryField);
+      const hidden = state.fields.length - shown.length;
+      body = `<div class="ms-comfy__run-fields">${shown.map(field => fieldMarkup(state, field)).join("")}</div>
+        <button type="button" class="ms-comfy__run-more" data-ms-comfy-run-action="toggle-advanced">${state.advanced ? "只看常用参数" : `显示全部 ${state.fields.length} 个参数${hidden ? `（含 ${hidden} 个不常用项）` : ""}`}</button>`;
+    }
+    const thumbs = [...(state?.images || []), ...(state?.videos || [])];
+    const thumbsHtml = thumbs.length
+      ? `<div class="ms-comfy__results">${thumbs.map(item => { const href = item.viewUrl || viewUrl(profile, item); return `<a class="ms-comfy__thumb" href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${escapeHtml(item.filename || "")}"><img src="${escapeHtml(href)}" alt="${escapeHtml(item.filename || "")}" loading="lazy" /></a>`; }).join("")}</div>`
+      : "";
+    return `<div class="ms-comfy__run" data-ms-comfy-run>
+      <div class="ms-comfy__run-head">
+        <div class="ms-comfy__run-heading"><span class="ms-comfy__run-title">生成</span><span class="ms-comfy__run-phase" data-ms-comfy-run-phase>${escapeHtml(RUN_PHASE_LABEL[phase] || "")}</span></div>
+        <div class="ms-comfy__run-actions">
+          <button type="button" class="ms-api-card__button" data-ms-comfy-run-action="prepare"${busy ? " disabled" : ""}>${phase === "prepared" || phase === "done" ? "重新解析" : "准备生成"}</button>
+          <button type="button" class="ms-api-card__button ms-api-card__button--enable" data-ms-comfy-run-action="run"${canRun ? "" : " disabled"}>${phase === "running" ? "生成中…" : "开始生成"}</button>
+          ${busy ? '<button type="button" class="ms-api-card__button" data-ms-comfy-run-action="cancel">取消等待</button>' : ""}
+        </div>
+      </div>
+      <p class="ms-comfy__run-status${phase === "error" || phase === "blocked" ? " is-error" : ""}" data-ms-comfy-run-status${state?.fields?.length || phase === "idle" || phase === "preparing" ? "" : " hidden"}>${escapeHtml(state?.text || "")}</p>
+      ${body}
+      ${thumbsHtml}
+    </div>`;
+  }
+
+  function runRenderSignature(profile) {
+    const state = runtime.runs.get(profile.id);
+    if (!state) return "none";
+    return [profile.selectedWorkflow?.path || "", state.phase, state.signature, state.advanced ? "all" : "primary",
+      state.fields.length, (state.images?.length || 0) + (state.videos?.length || 0)].join("|");
+  }
+
+  function renderRunPanel(profile, force = false) {
+    const block = document.querySelector(`#${SECTION_ID} [data-comfy-id="${CSS.escape(profile.id)}"] [data-ms-comfy-workflows]`);
+    if (!block || !profile.selectedWorkflow) return;
+    const host = block.querySelector("[data-ms-comfy-run]");
+    const state = runtime.runs.get(profile.id);
+    const signature = runRenderSignature(profile);
+    if (force || !host || host.__msRunSignature !== signature) {
+      const markup = runPanelMarkup(profile);
+      if (host) host.outerHTML = markup;
+      else block.insertAdjacentHTML("beforeend", markup);
+      const created = block.querySelector("[data-ms-comfy-run]");
+      if (created) created.__msRunSignature = signature;
+      return;
+    }
+    const status = host.querySelector("[data-ms-comfy-run-status]");
+    if (status && status.textContent !== (state?.text || "")) status.textContent = state?.text || "";
+    const phaseLabel = host.querySelector("[data-ms-comfy-run-phase]");
+    const label = RUN_PHASE_LABEL[state?.phase] || "";
+    if (phaseLabel && phaseLabel.textContent !== label) phaseLabel.textContent = label;
+  }
+
+  function deliverResults(profile, state) {
+    const host = window.__MS_CANVAS_ASSET_HOST__;
+    const images = (state.images || []).slice(0, 4);
+    if (!images.length) return (state.videos || []).length ? "视频结果请点击缩略图查看。" : "该工作流没有可插入画布的图片输出（输出节点可能被静音）。";
+    if (!host?.receiveAsset) return "生成完成，但画布插入入口未就绪，可点缩略图查看。";
+    let sent = 0;
+    for (const image of images) {
+      const name = String(image.filename || "comfy").replace(/\.[a-z0-9]+$/i, "");
+      if (host.receiveAsset({ id: `comfy-${name}-${Date.now()}-${sent}`, name, imageUrl: image.viewUrl || viewUrl(profile, image), category: "comfy" })) sent += 1;
+    }
+    return sent ? `已把 ${sent} 张结果插入画布图片节点。` : "生成完成，但画布上传入口未就绪，可点缩略图查看。";
+  }
+
+  function statusErrorText(status) {
+    const messages = Array.isArray(status?.messages) ? status.messages : [];
+    for (const message of messages) {
+      const detail = Array.isArray(message) ? message[1] : null;
+      const text = detail?.exception_message || detail?.message || (typeof message === "string" ? message : "");
+      if (text) return String(text);
+    }
+    return status?.status_str === "error" ? "ComfyUI 执行失败" : "";
+  }
+
+  function schedulePoll(profile, delay) {
+    const state = runtime.runs.get(profile.id);
+    if (!state) return;
+    stopRun(profile);
+    state.timer = window.setTimeout(() => pollRun(profile), delay);
+  }
+
+  async function pollRun(profile) {
+    const state = runtime.runs.get(profile.id);
+    if (!state || state.phase !== "running" || !state.promptId) return;
+    const url = normalizeComfyUrl(profile.baseUrl);
+    if (!profileStillAt(profile.id, url)) { resetRun(profile, "error", "ComfyUI 地址已变更，等待已中止。"); renderRunPanel(profile, true); return; }
+    const headers = workflowHeaders(profile);
+    try {
+      const historyResponse = await fetch(`${PROXY_PREFIX}history/${encodeURIComponent(state.promptId)}?base=${encodeURIComponent(url)}`, { method: "GET", cache: "no-store", headers });
+      const historyText = await historyResponse.text();
+      let history = null;
+      try { history = JSON.parse(historyText); } catch { history = null; }
+      if (!historyResponse.ok) throw new Error(history?.error || `HTTP ${historyResponse.status}`);
+      const entry = history?.[state.promptId];
+      if (entry) {
+        const entryStatus = entry.status || {};
+        if (entryStatus.status_str === "error") throw new Error(statusErrorText(entryStatus) || "ComfyUI 执行失败");
+        const outputs = window.__MS_COMFY_WORKFLOW__.collectOutputs(entry);
+        state.images = (outputs.images || []).slice(0, 8).map(item => ({ ...item, viewUrl: viewUrl(profile, item) }));
+        state.videos = (outputs.videos || []).slice(0, 4).map(item => ({ ...item, viewUrl: viewUrl(profile, item) }));
+        state.timer = 0;
+        state.phase = "done";
+        const summary = state.images.length || state.videos.length
+          ? `生成完成：${state.images.length} 张图片${state.videos.length ? `、${state.videos.length} 个视频` : ""}。`
+          : "任务已完成，但没有取到输出文件。";
+        state.text = `${summary}${deliverResults(profile, state)}`;
+        renderRunPanel(profile, true);
+        return;
+      }
+
+      const queueResponse = await fetch(`${PROXY_PREFIX}queue?base=${encodeURIComponent(url)}`, { method: "GET", cache: "no-store", headers });
+      const queueText = await queueResponse.text();
+      let queue = null;
+      try { queue = JSON.parse(queueText); } catch { queue = null; }
+      const running = (queue?.queue_running || []).some(item => item?.[1] === state.promptId);
+      const pending = (queue?.queue_pending || []).some(item => item?.[1] === state.promptId);
+      const elapsed = Math.round((Date.now() - state.startedAt) / 1000);
+      state.text = running
+        ? `ComfyUI 正在生成…（已等待 ${elapsed} 秒）`
+        : pending
+          ? `任务已排队，等前面的任务完成后执行…（已等待 ${elapsed} 秒）`
+          : `ComfyUI 仍在处理该任务…（已等待 ${elapsed} 秒）`;
+      if (Date.now() - state.startedAt > RUN_MAX_WAIT_MS) throw new Error("等待超过 30 分钟，已停止轮询。可在 ComfyUI 里查看该任务结果。");
+      renderRunPanel(profile);
+      schedulePoll(profile, RUN_POLL_MS);
+    } catch (error) {
+      state.phase = "error";
+      state.timer = 0;
+      state.text = `执行失败：${error?.message || error}`;
+      renderRunPanel(profile, true);
+    }
+  }
+
+  async function submitRun(profile) {
+    const state = runState(profile, true);
+    const selected = profile.selectedWorkflow;
+    if (!selected) return;
+    if (state.phase === "preparing" || state.phase === "running") return;
+    if (!state.prompt || state.signature !== runKey(profile)) { prepareRun(profile); return; }
+    if (state.phase === "blocked") return;
+    const invalid = comfyUrlError(profile.baseUrl);
+    if (invalid) { state.phase = "error"; state.text = invalid; renderRunPanel(profile, true); return; }
+
+    let prompt;
+    try {
+      prompt = window.__MS_COMFY_WORKFLOW__.applyEdits(state.prompt, state.edits);
+    } catch (error) {
+      state.phase = "error";
+      state.text = `参数写入失败：${error?.message || error}`;
+      renderRunPanel(profile, true);
+      return;
+    }
+
+    const url = normalizeComfyUrl(profile.baseUrl);
+    state.phase = "running";
+    state.text = "正在提交任务到 ComfyUI…";
+    state.images = [];
+    state.videos = [];
+    state.promptId = "";
+    renderRunPanel(profile, true);
+    try {
+      const response = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", ...workflowHeaders(profile) },
+        body: JSON.stringify({ prompt }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try { payload = JSON.parse(text); } catch { payload = null; }
+      if (!profileStillAt(profile.id, url)) { resetRun(profile, "error", "ComfyUI 地址已变更，任务未跟踪。"); renderRunPanel(profile, true); return; }
+      if (!response.ok) {
+        const detail = payload?.error?.message || payload?.error?.details || payload?.error?.type;
+        const firstNodeError = Object.values(payload?.node_errors || {})[0]?.errors?.[0]?.message;
+        throw new Error([detail, firstNodeError].filter(Boolean).join(" · ") || `HTTP ${response.status}`);
+      }
+      if (!payload?.prompt_id) throw new Error("ComfyUI 没有返回任务编号，无法跟踪结果。");
+      state.promptId = payload.prompt_id;
+      state.startedAt = Date.now();
+      state.text = "任务已提交，等待 ComfyUI 执行…";
+      renderRunPanel(profile, true);
+      schedulePoll(profile, 800);
+    } catch (error) {
+      state.phase = "error";
+      state.timer = 0;
+      state.text = `提交失败：${error?.message || error}`;
+      renderRunPanel(profile, true);
+    }
+  }
+
+  function handleRunInput(profile, input) {
+    const state = runtime.runs.get(profile.id);
+    if (!state) return;
+    const parts = String(input.dataset.msComfyRunField || "").split("|");
+    const nodeId = parts[0];
+    const key = parts.slice(1).join("|");
+    if (!nodeId || !key) return;
+    const field = state.fields.find(item => item.nodeId === nodeId && item.key === key);
+    if (!field) return;
+    let value = input.value;
+    if (typeof field.value === "number") {
+      const parsed = Number(value);
+      value = Number.isFinite(parsed) ? parsed : field.value;
+    } else if (typeof field.value === "boolean") {
+      value = value === "true";
+    }
+    if (!state.edits[nodeId]) state.edits[nodeId] = {};
+    state.edits[nodeId][key] = value;
+  }
+
+  function handleRunAction(action, profile) {
+    const state = runState(profile, true);
+    if (action === "prepare") { prepareRun(profile); return; }
+    if (action === "run") { submitRun(profile); return; }
+    if (action === "cancel") {
+      stopRun(profile);
+      state.phase = "idle";
+      state.text = "已停止等待。任务可能仍在 ComfyUI 中执行，可在 ComfyUI 界面查看结果。";
+      renderRunPanel(profile, true);
+      return;
+    }
+    if (action === "toggle-advanced") {
+      state.advanced = !state.advanced;
+      renderRunPanel(profile, true);
+    }
+  }
   function handleAction(action, profile) {
     if (!profile) return;
     if (action === "test") { testConnection(profile); return; }
     if (action === "refresh-workflows") { fetchWorkflows(profile, true); return; }
     if (action === "enable") {
       if (comfyState.activeId === profile.id) return;
+      runtime.runs.forEach((_value, key) => {
+        stopRun({ id: key });
+        runtime.runs.delete(key);
+      });
+      runtime.details.clear();
       const invalid = comfyUrlError(profile.baseUrl);
       comfyState.activeId = profile.id;
       saveComfyState();
@@ -681,6 +1101,13 @@
       if (found) selectWorkflow(found.profile, Number(workflowItem.dataset.msComfyWorkflowIndex));
       return;
     }
+    const runTrigger = event.target?.closest?.("[data-ms-comfy-run-action]");
+    if (runTrigger && runTrigger.closest(`#${SECTION_ID}`)) {
+      event.preventDefault();
+      const foundRun = cardFor(runTrigger);
+      if (foundRun) handleRunAction(runTrigger.dataset.msComfyRunAction, foundRun.profile);
+      return;
+    }
     const trigger = event.target?.closest?.("[data-ms-comfy-action]");
     if (!trigger || !trigger.closest(`#${SECTION_ID}`)) return;
     const found = cardFor(trigger);
@@ -699,6 +1126,11 @@
       renderWorkflowPanel(found.profile);
       return;
     }
+    if ("msComfyRunField" in (input.dataset || {})) {
+      const foundRun = cardFor(input);
+      if (foundRun) handleRunInput(foundRun.profile, input);
+      return;
+    }
     if (!input.dataset?.msComfyField) return;
     const found = cardFor(input);
     if (!found) return;
@@ -707,6 +1139,8 @@
     if (input.dataset.msComfyField === "baseUrl" && profile.selectedWorkflow
       && normalizeComfyUrl(profile.selectedWorkflow.baseUrl) !== normalizeComfyUrl(profile.baseUrl)) {
       delete profile.selectedWorkflow;
+      stopRun(profile);
+      runtime.runs.delete(profile.id);
     }
     saveComfyState();
     if (input.dataset.msComfyField === "baseUrl") {

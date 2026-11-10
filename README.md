@@ -95,7 +95,7 @@ python server.py 4173
 - 独立入口：`canvas/index.html`（不经主站导航，适合需要完整窗口尺寸时用）
 - 打开方式：均为浏览器新标签页（`target="_blank"`）
 
-画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js` 和 `canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，不修改压缩 bundle。
+画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-workflow.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js` 和 `canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，不修改压缩 bundle。
 
 ### API 来源配置
 
@@ -109,9 +109,21 @@ python server.py 4173
 
 本地默认地址为 `http://127.0.0.1:8188`，仅允许本机 `http` 地址；云端需要填写 `https` 地址，服务要求鉴权时可在「访问密钥」中填写。密钥通过本地代理的 `X-MS-Comfy-Key` 请求头传给 `server.py`，由服务转为上游 `Authorization: Bearer`，不会写进 URL。
 
-「测试连接」会经 `server.py` 的 `/__comfy/system_stats?base=...` 转发，避免浏览器与 ComfyUI 的跨源限制；测试时需要 `server.py` 正在运行。启用本地 ComfyUI 后，卡片会自动读取真实 `workflows` 目录，支持搜索、刷新和点击选择；选中时会读取工作流 JSON 并校验 `nodes` 数组，保存节点数量、文件大小和更新时间。
+「测试连接」会经 `server.py` 的 `/__comfy/system_stats?base=...` 转发，避免浏览器与 ComfyUI 的跨源限制；测试时需要 `server.py` 正在运行。启用本地 ComfyUI 后，卡片会自动读取真实 `workflows` 目录，支持搜索、刷新和点击选择；选中时会读取工作流 JSON 并校验 `nodes` 数组，保存节点数量、文件大小和更新时间，并立即解析成可执行任务。
 
-配置与选中的工作流保存在 `localStorage["manshiguang:canvas-comfyui"]`，当前启用项会发布到 `window.__MS_COMFY__`。当前版本只完成连接、工作流选择与校验，尚未把 ComfyUI 生成任务、进度和结果回填接入画布节点。
+配置与选中的工作流保存在 `localStorage["manshiguang:canvas-comfyui"]`，当前启用项会发布到 `window.__MS_COMFY__`。
+
+### 用 ComfyUI 在画布里生图
+
+1. 在 ComfyUI 里把调好的工作流**保存**（保存后会进入 `workflows` 目录）。
+2. 画布打开「模型与接口设置 → ComfyUI设置」，启用本地或云端 ComfyUI，在「工作流」列表里搜索并点选它。
+3. 选中后下方「生成」区会自动列出可修改的参数：提示词 `text`、随机种子 `seed`、步数 `steps`、`cfg`、宽高、底模名等。默认只显示常用项，可点「显示全部 N 个参数」展开；没有命名记录的旧参数只读。
+4. 改完提示词点「开始生成」，任务会提交给你的 ComfyUI 真实执行，画布显示「正在排队 / 正在生成…（已等待 N 秒）」，最长等待 30 分钟，可随时「取消等待」（只停止画布轮询，不会中断 ComfyUI 里已在跑的任务）。
+5. 完成后结果自动**插入画布成为新的图片节点**，同时进入右侧合成台，并可在「生成」区看到缩略图（点开是新标签页原图）。落盘仍走与资产插入相同的目录授权路径。
+
+安全边界：本机 ComfyUI 没有“只校验不执行”的模式，`/prompt` 一旦提交就是真跑，所以只有你明确点「开始生成」才会发出任务，画布不会自动提交。另外，含有**子图**节点、或使用了 `Fast Groups Bypasser (rgthree)`、`Label (rgthree)`、取值/存值等**只在前端生效的节点**的工作流，画布无法保证转换结果与 ComfyUI 自己的一致，会显示「无法自动转换」并说明原因、保持「开始生成」禁用，而不会冒险跑出错误的图。这类工作流请在 ComfyUI 里展开子图、去掉分组开关后另存为新工作流再选。
+
+转换规则不是猜的：以 ComfyUI 官方前端 `graphToPrompt` 导出的 API 格式为基准逐字段对账（连线穿透、跳过静音/旁路节点、剔除前端专用控件等），当前 23 个工作流里 12 个做到逐字段完全一致，其余被判定为不可安全转换并给出原因。
 
 ### API 配置存储
 
@@ -213,7 +225,8 @@ msg/
 │  ├─ web-bridge.js           浏览器兼容桥接层
 │  ├─ branding-patch.js       标题栏 Logo、设置页作者信息与收款码品牌补丁
 │  ├─ api-profiles-patch.js   云雾/第三方 API 多配置、唯一启用、模型勾选与 API 配置存储
-│  ├─ comfy-patch.js          ComfyUI 设置 tab、本地/云端连接配置、测试与工作流选择
+│  ├─ comfy-workflow.js       工作流编辑格式转 API 格式、参数解析与结果提取
+│  ├─ comfy-patch.js          ComfyUI 设置 tab、连接配置、工作流选择与生成执行
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ gallery-patch.js       画布内资产抽屉、合成台面板与资产插入节点
 │  ├─ assets/
@@ -243,6 +256,7 @@ node --check assets/app.js
 node --check canvas/web-bridge.js
 node --check canvas/branding-patch.js
 node --check canvas/api-profiles-patch.js
+node --check canvas/comfy-workflow.js
 node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
