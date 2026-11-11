@@ -45,7 +45,7 @@
 | 本地数据 | Dexie / idb-keyval；浏览器桥接另用 IndexedDB |
 | 图形与编辑 | PixiJS、react-image-crop、lucide-react |
 | 桌面原实现 | Electron preload + IPC + Node.js 文件系统、FFmpeg、undici |
-| 当前宿主 | `canvas/index.html` + `canvas/web-bridge.js` + `canvas/storage-migration.js` + `canvas/branding-patch.js` + `canvas/api-profiles-patch.js` + `canvas/comfy-workflow.js` + `canvas/comfy-patch.js` + `canvas/model-patch.js` + `canvas/gallery-patch.js`，在普通浏览器中提供兼容层、已下线功能残留数据迁移、品牌替换、API 来源多配置管理、ComfyUI 连接与生成执行、第三方模型列表/协议适配与资产抽屉 |
+| 当前宿主 | `canvas/index.html` + `canvas/web-bridge.js` + `canvas/storage-migration.js` + `canvas/branding-patch.js` + `canvas/api-profiles-patch.js` + `canvas/comfy-workflow.js` + `canvas/comfy-patch.js` + `canvas/model-patch.js` + `canvas/gallery-patch.js` + `canvas/video-node-patch.js`，在普通浏览器中提供兼容层、已下线功能残留数据迁移、品牌替换、API 来源多配置管理、ComfyUI 连接与生成执行、第三方模型列表/协议适配、资产抽屉与「添加节点」视频入口 |
 | 构建 | 本仓库不构建画布 bundle；不要手改压缩后的 `index-*.js` / `index-*.css` |
 
 #### 2.3 资产参考库
@@ -114,6 +114,7 @@ msg/
   ├─ comfy-workflow.js       工作流「编辑格式 → API 格式」转换器，供 comfy-patch 提交任务前解析参数
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ gallery-patch.js        画布内资产抽屉、合成台面板与资产插入节点补丁
+│  ├─ video-node-patch.js     把被裁掉的「视频」入口补回侧栏「+」与右键「添加节点」
 │  ├─ assets/
 │  │  ├─ index-BN-uSJKj.js    已打包 React 画布应用
 │  │  └─ index-BfAuAU0s.css   已打包画布样式
@@ -164,6 +165,10 @@ msg/
 - `canvas/comfy-workflow.js`：无 DOM 依赖的工作流转换器，同时挂到 `window.__MS_COMFY_WORKFLOW__` 并可被 Node 直接 `require` 做回归测试。`analyze()` 返回 `{ok, blockers}`；`convert()` 按官方前端 `graphToPrompt` 的规则处理：跳过 `Note`/`MarkdownNote`/`Reroute` 等纯前端节点、跳过静音(mode 2)与旁路(mode 4) 节点、连线穿透时 Reroute 往**上游**追而旁路按**与被请求槽位相同的连线类型**匹配（这两个方向踩过坑：穿透方向错了会整条连线丢失）、widget 取 `widgets_values_named` 并剔除 `control_after_generate`/`videopreview`/`upload`/`choose video to upload`/`dt_media_loader_ui`/`StatusInfo`/`fixed` 等前端专用控件、对象值递归去掉 `img` 预览字段。另有 `editableFields()`/`applyEdits()`/`collectOutputs()`。已用本机 ComfyUI 官方前端 `graphToPrompt` 导出的 23 份标准答案逐字段对账（对账脚本与基准文件放在被 `.gitignore` 排除的 `_scratch/`，不属于仓库内容）：12 份逐字段完全一致，10 份被 `analyze()` 判为不可转换（6 份含子图，4 份含 SetNode/GetNode/Int 或旧版未命名 widget），1 份差异源于该实例缺少 `ImageFromBatch+` 自定义节点（提交时由后端返回明确错误）。
 - `canvas/model-patch.js`：当启用的 API 不是内置云雾时，只读取当前 Profile 的 `selectedModels` 注入图片节点模型下拉；没有勾选时显示明确空状态，不回退到内置清单。用户选择写入 `localStorage["manshiguang:canvas-model-choice"]`（按 `banana` / `gpt` 两个族保存），选中后通过点击原生下拉项让 React 更新节点状态；取消勾选或切回云雾时清理失效选择并恢复原生按钮文案。请求侧劫持 `window.fetch`：命中 `/v1/images/generations`、`/v1/images/edits` 或 `/v1beta/models/<model>:generateContent` 且当前平台为 Grsai 时，强制从当前 Profile 的 `selectedModels` 选择模型，未勾选或缺少 API Key 则返回明确中文错误；解析 OpenAI JSON/FormData 与 Gemini parts，把提示词、参考图、比例和清晰度统一改写为 `${base}/v1/api/generate`。nano-banana 系列发送 `aspectRatio + imageSize`，gpt-image 系列发送像素尺寸与 `quality`，参考图统一放进 `images`；异步任务随后用 `GET ${base}/v1/api/result?id=<taskId>` 轮询，最后回填成 OpenAI 风格的 `{ data: [{ url }] }`。
 - `canvas/gallery-patch.js`：画布内的资产库集成层。负责三件事：一是把侧边栏「姿势库/服装库/人像库」三个按钮改为在画布右侧滑出 iframe 抽屉（`embed=1&host=canvas&tab=`），而不是跳新标签页，Ctrl/中键点击仍开新标签；二是接收抽屉或独立标签页发来的选中资产（`window.message` 校验同源 + `BroadcastChannel` 两路），写入合成台列表；三是维护合成台面板与角标。只有抽屉（嵌入）路径会自动新建 Image Asset 节点——它复用画布侧边栏隐藏的 `input[type="file"]` 并派发 `change` 事件，走与手动「+ → 上传」完全相同的建节点与落盘流程；独立标签页的 `BroadcastChannel` 路径仍只加入合成台列表，不自动建节点。抽屉与合成台面板同在右侧，打开一个会收起另一个，`Esc` 关闭抽屉。去重只作用于合成台列表，重复点同一资产仍会插入新节点。
+- `canvas/video-node-patch.js`：把被裁掉的「视频」入口补回画布两处菜单。压缩 bundle 的侧栏数组 `wx` 只留了「文本 / 图片 / 上传」，画布右键「添加节点」子菜单 `lw` 只留了「文本 / 图片生成」，而原生 `addNode`、`addConnectedNode` 又对 `video`/`audio` 直接 `return`；也就是说 bundle 内部的视频能力是完整的（`category: "video"` 会渲染成 `.canvas-node--video`，带播放占位与比例角标，结果落盘、历史记录和工作流序列化都在），只是没有任何入口能创建它。React 每次打开菜单都重建 `.sidebar__dropdown` 与 `.canvas-context-menu__submenu`，所以补丁用 `MutationObserver` 配合 `requestAnimationFrame` 合帧持续校正挂载，并用 `data-ms-video-item` 属性防重复注入；插入位置不靠硬编码索引，而是按「图片」/「图片生成」的文本定位。两个菜单容器都是 `display:flex` + `flex-direction:column`，补丁因此只把节点追加到末尾，再用 CSS `order`（视频 5、上传 10）排出「文本 / 图片 / 视频 / 上传」，避免在 React 自己维护的子节点之间插 DOM。
+    - **建节点方式**：不能走原生 `addNode`（对 video 直接返回），也不能走「把侧栏隐藏 `input[type="file"]` 的 `accept` 改成 `video/*` 再派发 `change`」——原生 `addAssetFiles` 明确只接受图片，非图片文件会进失败列表并弹「这些文件导入失败」。bundle 里的 zustand store 是模块私有变量、没有挂到 `window`，补丁改为从 React fiber 取：以 `#root` 的 `__reactContainer` 入口遍历 `memoizedState` 与 `queue.lastRenderedState`，识别同时具备 `nodes`、`edges`、`replaceCanvasState` 的快照，然后调用「导入工作流」使用的同一个 `replaceCanvasState` 追加节点，再用原生 `setSelectedNode` 选中。节点数据与 bundle 的默认工厂保持一致（`videoModelId: veo3fast`、`vendorId: zhenzhen`、`aspectRatioMode: fixed`、`aspectRatio: 16:9`、`videoDuration: 8s`），不额外塞原生不会写的字段。拿不到 store 时只显示中文提示，绝不假装成功。
+    - **落点**：侧栏沿用原生的 `200 + rand*400 / 100 + rand*300` 随机落点；右键菜单没有 React 传入的 flow 坐标，补丁记录最后一次 `contextmenu` 的屏幕坐标，按 `.react-flow` 的 DOMRect 与 store 的 `viewport`（`x`/`y`/`zoom`）换算成 flow 坐标，实测节点落点与鼠标位置偏差为 0 像素。视频节点带原生输入/输出 handle，实测 `isValidConnection` 允许「图片资产 → 视频」（图生视频方向），拒绝「文本 → 视频」和「视频 → 图片」。
+    - **已知边界**：一是不调用 bundle 私有的历史入栈函数，因此「撤销」会连同此前未入栈的改动一起回退，这点与原生 `addNode` 行为一致；二是当前这份被裁剪过的 bundle 里视频模型注册表 `ym` 只剩文本与图片模型（厂商表 `vm` 也只剩云雾），所以视频节点建出来可以渲染、可以保存进工作流、可以参与连线，但点运行会在本地失败并显示 `Video model config is missing`，实测不会发出任何网络请求，不会误扣任何服务商额度。后续若整体替换为含视频模型的 bundle，本补丁无需改动即可直接用上真实生成。
 - `canvas/assets/index-*.js` 与 `index-*.css`：外部已打包产物，默认视为只读。若需升级画布，整体替换 bundle 并重新核对桥接 API，不要局部修改压缩代码。
 
 #### 3.3 资产参考库职责
@@ -286,6 +291,7 @@ node --check canvas/api-profiles-patch.js
 node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
+node --check canvas/video-node-patch.js
 node --check canvas/storage-migration.js
 node --check studio/assets/studio.js
 node --check gallery/assets/gallery.js
@@ -337,6 +343,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 18b. 卡片右上角「发送到画布合成台」图标只在工作台图片工坊隐藏：`gallery/index.html?embed=1&host=studio` 下 `.asset-card__send` 必须 `display: none`，而 `host=canvas`（画布抽屉）、独立 `gallery/index.html` 与只带 `embed=1` 的旧链接都必须仍然可见可点；工作台详情弹层的发送按钮必须保留可用。`20261109-3` 已用 headless Chrome（含工作台外壳真实 iframe）跑通 8 项断言并截图核对。
 
 18c. 「轻语漫剧」的残留数据必须被自动清干净：带 8 个 `ms-qy-preset-*`（`msBuiltin: "qingyu"`）预设、`manshiguang:canvas-qingyu-*` 五个 localStorage 键与 IndexedDB `manshiguang-canvas-qingyu` 的浏览器打开画布后，`window.__MS_STORAGE_MIGRATION__` 应报告 `presetsRemoved` 与 `mediaDb` 的删除结果、`leftovers` 为空、`done` 为真；原生「提示词预设」中不再出现内置模板，用户自建预设与 `manshiguang:canvas-api-profiles` 必须原样保留，画布无「轻语」文字与控制台错误。`20261110-8` 已用 headless Chrome 覆盖“有残留 / 无残留 / 已迁移复核”三条路径。
+
+18d. 画布侧栏「+」下拉必须依次为「文本 / 图片 / 视频 / 上传」，画布右键「添加节点」子菜单依次为「文本 / 图片生成 / 视频」。「视频」项由 `canvas/video-node-patch.js` 注入，两处菜单每次重新打开都只能出现一个「视频」（`[data-ms-video-item]` 计数为 1）。点击后必须真的出现 `.canvas-node--video` 节点（带播放占位与 `16:9` 角标）：侧栏沿用原生随机落点，右键节点落点与鼠标位置偏差 0 像素，菜单自动关闭，右下角出现中文提示「已添加视频节点」，节点能存进工作流且刷新后仍在。视频节点输入 handle 接受「图片资产 → 视频」连线，`isValidConnection` 必须拒绝「文本 → 视频」和「视频 → 图片」。这份裁剪 bundle 的视频模型注册表为空，因此点运行允许失败但必须显示 `Video model config is missing` 且不得发出任何网络请求；取不到 store 时只能显示中文错误，绝不假装成功。
 
 19. 打开 AI 创作工作台：左侧栏为「画布 / 图片工坊 / 剧情导演台 / 设定与出图 / 数字人视频 / 任务与成片」六项，前两项标为在线、后四项标为规划中并给出用途、输入、产出和与现有能力的关系，不提供假按钮。
 20. 在工作台点「画布」：iframe 内画布应用完成渲染，切到「图片工坊」再切回「画布」时工作流与滚动状态仍在（iframe 只隐藏不销毁），只有「重载」会重新载入。
@@ -394,6 +402,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 - 2026-11-04 `20261104-23` 版本按用户要求，在授权目录名为 `images` 时把用户确认的实际路径 `D:\data\workData\漫时光\画布\images` 固定显示在资产目录输入框和「查看目录」面板中。该路径只是显示层标注，不参与读写；选择其他文件夹时仍回退为文件夹名。已确认该目录存在且包含截图中显示的两张 PNG。
 - 2026-11-04 `20261104-24` 版本新增 `server.py`，让 `start.bat` 启动的本地服务代理「打开目录」操作，解决旧版本只能列出目录内容、无法唤起 Windows 资源管理器的问题。接口只监听回环地址，校验同源 `Origin`、JSON 内容和 `X-Manshiguang-Action` 请求头，只允许 `D:\data\workData\漫时光\画布\images` 与 `C:\Users\liliang\msg` 两个固定目录。已在 4174 端口使用 `MSG_OPEN_FOLDER_DRY_RUN=1` 验证：健康检查成功、指定目录返回成功、`C:\Windows` 返回 403、缺少确认头返回 403；未在真实浏览器中点击并观察资源管理器弹出。
 - 2026-11-05 `20261104-25` 版本修复节点下载跳过资产目录的问题。压缩画布的 `Kg` 下载函数只调用 `<a download>` 指向 `blob:`，不调用 `saveMediaAsset`；现在 `canvas/web-bridge.js` 在 `document` 捕获阶段识别媒体扩展名的下载链接，优先从 `URL.createObjectURL` 缓存或即时读取 Blob，写入已授权目录并派发 `manshiguang:download-saved`，页面右下角显示保存结果；未授权或失败才重新触发浏览器下载。`saveMediaAsset` 同步复用目录判定，避免 `images\images`。已在 headless Chrome 中用 OPFS 目录句柄模拟点击，验证文件写入、内容字节一致和事件详情；尚未在用户的 Windows 原生授权目录上实际点击下载验收。
+
+- 2026-11-11 `20261111-1` 补回画布「添加节点」的视频入口（`canvas/video-node-patch.js`）。压缩 bundle 里视频能力完整但菜单被裁，原生 `addNode` 对 video/audio 直接 return，`addAssetFiles` 又只收图片，所以只能从 React fiber 取画布 store 并复用原生 `replaceCanvasState` 建节点。已用 headless Chrome + CDP 实测：侧栏顺序「文本 / 图片 / 视频 / 上传」、右键子菜单「文本 / 图片生成 / 视频」、点击真的产出 `.canvas-node--video`、刷新后节点仍在、重复开菜单不重复注入、工作台 iframe 内同样生效，控制台 0 错误；同时回归确认设置侧栏、ComfyUI tab、API 来源改名与资产抽屉未受影响。已知这份 bundle 的视频模型注册表为空，运行会本地失败并提示 `Video model config is missing`（实测零网络请求）。
 - 2026-11-07 `20261107-5` 补上工作台「插入画布」断链：初版工作台只监听 `directory-changed`，图片工坊 iframe 发出的 `asset-select` 停在外壳层，卡片却提示「已插入画布合成台」，属于假成功。现在 `canvas/gallery-patch.js` 暴露 `window.__MS_CANVAS_ASSET_HOST__.receiveAsset()`，`studio.js` 负责转发并在接收后切回画布，已验证新增节点与图片解码显示。
 - 2026-11-07 `20261107-4` 新增 `studio/` AI 创作工作台：主站导航「画布」改为「AI 创作工作台」并指向 `studio/index.html`，工作台用左侧栏把画布与图片工坊（嵌入模式资产库）集成在同一页面切换，另设剧情导演台、设定与出图、数字人视频、任务与成片四个规划中工作区。目录授权改到顶层窗口完成后写入共享 IndexedDB，画布 iframe 直接复用，解决 iframe 内弹不出系统目录选择器的问题。同时修掉两处会静默失效的缺陷：`studio.js` 里残留的旧 `requestDirectory()` 定义覆盖了新版顶层授权（函数声明提升导致后定义者生效，实际仍走 iframe 授权路径），以及桥接层缓存旧目录 handle 使重新授权后仍写向原目录——现在收到 `directory-changed` 会清空 `directoryRecords`。独立入口 `canvas/index.html`、`gallery/index.html` 全部保留。
 - 2026-11-07 `20261107-2` 按用户反馈把资产库改为画布内嵌抽屉。此前侧边栏三个库按钮 `window.open` 跳新标签，用户要在新标签挑图、点发送、再切回画布看结果，且面板关掉后只能靠角标重新打开（角标在列表为空时还会隐藏）。现在：`canvas/gallery-patch.js` 注入右侧 iframe 抽屉，`gallery/index.html?embed=1&tab=` 走新增的 `is-embed` 紧凑样式并只加载当前库索引；iframe 用 `postMessage` 通知宿主，宿主复用画布侧边栏隐藏的 `input[type="file"]` 派发 `change` 事件建节点，因此与手动「+ → 上传」共用同一套落盘与显示逻辑；独立标签页仍走 `BroadcastChannel` 且只进合成台列表，不自动建节点。过程中修掉两个自测暴露的问题：`loadLibrary()` 嵌入分支返回单个 Promise 导致 `Promise.all` 报错（包成数组），以及合成台去重把「插入画布」一起挡住（改为去重只作用于列表）。已用 headless Chrome 真实鼠标点击跑通 18 项断言并确认独立资产页布局未受影响。版本守卫与主站/资产页链接升到 `20261107-2`。

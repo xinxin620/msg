@@ -29,6 +29,8 @@ python server.py 4173
 - 画布内资产抽屉：在画布左侧点击「姿势库 / 服装库 / 人像库」，资产库直接在画布右侧滑出，选中后一键插入画布生成图片节点，无需切换标签页
   - 工作台内的画布与图片工坊是同一页面的两个工作区，切换不会丢失正在编排的工作流；也可以随时用右上角「新标签页」把当前工作区单独打开
   - 资产目录只需在工作台左下角授权一次，画布工作区即可直接把上传与生成结果落进该目录
+- 画布「添加节点」新增视频节点：左侧「+」下拉为「文本 / 图片 / 视频 / 上传」，画布右键「添加节点」为「文本 / 图片生成 / 视频」；点「视频」即在画布上创建可连线、可保存的视频节点（参考轻语AI 画布的视频节点形态）
+
 - 「画布」工作流界面：节点编排、工作流导入/导出、AI 服务商配置、素材上传与生成结果管理
 - 画布 API 来源管理：保留云雾并支持任意多个第三方配置，同一时间只启用一个，配置与 Key/Base URL 刷新后保留
 - 画布 API 配置存储：固定使用应用数据目录 `C:\Users\liliang\msg`；首次点击「立即保存」或「从本地恢复」需要授权一次目录，之后自动创建或更新 `manshiguang-api-config.json`
@@ -95,7 +97,7 @@ python server.py 4173
 - 独立入口：`canvas/index.html`（不经主站导航，适合需要完整窗口尺寸时用）
 - 打开方式：均为浏览器新标签页（`target="_blank"`）
 
-画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/storage-migration.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-workflow.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js` 和 `canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；迁移脚本负责在下线功能后清掉浏览器里的模板种子与素材数据；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，以上补丁均不修改压缩 bundle。
+画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/storage-migration.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-workflow.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js`、`canvas/gallery-patch.js` 和 `canvas/video-node-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；迁移脚本负责在下线功能后清掉浏览器里的模板种子与素材数据；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，以上补丁均不修改压缩 bundle。
 
 ### API 来源配置
 
@@ -154,6 +156,8 @@ python server.py 4173
 `20261107-2` 起，资产库可以在画布内直接打开。点击画布左侧的「姿势库 / 服装库 / 人像库」，资产库会以抽屉形式在画布右侧滑出，挑好图点一下就能插入画布生成图片节点，不用再在新标签页和画布之间来回切换。抽屉里的搜索、筛选、安全模式与独立资产页完全一致，并且只加载当前这个库的索引，所以打开更快。仍想全屏浏览或对照多张图时，点抽屉右上角「新标签页」，或按住 Ctrl 再点库按钮。注意：用独立标签页发送的资产只会进入合成台列表，不会自动建节点。
 
 `20261107-1` 起，重复上传同一张图片不会再往资产目录里塞副本。此前如果你直接从 `D:\data\workData\漫时光\画布\images` 里选图上传，画布为了不覆盖同名文件会自动改名另存一份（`xxx-2.png`、`xxx-3.jpg`），看起来就像「传一张多出两张」。现在保存前会先比较文件内容：完全相同就直接复用原文件，只有内容确实不一样才另起新名。之前已经产生的重复文件属于历史数据，画布不会自动删除，需要的话手动清理即可。
+
+- 画布「添加节点」的视频入口：`20261111-1` 起，`canvas/video-node-patch.js` 把被裁掉的「视频」补回侧栏「+」和画布右键「添加节点」。节点由画布自己的状态管理创建，能显示比例角标、能连线和保存进工作流。注意当前这份 bundle 没有内置视频模型配置，点运行会显示「Video model config is missing」并且不会发出任何网络请求；换成含视频模型的 bundle 后无需改动即可真实生成。
 
 ### 第三方模型列表
 
@@ -230,6 +234,8 @@ msg/
 │  ├─ comfy-patch.js          ComfyUI 设置 tab、连接配置、工作流选择与生成执行
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
 │  ├─ gallery-patch.js       画布内资产抽屉、合成台面板与资产插入节点
+
+│  ├─ video-node-patch.js  把「视频」入口补回侧栏「+」与右键「添加节点」
 │  ├─ assets/
 │  │  ├─ index-BN-uSJKj.js    已打包 React 画布
 │  │  └─ index-BfAuAU0s.css   画布样式
@@ -261,6 +267,8 @@ node --check canvas/comfy-workflow.js
 node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
+
+node --check canvas/video-node-patch.js
 node --check canvas/storage-migration.js
 node --check studio/assets/studio.js
 node --check gallery/assets/gallery.js
