@@ -95,7 +95,7 @@ python server.py 4173
 - 独立入口：`canvas/index.html`（不经主站导航，适合需要完整窗口尺寸时用）
 - 打开方式：均为浏览器新标签页（`target="_blank"`）
 
-画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-workflow.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js` 和 `canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，不修改压缩 bundle。
+画布由已打包的 React 前端、`canvas/web-bridge.js`、`canvas/storage-migration.js`、`canvas/branding-patch.js`、`canvas/api-profiles-patch.js`、`canvas/comfy-workflow.js`、`canvas/comfy-patch.js`、`canvas/model-patch.js` 和 `canvas/gallery-patch.js` 组成。桥接层提供与原 Electron preload 同名的 `window.electronAPI`，用于把桌面版文件、网络和窗口能力映射到浏览器可用的能力；迁移脚本负责在下线功能后清掉浏览器里的模板种子与素材数据；品牌补丁替换设置侧栏作者信息，并通过带日期的唯一文件名和版本参数刷新收款码；API 来源补丁负责拉取并勾选模型，ComfyUI 补丁提供本地/云端连接配置与真实工作流选择，模型补丁只展示已选模型并适配 Grsai 请求协议，以上补丁均不修改压缩 bundle。
 
 ### API 来源配置
 
@@ -223,6 +223,7 @@ msg/
 ├─ canvas/
 │  ├─ index.html              画布宿主页与启动诊断
 │  ├─ web-bridge.js           浏览器兼容桥接层
+│  ├─ storage-migration.js    一次性数据迁移：清除已下线功能的本地残留（轻语漫剧）
 │  ├─ branding-patch.js       标题栏 Logo、设置页作者信息与收款码品牌补丁
 │  ├─ api-profiles-patch.js   云雾/第三方 API 多配置、唯一启用、模型勾选与 API 配置存储
 │  ├─ comfy-workflow.js       工作流编辑格式转 API 格式、参数解析与结果提取
@@ -260,6 +261,7 @@ node --check canvas/comfy-workflow.js
 node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
+node --check canvas/storage-migration.js
 node --check studio/assets/studio.js
 node --check gallery/assets/gallery.js
 python -m py_compile server.py

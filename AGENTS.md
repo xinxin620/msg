@@ -45,7 +45,7 @@
 | 本地数据 | Dexie / idb-keyval；浏览器桥接另用 IndexedDB |
 | 图形与编辑 | PixiJS、react-image-crop、lucide-react |
 | 桌面原实现 | Electron preload + IPC + Node.js 文件系统、FFmpeg、undici |
-| 当前宿主 | `canvas/index.html` + `canvas/web-bridge.js` + `canvas/branding-patch.js` + `canvas/api-profiles-patch.js` + `canvas/comfy-workflow.js` + `canvas/comfy-patch.js` + `canvas/model-patch.js`，在普通浏览器中提供兼容层、品牌替换、API 来源多配置管理、ComfyUI 连接与生成执行、第三方模型列表/协议适配 |
+| 当前宿主 | `canvas/index.html` + `canvas/web-bridge.js` + `canvas/storage-migration.js` + `canvas/branding-patch.js` + `canvas/api-profiles-patch.js` + `canvas/comfy-workflow.js` + `canvas/comfy-patch.js` + `canvas/model-patch.js` + `canvas/gallery-patch.js`，在普通浏览器中提供兼容层、已下线功能残留数据迁移、品牌替换、API 来源多配置管理、ComfyUI 连接与生成执行、第三方模型列表/协议适配与资产抽屉 |
 | 构建 | 本仓库不构建画布 bundle；不要手改压缩后的 `index-*.js` / `index-*.css` |
 
 #### 2.3 资产参考库
@@ -107,6 +107,7 @@ msg/
 ├─ canvas/
 │  ├─ index.html              画布宿主页、启动遮罩和错误提示
 │  ├─ web-bridge.js           浏览器兼容桥接层，向画布暴露 window.electronAPI
+│  ├─ storage-migration.js    一次性数据迁移：清除已下线功能的本地残留（当前负责「轻语漫剧」）
 │  ├─ branding-patch.js       标题栏产品名/Logo、设置页作者信息与收款码补丁，不修改压缩 bundle
 │  ├─ api-profiles-patch.js   云雾/第三方 API 多配置管理与唯一启用补丁
 │  ├─ comfy-patch.js          「ComfyUI设置」侧栏 tab、连接配置、工作流选择与生成执行（提交/进度/回填）
@@ -154,6 +155,7 @@ msg/
 
 - `canvas/index.html`：加载桥接脚本、品牌/API 补丁、画布 bundle、React 根节点和启动遮罩；遮罩只在 React 根节点产生内容后消失，12 秒未加载时显示诊断提示。页面在启动脚本前校验地址中的 `v` 参数，缺少或过期时自动重定向到当前版本，避免已打开的旧标签页继续运行缓存中的旧补丁。
 - `canvas/web-bridge.js`：浏览器兼容层，负责网络、文件、目录、API 配置 JSON 读写、窗口、诊断和 OSS 请求；不得把桌面 Node/Electron 能力伪装成成功。素材落盘后返回的是「显示用绝对路径」（如 `D:\data\workData\漫时光\画布\images\SPR-0010.webp`），而不是 `webdir:` 虚拟标识：压缩 bundle 只识别 `file://` 与「盘符:\\」两种本地路径，其余字符串会被原样写进 `<img src>`，导致上传后只剩文件名。桥接层用 `bridge:mediaPaths` 记录把该路径映射回目录 handle，并在 `getLocalMediaFileUrl`、`readLocalMediaDataUrl`、`sourceToBlob`、multipart 与 `window.fetch` 上按映射解析；同时对历史遗留的 `webdir:` 路径包装 `HTMLImageElement`/`HTMLMediaElement` 的 `src` setter 做兜底转换（带 blob 缓存）。真实读写仍以 File System Access handle 为准，路径文本只是键。落盘统一走 `writeOrReuseFile`：同名且字节一致时复用原文件，避免从资产目录自身重复上传时不断产生 `-2` / `-3` 副本。
+- `canvas/storage-migration.js`：无依赖的一次性数据迁移脚本，在画布宿主页、桥接层之后同步执行，负责清除已下线功能留在浏览器里的种子与元数据。当前负责「轻语漫剧」：按前缀 `manshiguang:canvas-qingyu` 清掉 `manshiguang:canvas-qingyu-assets`、`-shots`、`-tab`、`-seeded`、`-deleted-presets` 等键，删除 IndexedDB 素材库 `manshiguang-canvas-qingyu`，并从原生 `keyval-store/keyval/canvas-text-presets` 中只摘除 `msBuiltin: "qingyu"` 或 id 以 `ms-qy-preset-` 开头的 8 个内置模板，用户自建预设与 `manshiguang:canvas-api-profiles` 一律保留。因为画布原生 bundle 会把预设读进内存并在状态变化时整体回写，只删 IndexedDB 会让内存里的内置模板复活，所以脚本按 `[600, 1400, 2600, 4200]` 毫秒做多轮清理，连续两轮确认无残留后才写入完成标记 `manshiguang:storage-migrated-at`；确认确实清掉过数据时重载一次画布，让原生 bundle 用清理后的数据重新 hydrate。重载用 `sessionStorage["manshiguang:storage-migration-reloads"]` 计数并封顶 3 次，避免循环。已带完成标记的会话只做一次幂等复核，仅在发现新残留时重新清理。脚本运行时把过程写入 `window.__MS_STORAGE_MIGRATION__` 便于自测；未来再有功能下线，把它的键名/库名追加进本文件的常量列表即可。
 - `canvas/branding-patch.js`：通过 `MutationObserver` 将标题栏产品名和 Logo 替代文本统一为「画布」，把标题栏 Logo 图片切换为 `../assets/favicon-32x32.png?v=20261104-2`，并替换设置侧栏的作者信息文本（`大桶子ai` → `阿亮啊`、`wmxwz1` → `liangliang_0314`、`hub.datong-ai.cn` → `https://github.com/xinxin620`），并把收款码切换到带日期的唯一文件名并追加版本参数，以避免旧 URL 缓存；补丁必须独立于原始 bundle，更新二维码或升级画布后同步提升脚本/图片版本并重新核对选择器。
 - `canvas/api-profiles-patch.js`：隐藏原始云雾 vendor 卡片，在原位置插入多配置管理区；同时把设置弹窗侧栏项与分区标题的原文本「API 来源设置」在显示层统一改为「图片API来源设置」：原文本保留为常量 `NATIVE_API_SECTION_TITLE`，由 `queueRender` 中的 `renameApiSectionTitle()` 遍历 `.settings-sidebar__item span` 与 `.settings-section__header h3` 完成，不手改压缩 bundle；支持内置云雾与任意多个第三方 API，每项包含名称、申请地址、API Key、Base URL，每张卡保留「申请」并在右侧提供「启用/已启用」。状态使用 `localStorage["manshiguang:canvas-api-profiles"]`，`activeId` 保证同一时间只有一个启用；切换时同步到画布原有 `canvas-api-settings`、`state.vendorConfigs.yunwu` 和云雾输入框。第三方 Profile 还保存 `modelCatalog`、`selectedModels`、`modelsFetchedAt`、`modelsError`、`modelsBaseUrl`：填写或变更 Base URL / API Key 后自动尝试 `${base}/v1/models` 和 `${base}/models`，也提供「拉取全部模型」「全选图片」「清空」。首次或接口地址变化时默认勾选全部图片模型；同源刷新保留仍存在的既有勾选，不无故覆盖用户选择。Base URL 会归一化掉 `/v1/api/*`、`/v1/draw/*`、`/v1/images/*`、`/v1/models`、`/v1` 等路径。补丁只挂在页面 DOM 上，不修改压缩 bundle。「常规设置 → API 配置存储」卡片紧跟「资产存储目录」：不再提供浏览器存储切换，固定显示应用数据目录 `C:\Users\liliang\msg`。旧存储状态会自动迁移为目录模式；目录需预先存在，首次点击「立即保存」或「从本地恢复」会打开一次浏览器目录选择器并授权该目录。首次保存时若还没有 API Profile，会从画布原生输入框补建默认云雾配置，避免出现“点了没反应”。授权后写入或读取明文 JSON `manshiguang-api-config.json`，API Key、Base URL 或模型勾选变化时自动续写；读取只更新浏览器状态，不立即回写源文件。保存/恢复必须显示操作中、持久成功或失败状态和最近时间，完成或失败后按钮必须恢复可用；错误提示要自动滚动到可见位置。浏览器只会返回文件夹名，不能伪造 Windows 绝对路径；显示层在授权目录名为 `images` 时按用户确认固定标注 `D:\data\workData\漫时光\画布\images`，该文本不参与读写，真实读写仍使用 File System Access handle。资产目录与 API 配置目录使用各自独立的 token；补丁会在选择器返回后主动刷新资产目录的友好回显，避免点「立即保存」时看起来像资产目录被改写。资产卡的原生「打开目录」在显示层改为「查看目录」，由桥接层读取并展示目录内容，不伪装为已打开 Windows 资源管理器。
 - `canvas/comfy-patch.js`：在设置弹窗侧栏「图片API来源设置」之后追加独立「ComfyUI设置」tab。React 每次切换 tab 都会重建 `.settings-modal__body`，因此补丁用 `MutationObserver` 等待设置弹窗出现并持续校正挂载，不假设弹窗在页面加载时已存在。点击该 tab 后先给 body 加 `ms-comfy-view`，用 CSS 隐藏原生分区并注入 `#ms-comfy-section`；切回任一原生 tab 时移除分区、恢复原生 footer 文案。分区内含「本地 ComfyUI」与「云端 ComfyUI」两张卡，同一时间只启用一个，配置写入 `localStorage["manshiguang:canvas-comfyui"]`，并把当前启用项发布到 `window.__MS_COMFY__` 与 `manshiguang:comfy-changed` 事件。测试连接请求统一走 `${PROXY_PREFIX}system_stats?base=<地址>`，由 `server.py` 的 `/__comfy/` 转发；云端卡填写的访问密钥通过 `X-MS-Comfy-Key` 请求头传给本地服务，再由服务转成 `Authorization: Bearer`，密钥不写进 URL。启用卡还会自动读取 `${PROXY_PREFIX}userdata?dir=workflows&recurse=true&split=false&full_info=true` 列出 ComfyUI 已保存的工作流，支持本地搜索、手动刷新和点击选择；单项读取使用 `${PROXY_PREFIX}api/userdata/<encodeURIComponent("workflows/"+path)>`，必须校验 JSON 含 `nodes` 数组后才写入 `selectedWorkflow`，并把原始 JSON 暂存到 `runtime.details`。补丁不修改压缩 bundle。
@@ -284,6 +286,7 @@ node --check canvas/api-profiles-patch.js
 node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
+node --check canvas/storage-migration.js
 node --check studio/assets/studio.js
 node --check gallery/assets/gallery.js
 python -m py_compile server.py
@@ -332,6 +335,9 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/canvas/index.html
 18a. 「紧凑 / 标准 / 放大」三档在工作台图片工坊、画布抽屉与独立资产页三处必须各自独立：在画布抽屉切到紧凑后，工作台图片工坊与独立资产页的档位和列数都不得改变，反向同理；三处各自重载后仍保持自己的档位。`20261109-2` 已用 headless Chrome 复跑 17 项断言全过（含 iframe 真实列数、localStorage 键值，以及两条发送链路载荷与重构前逐字节一致的 A/B 对比）。
 
 18b. 卡片右上角「发送到画布合成台」图标只在工作台图片工坊隐藏：`gallery/index.html?embed=1&host=studio` 下 `.asset-card__send` 必须 `display: none`，而 `host=canvas`（画布抽屉）、独立 `gallery/index.html` 与只带 `embed=1` 的旧链接都必须仍然可见可点；工作台详情弹层的发送按钮必须保留可用。`20261109-3` 已用 headless Chrome（含工作台外壳真实 iframe）跑通 8 项断言并截图核对。
+
+18c. 「轻语漫剧」的残留数据必须被自动清干净：带 8 个 `ms-qy-preset-*`（`msBuiltin: "qingyu"`）预设、`manshiguang:canvas-qingyu-*` 五个 localStorage 键与 IndexedDB `manshiguang-canvas-qingyu` 的浏览器打开画布后，`window.__MS_STORAGE_MIGRATION__` 应报告 `presetsRemoved` 与 `mediaDb` 的删除结果、`leftovers` 为空、`done` 为真；原生「提示词预设」中不再出现内置模板，用户自建预设与 `manshiguang:canvas-api-profiles` 必须原样保留，画布无「轻语」文字与控制台错误。`20261110-8` 已用 headless Chrome 覆盖“有残留 / 无残留 / 已迁移复核”三条路径。
+
 19. 打开 AI 创作工作台：左侧栏为「画布 / 图片工坊 / 剧情导演台 / 设定与出图 / 数字人视频 / 任务与成片」六项，前两项标为在线、后四项标为规划中并给出用途、输入、产出和与现有能力的关系，不提供假按钮。
 20. 在工作台点「画布」：iframe 内画布应用完成渲染，切到「图片工坊」再切回「画布」时工作流与滚动状态仍在（iframe 只隐藏不销毁），只有「重载」会重新载入。
 21. 在工作台左下角点「授权资产目录」并选择 `D:\data\workData\漫时光\画布\images`：状态条变为已授权并显示目录名；随后在画布 iframe 内「+ → 上传」选本地图片，节点必须直接显示图片内容，文件落在该目录且不产生 `-2` 副本。这一步验证的是「顶层授权 + iframe 复用」链路，画布内部不需要再弹一次目录选择器。
