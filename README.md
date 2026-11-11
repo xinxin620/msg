@@ -233,9 +233,8 @@ msg/
 │  ├─ comfy-workflow.js       工作流编辑格式转 API 格式、参数解析与结果提取
 │  ├─ comfy-patch.js          ComfyUI 设置 tab、连接配置、工作流选择与生成执行
 │  ├─ model-patch.js          已选模型下拉注入与第三方请求协议适配
-│  ├─ gallery-patch.js       画布内资产抽屉、合成台面板与资产插入节点
-
-│  ├─ video-node-patch.js  把「视频」入口补回侧栏「+」与右键「添加节点」
+│  ├─ gallery-patch.js        画布内资产抽屉、合成台面板与资产插入节点
+│  ├─ video-node-patch.js     把「视频」入口补回侧栏「+」与右键「添加节点」
 │  ├─ assets/
 │  │  ├─ index-BN-uSJKj.js    已打包 React 画布
 │  │  └─ index-BfAuAU0s.css   画布样式
@@ -249,6 +248,9 @@ msg/
 │  └─ assets/
 │     ├─ studio.css            工作台布局与夜航星海配色
 │     └─ studio.js             工作区注册、iframe 复用与资产目录共享授权
+├─ docs/
+│  ├─ acceptance.md           完整浏览器回归验收清单
+│  └─ history.md              项目历史与逐版本流水账
 ├─ .preview/                  桌面、资产库与工作台验收截图
 ├─ .gitignore                 排除 local-assets、临时脚本与本地日志
 ├─ AGENTS.md                  项目基准、技术栈与协作约束
@@ -267,7 +269,6 @@ node --check canvas/comfy-workflow.js
 node --check canvas/comfy-patch.js
 node --check canvas/model-patch.js
 node --check canvas/gallery-patch.js
-
 node --check canvas/video-node-patch.js
 node --check canvas/storage-migration.js
 node --check studio/assets/studio.js
