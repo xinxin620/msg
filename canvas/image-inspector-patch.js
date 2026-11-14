@@ -676,6 +676,10 @@
       font-size: 13px !important;
     }
 
+    .inspector.${EDITOR_CLASS}.${TEXT_MODE_CLASS} .action-panel--text .action-panel__model-select::before {
+      content: "文本 API";
+    }
+
     .inspector.${EDITOR_CLASS}.${TEXT_MODE_CLASS} .action-panel--text .action-panel__model-select > span {
       flex: 1 1 auto;
       min-width: 0;

@@ -1029,6 +1029,16 @@
       return textActive;
     },
     close: deactivate,
+    // 文本节点弹框选择模型时写入当前启用的文本配置，保证请求真正使用该模型。
+    setModel: (model) => {
+      const value = String(model || "").trim();
+      const profile = activeTextProfile();
+      if (!value || !profile) return false;
+      profile.textModel = value;
+      saveTextState();
+      refreshModelUi(profile);
+      return true;
+    },
   };
 
   function init() {

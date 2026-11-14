@@ -1,113 +1,206 @@
 (() => {
-  const KEY = 'manshiguang:canvas-text-api-profiles';
-  const PATCHED = 'ms-txt-patched-v90';
+  const KEY = "manshiguang:canvas-text-api-profiles";
+  const STYLE_ID = "ms-txt-models-style";
+  const NATIVE_CLASS = "ms-txt-model-native";
 
-  function getModels() {
+  function readActiveProfile() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (!raw) return [];
+      if (!raw) return null;
       const data = JSON.parse(raw);
-      const profile = (data.profiles || []).find(p => p.id === data.activeId);
-      if (!profile) return [];
-      const catalog = Array.isArray(profile.modelCatalog) ? profile.modelCatalog : [];
-      const selected = Array.isArray(profile.selectedModels) ? profile.selectedModels : [];
-      const re = /tts|text-to-speech|speech|voice|audio[-_.]?(?:gen|synthesis)|t2a|cosyvoice|sambert|volctts|minimax[-_.]?tts|eleven|fish[-_.]?speech|chat[-_.]?tts|doubao[-_.]?speech|paraformer/i;
-      return selected.filter(m => catalog.includes(m) && !re.test(m));
-    } catch (e) { return []; }
+      return (data.profiles || []).find((p) => p.id === data.activeId) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getModels(profile) {
+    const catalog = Array.isArray(profile?.modelCatalog) ? profile.modelCatalog : [];
+    const selected = Array.isArray(profile?.selectedModels) ? profile.selectedModels : [];
+    const re = /tts|text-to-speech|speech|voice|audio[-_.]?(?:gen|synthesis)|t2a|cosyvoice|sambert|volctts|minimax[-_.]?tts|eleven|fish[-_.]?speech|chat[-_.]?tts|doubao[-_.]?speech|paraformer|whisper|transcri|ocr|embedding|rerank|moderation|realtime|safety/i;
+    return selected.filter((m) => catalog.includes(m) && !re.test(m));
+  }
+
+  function persistModel(model) {
+    if (typeof window.__MS_TEXT_API_PATCH__?.setModel === "function") {
+      if (window.__MS_TEXT_API_PATCH__.setModel(model)) return;
+    }
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const profile = (data.profiles || []).find((p) => p.id === data.activeId);
+      if (!profile || profile.textModel === model) return;
+      profile.textModel = model;
+      localStorage.setItem(KEY, JSON.stringify(data));
+      window.dispatchEvent(new CustomEvent("manshiguang:text-api-model-changed", { detail: { model } }));
+    } catch {}
+  }
+
+  function currentModel(profile, models) {
+    const configured = String(profile?.textModel || "").trim();
+    return models.includes(configured) ? configured : models[0];
+  }
+
+  function installStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+      .action-panel--text .action-panel__dropdown--model > .${NATIVE_CLASS} { display: none !important; }
+      .ms-txt-model-list { display: flex; flex-direction: column; gap: 2px; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function modelSelector(panel) {
+    const selects = panel.querySelectorAll(".action-panel__model-select");
+    return selects[0] || null;
+  }
+
+  function triggerSpan(select) {
+    return [...select.children].find((node) => node.tagName === "SPAN") || null;
+  }
+
+  function setTriggerLabel(select, model) {
+    if (!select || !model) return;
+    const span = triggerSpan(select);
+    if (!span) return;
+    if (!span.dataset.msTextNativeLabel) span.dataset.msTextNativeLabel = span.textContent;
+    if (span.textContent !== model) span.textContent = model;
+  }
+
+  function resetPanel(panel) {
+    const select = modelSelector(panel);
+    if (!select) return;
+    const span = triggerSpan(select);
+    if (span?.dataset.msTextNativeLabel) span.textContent = span.dataset.msTextNativeLabel;
+    select.querySelectorAll("[data-ms-text-model-list]").forEach((node) => node.remove());
+    select.querySelectorAll("." + NATIVE_CLASS).forEach((node) => node.classList.remove(NATIVE_CLASS));
+    select.querySelectorAll(".action-panel__dropdown--model").forEach((dropdown) => {
+      delete dropdown.dataset.msTextModelSignature;
+    });
+  }
+
+  function buildItem(model, isActive, onPick) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "action-panel__dropdown-item" + (isActive ? " active" : "");
+    btn.dataset.msTextModel = model;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.innerHTML = '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>';
+
+    const info = document.createElement("div");
+    info.className = "action-panel__model-info";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = model;
+    info.appendChild(name);
+
+    btn.append(svg, info);
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onPick(model);
+    });
+    return btn;
+  }
+
+  function fillDropdown(select, dropdown, models, chosen) {
+    const signature = chosen + "|" + models.join(",");
+    if (dropdown.dataset.msTextModelSignature === signature) return;
+    dropdown.dataset.msTextModelSignature = signature;
+
+    dropdown.querySelector("[data-ms-text-model-list]")?.remove();
+    [...dropdown.children].forEach((node) => {
+      if (node.tagName === "BUTTON" && node.classList.contains("action-panel__dropdown-item")) {
+        node.classList.add(NATIVE_CLASS);
+      }
+    });
+
+    const list = document.createElement("div");
+    list.className = "ms-txt-model-list";
+    list.dataset.msTextModelList = "1";
+    models.forEach((model) => {
+      list.appendChild(
+        buildItem(model, model === chosen, (picked) => {
+          setTriggerLabel(select, picked);
+          persistModel(picked);
+          dropdown.querySelectorAll("[data-ms-text-model]").forEach((item) => {
+            item.classList.toggle("active", item.dataset.msTextModel === picked);
+          });
+          // 用原生选择器的点击关闭下拉，避免留下一个我方可视层。
+          window.setTimeout(() => {
+            if (dropdown.isConnected) select.click();
+          }, 0);
+        })
+      );
+    });
+    dropdown.appendChild(list);
   }
 
   function applyPanel(panel) {
-    if (panel.classList.contains(PATCHED)) return;
-    panel.classList.add(PATCHED);
-
-    const models = getModels();
-    if (models.length === 0) return;
-
-    const selectors = panel.querySelectorAll('.action-panel__model-select');
-    if (selectors.length === 0) return;
-
-    const modelSelector = selectors[0];
-
-    const spans = modelSelector.querySelectorAll('span:not([class])');
-    if (spans.length > 0) spans[0].textContent = models[0];
-
-    let dropdown = modelSelector.querySelector('.action-panel__dropdown--model');
-    if (!dropdown) {
-      dropdown = document.createElement('div');
-      dropdown.className = 'action-panel__dropdown action-panel__dropdown--model';
-      modelSelector.appendChild(dropdown);
+    if (!panel) return;
+    const profile = readActiveProfile();
+    const models = getModels(profile);
+    if (!models.length) {
+      resetPanel(panel);
+      return;
     }
 
-    dropdown.innerHTML = '';
-    models.forEach((m, idx) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'action-panel__dropdown-item' + (idx === 0 ? ' active' : '');
+    const select = modelSelector(panel);
+    if (!select) return;
 
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('width', '14');
-      svg.setAttribute('height', '14');
-      svg.setAttribute('viewBox', '0 0 24 24');
-      svg.setAttribute('fill', 'none');
-      svg.setAttribute('stroke', 'currentColor');
-      svg.setAttribute('stroke-width', '2');
-      svg.innerHTML = '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>';
+    const chosen = currentModel(profile, models);
+    setTriggerLabel(select, chosen);
 
-      const infoDiv = document.createElement('div');
-      infoDiv.className = 'action-panel__model-info';
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'name';
-      nameSpan.textContent = m;
-      infoDiv.appendChild(nameSpan);
-
-      btn.appendChild(svg);
-      btn.appendChild(infoDiv);
-
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        document.querySelectorAll('.action-panel--text').forEach(p => {
-          const sel = p.querySelector('.action-panel__model-select');
-          if (sel) {
-            const sp = sel.querySelector('span:not([class])');
-            if (sp) sp.textContent = m;
-          }
-        });
-        modelSelector.classList.remove('is-open');
-      });
-
-      dropdown.appendChild(btn);
-    });
-
-    console.log('[Patch v90] Applied:', models);
+    const dropdown = select.querySelector(".action-panel__dropdown--model");
+    if (dropdown) fillDropdown(select, dropdown, models, chosen);
   }
 
-  setTimeout(() => {
-    document.querySelectorAll('.action-panel--text:not(.' + PATCHED + ')').forEach(applyPanel);
-  }, 500);
+  function isTextModelDropdown(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (!node.classList?.contains("action-panel__dropdown--model")) return false;
+    return Boolean(node.closest(".action-panel--text"));
+  }
+
+  installStyles();
+
+  function applyAll() {
+    document.querySelectorAll(".action-panel--text").forEach(applyPanel);
+  }
+
+  setTimeout(applyAll, 500);
 
   const observer = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      if (m.addedNodes.length > 0) {
-        for (const node of m.addedNodes) {
-          if (node.nodeType === 1) {
-            if (node.classList && node.classList.contains('action-panel--text')) {
-              applyPanel(node);
-            } else if (node.querySelectorAll) {
-              node.querySelectorAll('.action-panel--text').forEach(applyPanel);
-            }
-          }
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (isTextModelDropdown(node)) {
+          applyPanel(node.closest(".action-panel--text"));
+          continue;
         }
+        if (node.matches?.(".action-panel--text")) {
+          applyPanel(node);
+          continue;
+        }
+        node.querySelectorAll?.(".action-panel--text, .action-panel--text .action-panel__dropdown--model").forEach((target) => {
+          if (!target || !target.classList) return;
+          applyPanel(target.classList.contains("action-panel--text") ? target : target.closest(".action-panel--text"));
+        });
       }
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  window.addEventListener('storage', (e) => {
-    if (e.key === KEY) {
-      document.querySelectorAll('.' + PATCHED).forEach(el => el.classList.remove(PATCHED));
-      document.querySelectorAll('.action-panel--text').forEach(applyPanel);
-    }
+  window.addEventListener("storage", (event) => {
+    if (event.key === KEY) applyAll();
   });
-
-  console.log('[Patch v20261114-90] Ready');
 })();
