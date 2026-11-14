@@ -677,7 +677,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = `action-panel__dropdown-item ms-model-item${isActive ? " active" : ""}`;
-      button.innerHTML = `<span class="ms-model-item__dot"></span><div class="action-panel__model-info"><span class="name"></span></div>`;
+      button.innerHTML = `<svg class="ms-model-item__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="8.6" cy="8.6" r="1.6"></circle><path d="M20.4 15.4 15 10 5.6 20.4"></path></svg><div class="action-panel__model-info"><span class="name"></span></div>`;
       button.querySelector(".name").textContent = model;
       button.addEventListener("click", (event) => {
         event.preventDefault();
@@ -798,15 +798,16 @@
         top: 0;
         background: inherit;
       }
-      .ms-model-item__dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--accent, #4f8cff);
-        opacity: 0;
+      /* 用 svg 而不是 span：bundle 里 .inspector .action-panel__model-select span
+         带 flex:1，span 会被拉成一条很长的色块。 */
+      .ms-model-item__icon {
+        width: 14px;
+        height: 14px;
         flex: 0 0 auto;
+        display: block;
+        opacity: 0;
       }
-      .ms-model-item.active .ms-model-item__dot { opacity: 1; }
+      .ms-model-item.active .ms-model-item__icon { opacity: 1; }
       .ms-model-item .name { font-size: 12px; }
       .ms-model-list__error {
         padding: 6px 12px;

@@ -1039,6 +1039,11 @@
       refreshModelUi(profile);
       return true;
     },
+    // 文本节点弹框标题用：当前启用文本配置的生效 Base URL（内置云雾留空时回落默认地址）。
+    activeBaseUrl: () => {
+      const profile = activeTextProfile();
+      return profile ? effectiveBase(profile) : "";
+    },
   };
 
   function init() {

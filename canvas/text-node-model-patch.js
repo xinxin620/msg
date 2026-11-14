@@ -42,6 +42,35 @@
     return models.includes(configured) ? configured : models[0];
   }
 
+  // 当前启用的文本 API 地址：与模型列表同源（先读存储里的启用配置），
+  // 内置云雾留空时才用补丁算出的生效地址（默认 api.openlux.ai）。
+  function activeBaseUrl() {
+    const profile = readActiveProfile();
+    const stored = String(profile?.baseUrl || "").trim();
+    if (stored) return stored;
+    try {
+      if (typeof window.__MS_TEXT_API_PATCH__?.activeBaseUrl === "function") {
+        const base = String(window.__MS_TEXT_API_PATCH__.activeBaseUrl() || "").trim();
+        if (base) return base;
+      }
+    } catch {
+      /* 补丁尚未就绪时回退 */
+    }
+    return String(window.__MS_TEXT_API__?.baseUrl || "").trim();
+  }
+
+
+  function listHeaderText() {
+    const base = activeBaseUrl();
+    if (!base) return "";
+    try {
+      const host = new URL(base).host;
+      return host ? "已选模型 · " + host : "";
+    } catch {
+      return "已选模型 · " + base.replace(/^[a-zA-Z]+:\/\//, "").replace(/\/+$/, "");
+    }
+  }
+
   function installStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -49,6 +78,13 @@
     style.textContent = `
       .action-panel--text .action-panel__dropdown--model > .${NATIVE_CLASS} { display: none !important; }
       .ms-txt-model-list { display: flex; flex-direction: column; gap: 2px; }
+      .ms-txt-model-list__header {
+        padding: 6px 12px 8px;
+        font-size: 11px;
+        color: var(--text-tertiary, #8a8a8a);
+        border-bottom: 1px solid var(--node-border, rgba(0, 0, 0, 0.08));
+        margin-bottom: 4px;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -114,7 +150,8 @@
   }
 
   function fillDropdown(select, dropdown, models, chosen) {
-    const signature = chosen + "|" + models.join(",");
+    const header = listHeaderText();
+    const signature = [header, chosen, models.join(",")].join("|");
     if (dropdown.dataset.msTextModelSignature === signature) return;
     dropdown.dataset.msTextModelSignature = signature;
 
@@ -128,6 +165,12 @@
     const list = document.createElement("div");
     list.className = "ms-txt-model-list";
     list.dataset.msTextModelList = "1";
+    if (header) {
+      const title = document.createElement("div");
+      title.className = "ms-txt-model-list__header";
+      title.textContent = header;
+      list.appendChild(title);
+    }
     models.forEach((model) => {
       list.appendChild(
         buildItem(model, model === chosen, (picked) => {
@@ -199,6 +242,9 @@
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // 同一页面内在「文本API来源设置」里切换启用配置时，标题要跟着换。
+  window.addEventListener("manshiguang:text-api-changed", applyAll);
 
   window.addEventListener("storage", (event) => {
     if (event.key === KEY) applyAll();
