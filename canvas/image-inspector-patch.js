@@ -402,9 +402,25 @@
       background: var(--soft-hover) !important;
     }
 
-    .inspector.${EDITOR_CLASS} .action-panel__dropdown--params {
-      width: max-content !important;
-      min-width: 220px !important;
+    /* 只有真的挂了参数面板时才让 footer 换行，文本节点面板保持单行。 */
+    .inspector.${EDITOR_CLASS} .action-panel__footer:has(.action-panel__param-sheet) {
+      flex-wrap: wrap !important;
+    }
+
+    /* 原生参数面板类名是 .action-panel__param-sheet（不是 dropdown--params）：
+       它本就在 footer 第二行整宽显示，这里保持整行，不再被挤成右侧窄列。 */
+    .inspector.${EDITOR_CLASS} .action-panel__param-sheet {
+      order: 3;
+      flex: 1 0 100% !important;
+      width: 100% !important;
+      min-width: 0 !important;
+    }
+
+    /* 面板打开时卡片高度跟随内容，避免底部按钮行和面板最后一行被 overflow:hidden 裁掉。 */
+    .inspector.${EDITOR_CLASS}:has(.action-panel__param-sheet) {
+      height: auto !important;
+      max-height: calc(100vh - 20px) !important;
+      overflow-y: auto !important;
     }
 
     .inspector.${EDITOR_CLASS} .ms-image-model-line {
