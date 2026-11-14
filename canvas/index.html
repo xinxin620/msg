@@ -1,4 +1,23 @@
-<!doctype html> <html lang="zh-CN">   <head>     <meta charset="UTF-8" />     <meta name="viewport" content="width=device-width, initial-scale=1.0" />     <meta name="color-scheme" content="light" />     <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate" />     <meta http-equiv="pragma" content="no-cache" />     <meta http-equiv="expires" content="0" />     <link rel="icon" href="./icon.ico" />     <title>画布 · 漫时光</title>     <style>       html,       body,       #root {         width: 100%;         min-width: 320px;         height: 100%;         margin: 0;       }        body {         overflow: hidden;         background: #eeecea;         color: #1a1a1a;         font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;       }        #canvasBoot {         position: fixed;         inset: 0;         z-index: 99999;         display: grid;         place-content: center;         gap: 10px;         padding: 24px;         background: #eeecea;         color: #555;         text-align: center;         transition: opacity 180ms ease;       }        #canvasBoot strong {         font-size: 15px;         font-weight: 600;       }        #canvasBoot small {         max-width: 520px;         color: #888;         line-height: 1.7;       }        #canvasBoot[data-ready="true"] {         pointer-events: none;         opacity: 0;       }        #canvasBoot[data-error="true"] strong {         color: #b42318;       }     </style>     <script>       (() => {         const currentVersion = "20261114-90";         const url = new URL(window.location.href);         if (url.searchParams.get("v") === currentVersion) return;         url.searchParams.set("v", currentVersion);         window.location.replace(url.href);       })();     </script>    <link rel="stylesheet" href="./assets/index-BfAuAU0s.css" />     <script src="./web-bridge.js?v=20261114-90"></script>
+<!doctype html> <html lang="zh-CN">   <head>     <meta charset="UTF-8" />     <meta name="viewport" content="width=device-width, initial-scale=1.0" />     <meta name="color-scheme" content="light" />     <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate" />     <meta http-equiv="pragma" content="no-cache" />     <meta http-equiv="expires" content="0" />     <link rel="icon" href="./icon.ico" />     <title>画布 · 漫时光</title>     <style>       html,       body,       #root {         width: 100%;         min-width: 320px;         height: 100%;         margin: 0;       }        body {         overflow: hidden;         background: #eeecea;         color: #1a1a1a;         font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;       }        #canvasBoot {         position: fixed;         inset: 0;         z-index: 99999;         display: grid;         place-content: center;         gap: 10px;         padding: 24px;         background: #eeecea;         color: #555;         text-align: center;         transition: opacity 180ms ease;       }        #canvasBoot strong {         font-size: 15px;         font-weight: 600;       }        #canvasBoot small {         max-width: 520px;         color: #888;         line-height: 1.7;       }        #canvasBoot[data-ready="true"] {         pointer-events: none;         opacity: 0;       }        #canvasBoot[data-error="true"] strong {         color: #b42318;       }     
+      /* 设置弹窗侧栏：tab 越加越多时整栏一起滚动，谁都不被裁切；
+         作者信息用 margin-top:auto 在空间充足时贴住侧栏底部。 */
+      .settings-sidebar {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+      }
+      .settings-sidebar__nav {
+        flex: 0 0 auto;
+        min-height: 0;
+        overflow: visible;
+      }
+      .settings-sidebar__author {
+        flex: 0 0 auto;
+        overflow: visible;
+        margin-top: auto;
+      }
+    </style>     <script>       (() => {         const currentVersion = "20261114-90";         const url = new URL(window.location.href);         if (url.searchParams.get("v") === currentVersion) return;         url.searchParams.set("v", currentVersion);         window.location.replace(url.href);       })();     </script>    <link rel="stylesheet" href="./assets/index-BfAuAU0s.css" />     <script src="./web-bridge.js?v=20261114-90"></script>
     <script src="./storage-migration.js?v=20261114-90"></script> <script defer src="./assets/index-BN-uSJKj.js"></script>     <script defer src="./branding-patch.js?v=20261114-90"></script>     <script defer src="./api-profiles-patch.js?v=20261114-90"></script>     <script defer src="./comfy-workflow.js?v=20261114-90"></script> <script defer src="./comfy-patch.js?v=20261114-90"></script>     <script defer src="./model-patch.js?v=20261114-90"></script>     <script defer src="./gallery-patch.js?v=20261114-90"></script>
         <script defer src="./image-inspector-patch.js?v=20261114-90"></script>
     <script defer src="./text-api-patch.js?v=20261114-90"></script>
