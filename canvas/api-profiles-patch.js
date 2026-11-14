@@ -163,8 +163,8 @@
             ? BUILTIN_APPLY_URL
             : "",
       builtin,
-      modelCatalog: builtin ? [] : uniqueStringList(value.modelCatalog),
-      selectedModels: builtin ? [] : uniqueStringList(value.selectedModels),
+      modelCatalog: uniqueStringList(value.modelCatalog),
+      selectedModels: uniqueStringList(value.selectedModels),
       modelsFetchedAt: Number.isFinite(Number(value.modelsFetchedAt))
         ? Number(value.modelsFetchedAt)
         : 0,
@@ -1688,14 +1688,25 @@
     }
   }
 
+  // 与文本/视频 API 保持一致：列表只展示图片模型，不再把视频/文本/embedding 一起摊出来。
+  // 安全阀：个别第三方（图片模型命名特殊、正则一个都没命中）退回展示全部，避免可用模型被隐藏。
+  function imageModelCandidates(models) {
+    const images = models.filter(isImageModel);
+    return images.length ? images : models;
+  }
+
+  function listableModels(profile) {
+    return imageModelCandidates(profile.modelCatalog);
+  }
+
   function renderModelSection(profile) {
-    if (profile.builtin) return "";
     const loading = modelRuntime.loading.has(profile.id);
-    const models = profile.modelCatalog;
-    const selected = new Set(profile.selectedModels);
+    const models = listableModels(profile);
+    const selectable = new Set(models);
+    const selected = new Set(profile.selectedModels.filter((model) => selectable.has(model)));
     const sourceChanged = Boolean(
       profile.modelsBaseUrl &&
-      normalizeBaseUrl(profile.baseUrl) !== profile.modelsBaseUrl,
+      effectiveBase(profile) !== profile.modelsBaseUrl,
     );
     const rows = models.map((model) => {
       const image = isImageModel(model);
@@ -1726,6 +1737,11 @@
           <button type="button" class="ms-api-models__button" data-ms-action="models-clear" ${selected.size ? "" : "disabled"}>清空</button>
         </div>
       </div>
+      ${
+        profile.builtin
+          ? '<div class="ms-api-models__note">云雾勾选只用于查看该 Key 可用的图片模型；画布出图仍走内置云雾映射，不受这里勾选影响。</div>'
+          : ""
+      }
       ${sourceChanged ? '<div class="ms-api-models__note is-warning">接口地址已变更，请重新拉取该地址的模型。</div>' : ""}
       ${profile.modelsError ? `<div class="ms-api-models__note is-error">拉取失败：${escapeHtml(profile.modelsError)}</div>` : ""}
       ${models.length
@@ -1796,7 +1812,7 @@
 
   function refreshModelSection(profileId) {
     const profile = profileState?.profiles.find((item) => item.id === profileId);
-    if (!profile || profile.builtin) return;
+    if (!profile) return;
     const section = modelSectionFor(profileId);
     if (!section) return;
     const snapshot = captureModelScroll(section);
@@ -1806,16 +1822,17 @@
 
   function syncModelSelectionUi(profileId) {
     const profile = profileState?.profiles.find((item) => item.id === profileId);
-    if (!profile || profile.builtin) return;
+    if (!profile) return;
     const section = modelSectionFor(profileId);
     if (!section) return;
-    const selected = new Set(profile.selectedModels);
+    const selectable = new Set(listableModels(profile));
+    const selected = new Set(profile.selectedModels.filter((model) => selectable.has(model)));
     section.querySelectorAll("[data-ms-model]").forEach((checkbox) => {
       checkbox.checked = selected.has(checkbox.dataset.msModel);
     });
     const count = section.querySelector(".ms-api-models__count");
     if (count) {
-      count.textContent = `已选择 ${selected.size} 个 / 共 ${profile.modelCatalog.length} 个`;
+      count.textContent = `已选择 ${selected.size} 个 / 共 ${selectable.size} 个`;
     }
     const clearButton = section.querySelector('[data-ms-action="models-clear"]');
     if (clearButton) clearButton.disabled = selected.size === 0;
@@ -1838,10 +1855,63 @@
     );
   }
 
+  // 与文本/视频 API 保持一致：云雾卡 Base URL 留空时回落到默认云雾地址。
+  function effectiveBase(profile) {
+    return normalizeBaseUrl(profile.baseUrl) || (profile.builtin ? normalizeBaseUrl(DEFAULT_BASE_URL) : "");
+  }
+
+  // 与文本/视频 API 保持一致：优先取该卡自己的 Key，云雾卡再回退到画布原生 vendor 配置，
+  // 拿到 Key 才发请求（不带 token 时平台返回的是公开全部模型，而不是该 Key 可用的模型）。
+  function modelFetchKey(profile) {
+    const key = String(profile.apiKey || "").trim();
+    if (key) return key;
+    if (!profile.builtin) return "";
+    try {
+      const raw = window.localStorage.getItem(CANVAS_SETTINGS_KEY);
+      const persisted = raw ? JSON.parse(raw) : null;
+      return String(persisted?.state?.vendorConfigs?.[BUILTIN_ID]?.apiKey || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  // 浏览器直连常被 CORS 拦掉，失败时改走 server.py 的 /__textapi/ 转发（与文本/视频 API 同一通道）。
+  async function requestModelsUpstream(url, init) {
+    let directError = null;
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      directError = error;
+    }
+    const proxied = `/__textapi/proxy?url=${encodeURIComponent(url)}`;
+    let response;
+    try {
+      response = await fetch(proxied, { ...init, mode: "same-origin" });
+    } catch (proxyError) {
+      throw new Error(
+        `请求失败：${directError?.message || directError}；本机转发同样失败（${
+          proxyError?.message || proxyError
+        }），请确认 start.bat 已启动。`,
+      );
+    }
+    if (response.status === 404) {
+      const text = await response.clone().text().catch(() => "");
+      if (text.includes("接口不存在")) {
+        throw new Error("本机 server.py 还是旧版本，未包含 API 转发接口，请重启 start.bat 后再试。");
+      }
+    }
+    return response;
+  }
+
   async function fetchModelCatalog(profile, force = false, manual = false) {
-    const base = normalizeBaseUrl(profile.baseUrl);
+    const base = effectiveBase(profile);
     if (!base) {
       if (manual) showStatus("请先填写 Base URL，再拉取模型。", true);
+      return;
+    }
+    const apiKey = modelFetchKey(profile);
+    if (!apiKey) {
+      if (manual) showStatus("请先填写 API 密钥，再拉取模型；不带密钥只能拿到平台公开的全部模型。", true);
       return;
     }
     if (modelRuntime.loading.has(profile.id)) return;
@@ -1852,15 +1922,12 @@
     refreshModelSection(profile.id);
 
     try {
-      const headers = { Accept: "application/json" };
-      if (profile.apiKey.trim()) {
-        headers.Authorization = `Bearer ${profile.apiKey.trim()}`;
-      }
+      const headers = { Accept: "application/json", Authorization: `Bearer ${apiKey}` };
       const candidates = [`${base}/v1/models`, `${base}/models`];
       let models = [];
       let lastStatus = 0;
       for (let index = 0; index < candidates.length; index += 1) {
-        const response = await fetch(candidates[index], { headers });
+        const response = await requestModelsUpstream(candidates[index], { headers, credentials: "omit" });
         lastStatus = response.status;
         if (!response.ok) {
           if (response.status === 404 && index < candidates.length - 1) continue;
@@ -1878,7 +1945,7 @@
       profile.modelCatalog = models;
       profile.selectedModels =
         !profile.modelsFetchedAt || sourceChanged
-          ? models.filter(isImageModel)
+          ? imageModelCandidates(models)
           : retained;
       profile.modelsFetchedAt = Date.now();
       profile.modelsBaseUrl = base;
@@ -1900,9 +1967,10 @@
   }
 
   function scheduleAutoFetch(profile, delay = MODEL_FETCH_DEBOUNCE_MS) {
-    if (!profile || profile.builtin) return;
-    const base = normalizeBaseUrl(profile.baseUrl);
+    if (!profile) return;
+    const base = effectiveBase(profile);
     if (!base) return;
+    if (!modelFetchKey(profile)) return;
     if (profile.modelsFetchedAt && profile.modelsBaseUrl === base) return;
     const previousTimer = modelRuntime.timers.get(profile.id);
     if (previousTimer) window.clearTimeout(previousTimer);
@@ -1910,9 +1978,9 @@
       modelRuntime.timers.delete(profile.id);
       const current = profileState?.profiles.find((item) => item.id === profile.id);
       if (!current) return;
-      const currentBase = normalizeBaseUrl(current.baseUrl);
+      const currentBase = effectiveBase(current);
       if (!currentBase || (current.modelsFetchedAt && current.modelsBaseUrl === currentBase)) return;
-      const signature = `${currentBase}\n${current.apiKey}`;
+      const signature = `${currentBase}\n${modelFetchKey(current)}`;
       if (modelRuntime.attempted.get(current.id) === signature) return;
       modelRuntime.attempted.set(current.id, signature);
       fetchModelCatalog(current, false, false);
@@ -2007,11 +2075,7 @@
               : '<button type="button" class="ms-api-card__remove" data-ms-action="remove">删除此配置</button>'
           }
         </div>
-        ${
-          profile.builtin
-            ? ""
-            : `<section class="ms-api-card__models" data-ms-model-section>${renderModelSection(profile)}</section>`
-        }
+        <section class="ms-api-card__models" data-ms-model-section>${renderModelSection(profile)}</section>
       </article>
     `;
   }
@@ -2025,7 +2089,9 @@
       return;
     }
     if (!profileState) {
-      profileState = loadProfileState(nativeCard);
+      // 云雾的 Key/Base URL 由 bundle 原生卡片持有，必须 hydrate 回 Profile，
+      // 否则云雾卡永远拿不到 Key，「拉取全部模型」会被拦截或退化成公开全部模型。
+      profileState = hydrateBuiltinProfileFromCanvas(loadProfileState(nativeCard));
       saveProfileState();
       syncActiveToCanvas();
       apiStorageRuntime.profileLoaded = true;
@@ -2194,7 +2260,7 @@
 
     if (action === "models-images") {
       modelScrollRuntime.pending = captureModelScroll(actionButton);
-      profile.selectedModels = profile.modelCatalog.filter(isImageModel);
+      profile.selectedModels = listableModels(profile);
       saveProfileState();
       syncModelSelectionUi(profile.id);
       settleModelScroll(actionButton);
@@ -2299,11 +2365,14 @@
     if (!checkbox) return;
     const found = profileCardFor(checkbox);
     if (!found) return;
-    const selected = new Set(found.profile.selectedModels);
+    const allowed = new Set(listableModels(found.profile));
+    const selected = new Set(
+      found.profile.selectedModels.filter((model) => allowed.has(model)),
+    );
     if (checkbox.checked) selected.add(checkbox.dataset.msModel);
     else selected.delete(checkbox.dataset.msModel);
     found.profile.selectedModels = found.profile.modelCatalog.filter((model) =>
-      selected.has(model),
+      allowed.has(model) && selected.has(model),
     );
     saveProfileState();
     syncModelSelectionUi(found.profile.id);

@@ -297,7 +297,7 @@
   window.__MS_VIDEO_NODE_PATCH__ = {
     addVideoNode: useFlowPosition => addVideoNode(!!useFlowPosition),
     isReady: () => !!findCanvasStore(),
-    version: "20261111-1",
+    version: "20261112-1",
   };
 
   if (document.readyState === "loading") {

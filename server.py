@@ -50,6 +50,9 @@ GALLERY_CONTENT_TYPES = {
 
 
 COMFY_PREFIX = "/__comfy/"
+TEXTAPI_PREFIX = "/__textapi/"
+TEXTAPI_MAX_BODY_BYTES = 4 * 1024 * 1024
+TEXTAPI_TIMEOUT_SECONDS = 180
 COMFY_MAX_BODY_BYTES = 64 * 1024 * 1024
 COMFY_TIMEOUT_SECONDS = 60
 COMFY_ALLOWED_SCHEMES = {"http", "https"}
@@ -71,6 +74,26 @@ def comfy_target(raw: str) -> str | None:
     if parsed.scheme == "http" and parsed.hostname.lower() not in LOOPBACK_HOSTS:
         return None
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
+
+
+def textapi_target(raw: str) -> str | None:
+    """校验文本 API 转发目标：只接受带主机名的 http/https 绝对地址。
+
+    本机 http 与远程 http 都放行——第三方文本服务多为 https，
+    而本机自建网关（如 llama.cpp / LM Studio）常是 http。
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if not text.lower().startswith(("http://", "https://")):
+        return None
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    if parsed.scheme not in COMFY_ALLOWED_SCHEMES or not parsed.netloc:
+        return None
+    return parsed.geturl()
 
 
 def is_path_within(child: Path, parent: Path) -> bool:
@@ -167,6 +190,9 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if path.startswith(COMFY_PREFIX):
             self.handle_comfy_proxy(path, "GET")
             return
+        if path.startswith(TEXTAPI_PREFIX):
+            self.handle_textapi_proxy("GET")
+            return
         if path.startswith("/__"):
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "接口不存在"})
             return
@@ -214,6 +240,9 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith(COMFY_PREFIX):
             self.handle_comfy_proxy(path, "POST")
+            return
+        if path.startswith(TEXTAPI_PREFIX):
+            self.handle_textapi_proxy("POST")
             return
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length > 65536:
@@ -299,6 +328,72 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         except (URLError, TimeoutError, OSError) as exc:
             reason = getattr(exc, "reason", None) or exc
             self.send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": f"ComfyUI 不可达：{reason}"})
+            return
+
+        self.send_response(status)
+        self.send_header("Content-Type", upstream_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def handle_textapi_proxy(self, method: str):
+        """转发第三方文本 API（OpenAI 风格 /v1/chat/completions 与 /v1/models）。
+
+        画布页面在浏览器里直连第三方文本服务会被 CORS 拦掉，这里由本机服务代为请求。
+        密钥沿用请求自带的 Authorization 头，原样转发、不进 URL、不落盘。
+        """
+        if not self.is_loopback_client():
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "仅允许本机访问"})
+            return
+        params = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+        target = textapi_target((params.get("url") or [""])[0])
+        if not target:
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": "文本 API 地址无效，只允许 http 或 https 绝对地址"},
+            )
+            return
+
+        body = b""
+        if method == "POST":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > TEXTAPI_MAX_BODY_BYTES:
+                self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "请求体过大"})
+                return
+            body = self.rfile.read(length) if length > 0 else b""
+
+        headers = {
+            "User-Agent": "manshiguang-textapi-proxy/1.0",
+            "Accept": self.headers.get("Accept") or "application/json",
+        }
+        content_type = self.headers.get("Content-Type")
+        if content_type:
+            headers["Content-Type"] = content_type
+        authorization = (self.headers.get("Authorization") or "").strip()
+        if authorization:
+            headers["Authorization"] = authorization
+
+        request = urllib.request.Request(
+            target,
+            data=body if method == "POST" else None,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=TEXTAPI_TIMEOUT_SECONDS) as response:
+                payload = response.read()
+                status = response.status
+                upstream_type = response.headers.get("Content-Type", "application/octet-stream")
+        except HTTPError as exc:
+            payload = exc.read()
+            status = exc.code
+            upstream_type = (exc.headers or {}).get("Content-Type", "application/json")
+        except (URLError, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", None) or exc
+            self.send_json(
+                HTTPStatus.BAD_GATEWAY,
+                {"ok": False, "error": f"文本 API 不可达：{reason}"},
+            )
             return
 
         self.send_response(status)
