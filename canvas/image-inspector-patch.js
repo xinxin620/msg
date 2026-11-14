@@ -26,10 +26,10 @@
   //    中断整条流程），因此属性名手写 setAttribute，读取用 dataset.msTextAction。
   // 5. 清理时写进 .inspector 的内联 opacity/pointer-events/display 必须还原，
   //    否则原生 .inspector--open 被内联值压住，下一次选节点面板再也打不开。
-  // 6. 定位优先贴节点下方；下方放不下时先压缩卡片高度（MIN_HEIGHT /
-  //    HARD_MIN_HEIGHT，必要时内部滚动），上下都不够才接受重叠。
-  //    不能简单把 top 夹回视口，也不能拿 rect.height 当基准（压扁一次后就
-  //    回不去，棘轮效应），否则卡片会盖住节点导致节点点不动。
+  // 6. 定位只贴节点正下方：不翻到上方、不把 top/left 夹回视口，节点划出屏幕时
+  //    卡片跟着一起划出；卡片高度固定，不再按剩余空间压扁（压扁会让卡片尺寸
+  //    随滚动反复变化）。React Flow 开了 onlyRenderVisibleElements，节点划出
+  //    视口后 DOM 会被卸载，此时用 node.position + viewport transform 反算。
   // 7. 缓存的 zustand 快照可能来自已卸载组件残留的 hook，切换选中节点后会读到
   //    旧 state，因此判定失败时先重扫 fiber，再用 React Flow 的 selected 标记
   //    兜底；本补丁自己改 DOM 会持续触发 MutationObserver，所以只在卡片确实
@@ -47,11 +47,9 @@
   const MAX_WIDTH = 572;
   const MAX_HEIGHT = 440;
   const NODE_GAP = 10;
-  const VIEW_MARGIN = 10;
-  // 空间不足时允许把卡片压缩到的最小高度；再小就内部滚动，保证按钮可达。
-  const MIN_HEIGHT = 300;
-  // 上下都不够理想时的硬下限：只要还有这么大的空隙，就宁可压扁也不盖住节点。
-  const HARD_MIN_HEIGHT = 200;
+  // 节点 DOM 被 React Flow 卸载后，用它兜底反算节点屏幕尺寸。
+  const FALLBACK_NODE_WIDTH = 260;
+  const FALLBACK_NODE_HEIGHT = 120;
   const PLACEHOLDER_TEXT =
     "在这里自由输入图片提示词，内容较长时可滚动或放大编辑。";
   const REFERENCE_HINT = "（输入 @ 可选择已链接图片）";
@@ -1583,6 +1581,102 @@
     return true;
   }
 
+  // ======= 节点屏幕矩形（含节点 DOM 被卸载后的反算） =======
+  // React Flow 开了 onlyRenderVisibleElements，节点划出视口后其 DOM 会被卸载，
+  // 量不到矩形时用 node.position + viewport transform 反算，卡片才能继续跟着节点走。
+  const lastNodeSizes = new Map();
+
+  function firstFiniteNumber() {
+    for (let i = 0; i < arguments.length; i += 1) {
+      const num = Number(arguments[i]);
+      if (Number.isFinite(num)) return num;
+    }
+    return null;
+  }
+
+  function readViewportTransform(state) {
+    const vp = (state && state.viewport) || {};
+    const zoom = firstFiniteNumber(vp.zoom);
+    return {
+      zoom: zoom && zoom > 0 ? zoom : 1,
+      x: firstFiniteNumber(vp.x, 0),
+      y: firstFiniteNumber(vp.y, 0),
+    };
+  }
+
+  function rectFromFlowPosition(state, node, width, height) {
+    const host =
+      document.querySelector(".react-flow__viewport") ||
+      document.querySelector(".react-flow");
+    if (!host) return null;
+    const hostRect = host.getBoundingClientRect();
+    if (!(hostRect.width > 0) || !(hostRect.height > 0)) return null;
+
+    const position = node.positionAbsolute || node.position || {};
+    const posX = firstFiniteNumber(position.x);
+    const posY = firstFiniteNumber(position.y);
+    if (posX === null || posY === null) return null;
+
+    const vp = readViewportTransform(state);
+    // .react-flow__viewport 自身带 translate(x, y) scale(zoom)，getBoundingClientRect
+    // 已含平移，直接拿它的左上角当画布原点；回退到 .react-flow 时才需要补上平移量。
+    const isViewportHost = host.classList.contains("react-flow__viewport");
+    const originLeft = isViewportHost ? hostRect.left : hostRect.left + vp.x;
+    const originTop = isViewportHost ? hostRect.top : hostRect.top + vp.y;
+    const left = originLeft + posX * vp.zoom;
+    const top = originTop + posY * vp.zoom;
+    // measured / cached 是 flow 坐标尺寸，屏幕上还要再乘 zoom，
+    // 否则缩小画布时卡片会按未缩放尺寸贴到节点右下方。
+    const screenWidth = width * vp.zoom;
+    const screenHeight = height * vp.zoom;
+    return {
+      left,
+      top,
+      width: screenWidth,
+      height: screenHeight,
+      right: left + screenWidth,
+      bottom: top + screenHeight,
+    };
+  }
+
+  function getActiveNodeScreenRect(state) {
+    const node = state ? getActiveNode(state) : null;
+    const element = state ? getSelectedNodeElement(state) : null;
+
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        if (node) {
+          const zoom = readViewportTransform(state).zoom;
+          lastNodeSizes.set(node.id, {
+            width: rect.width / zoom,
+            height: rect.height / zoom,
+          });
+        }
+        return rect;
+      }
+    }
+
+    if (!node) return null;
+
+    const measured = node.measured || {};
+    const cached = lastNodeSizes.get(node.id) || {};
+    const width = firstFiniteNumber(
+      measured.width,
+      cached.width,
+      node.width,
+      FALLBACK_NODE_WIDTH
+    );
+    const height = firstFiniteNumber(
+      measured.height,
+      cached.height,
+      node.height,
+      FALLBACK_NODE_HEIGHT
+    );
+
+    return rectFromFlowPosition(state, node, width, height);
+  }
+
   // ======= 贴着节点定位 =======
   function positionEditor(inspector) {
     if (!inspector || !inspector.isConnected) return;
@@ -1594,84 +1688,31 @@
     if (rect.width < 200) return;
 
     const state = readCanvasState();
-    const nodeElement = getSelectedNodeElement(state);
+    const nodeRect = getActiveNodeScreenRect(state);
     const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const minLeft = viewportWidth <= 760 ? 66 : 72;
 
-    let left = Math.max(minLeft, (viewportWidth - rect.width) / 2);
-    let top = 62;
-    let height = null;
-    // 基准高度用常量而不是 rect.height：否则一旦压扁过，rect.height 就变成
-    // 压缩值，空间重新变大时也回不去（棘轮效应）。
-    const natural = Math.min(MAX_HEIGHT, viewportHeight - 2 * VIEW_MARGIN);
-
-    if (nodeElement) {
-      const nodeRect = nodeElement.getBoundingClientRect();
-
-      // 水平方向：对齐节点中心
-      left = nodeRect.left + nodeRect.width / 2 - rect.width / 2;
-
-      // 垂直方向：优先贴在节点下方。用户要的就是“文本下面那块面板”，
-      // 所以空间不够时先把卡片压扁（必要时内部滚动），而不是直接盖住节点。
-      const spaceBelow = viewportHeight - VIEW_MARGIN - (nodeRect.bottom + NODE_GAP);
-      const spaceAbove = nodeRect.top - NODE_GAP - VIEW_MARGIN;
-
-      const below = () => {
-        top = nodeRect.bottom + NODE_GAP;
-      };
-      const above = () => {
-        // 注意基准是节点顶部：贴在节点正上方，不能落到节点内部。
-        top = nodeRect.top - NODE_GAP - height;
-      };
-
-      if (spaceBelow >= MIN_HEIGHT) {
-        height = Math.min(natural, spaceBelow);
-        below();
-      } else if (spaceAbove >= MIN_HEIGHT) {
-        height = Math.min(natural, spaceAbove);
-        above();
-      } else if (Math.max(spaceBelow, spaceAbove) >= HARD_MIN_HEIGHT) {
-        // 上下都放不下理想高度：选空隙更大的一侧压扁，仍然不盖住节点。
-        height = Math.max(HARD_MIN_HEIGHT, Math.min(natural, Math.max(spaceBelow, spaceAbove)));
-        if (spaceBelow >= spaceAbove) below();
-        else above();
-      } else {
-        // 真的没有可用空隙：保持原尺寸贴着下方，接受与节点部分重叠，
-        // 并把顶部夹回视口，保证卡片本身始终可见可操作。
-        height = null;
-        top = Math.max(
-          VIEW_MARGIN,
-          Math.min(nodeRect.bottom + NODE_GAP, viewportHeight - rect.height - VIEW_MARGIN)
-        );
-      }
-    }
-
-    left = Math.max(
-      minLeft,
-      Math.min(left, viewportWidth - rect.width - VIEW_MARGIN)
+    let left = Math.max(
+      viewportWidth <= 760 ? 66 : 72,
+      (viewportWidth - rect.width) / 2
     );
+    let top = 62;
+
+    // 卡片永远钉在节点正下方：不翻到节点上方，也不把 top/left 夹回视口，
+    // 所以节点滑出屏幕时卡片跟着一起滑出；卡片高度保持固定，不再按剩余空间压扁。
+    if (nodeRect) {
+      left = nodeRect.left + nodeRect.width / 2 - rect.width / 2;
+      top = nodeRect.bottom + NODE_GAP;
+    }
 
     inspector.style.setProperty("left", `${Math.round(left)}px`, "important");
     inspector.style.setProperty("top", `${Math.round(top)}px`, "important");
 
-    const compressed = height !== null && height < natural - 1;
-    if (height === null || !compressed) {
-      inspector.style.removeProperty("height");
-      inspector.style.removeProperty("overflow-y");
-      const bodyReset = inspector.querySelector(".inspector__body");
-      if (bodyReset) {
-        bodyReset.style.removeProperty("overflow");
-        bodyReset.style.removeProperty("overflow-y");
-      }
-    } else {
-      inspector.style.setProperty("height", `${Math.round(height)}px`, "important");
-      // 压扁时让内容可滚动，避免底部按钮被裁掉点不到
-      inspector.style.setProperty("overflow-y", "auto", "important");
-      const body = inspector.querySelector(".inspector__body");
-      if (body) {
-        body.style.setProperty("overflow", "visible", "important");
-      }
+    inspector.style.removeProperty("height");
+    inspector.style.removeProperty("overflow-y");
+    const body = inspector.querySelector(".inspector__body");
+    if (body) {
+      body.style.removeProperty("overflow");
+      body.style.removeProperty("overflow-y");
     }
 
     inspector.classList.add(POSITIONED_CLASS);
