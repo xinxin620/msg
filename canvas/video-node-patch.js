@@ -256,6 +256,77 @@
     document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   }
 
+  // ======= 让视频节点可以连线 =======
+  // bundle 里有一张模块私有的类别能力表（video: acceptsInput [] / canOutputTo []），
+  // 原生 isValidConnection 完全照它判定，所以视频节点是「孤岛」：拖进去、拖出去都无效。
+  // 压缩包只读，这里只做一件事：在 store 的校验函数外面包一层放行规则，
+  // 其余情况原样交给原生函数，不改变任何既有连线行为。
+  const PATCH_FLAG = "__msVideoConnectPatch";
+  const VIDEO_CATEGORY = "video";
+  const ALLOW_INTO_VIDEO = ["text", "image", "upload"];
+  let connectivityDone = false;
+
+  function uploadIsImage(node) {
+    return !!node && node.data && node.data.assetType === "image";
+  }
+
+  function wouldCycle(edges, fromId, toId) {
+    // 目标若能绕回起点就是成环，和原生 zv 同一口径
+    const map = new Map();
+    for (const edge of edges || []) {
+      if (!edge || !edge.source || !edge.target) continue;
+      if (!map.has(edge.source)) map.set(edge.source, []);
+      map.get(edge.source).push(edge.target);
+    }
+    const seen = new Set();
+    const stack = [toId];
+    while (stack.length) {
+      const id = stack.pop();
+      if (!id) continue;
+      if (id === fromId) return true;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const next = map.get(id);
+      if (next) stack.push(...next);
+    }
+    return false;
+  }
+
+  function allowsConnection(connection, state) {
+    if (!connection || !connection.source || !connection.target) return false;
+    if (connection.source === connection.target) return false;
+    const source = state.nodes.find(n => n.id === connection.source);
+    const target = state.nodes.find(n => n.id === connection.target);
+    if (!source || !target) return false;
+    if (target.data.category !== VIDEO_CATEGORY) return false;
+    if (source.data.category === "upload" && !uploadIsImage(source)) return false;
+    if (!ALLOW_INTO_VIDEO.includes(source.data.category)) return false;
+    return !wouldCycle(state.edges, connection.target, connection.source);
+  }
+
+  function patchConnectivity() {
+    const read = findCanvasStore();
+    const state = read ? read() : null;
+    if (!state || typeof state.isValidConnection !== "function") return false;
+    if (state[PATCH_FLAG]) return true;
+
+    const original = state.isValidConnection;
+    state[PATCH_FLAG] = true;
+    state.isValidConnection = connection => {
+      const latest = read ? read() : state;
+      if (latest && allowsConnection(connection, latest)) return true;
+      return original(connection);
+    };
+
+    // React Flow 的 isValidConnection 是渲染时取值的 props，必须让画布重渲染一次才会生效
+    try {
+      if (typeof state.setSelectedNode === "function") {
+        state.setSelectedNode(state.selectedNodeId ?? null);
+      }
+    } catch (_) { /* 重渲染失败不影响下一次 sync 重试 */ }
+    return true;
+  }
+
   // ======= 样式 =======
   function injectStyles() {
     if (document.getElementById("ms-video-node-styles")) return;
@@ -274,6 +345,8 @@
   function sync() {
     patchSidebarDropdown();
     patchContextSubmenu();
+    // fiber 遍历有代价，补成功一次就不再重复
+    if (!connectivityDone) connectivityDone = patchConnectivity();
   }
 
   function scheduleSync() {
@@ -297,7 +370,12 @@
   window.__MS_VIDEO_NODE_PATCH__ = {
     addVideoNode: useFlowPosition => addVideoNode(!!useFlowPosition),
     isReady: () => !!findCanvasStore(),
-    version: "20261112-1",
+    connectivityPatched: () => {
+      const read = findCanvasStore();
+      const state = read ? read() : null;
+      return !!(state && state[PATCH_FLAG]);
+    },
+    version: "20261116-8",
   };
 
   if (document.readyState === "loading") {
