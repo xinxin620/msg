@@ -127,6 +127,7 @@ button { color: inherit; font: inherit; cursor: pointer; }
 /* ============ Main ============ */
 .studio-main { display: flex; min-width: 0; flex-direction: column; }
 
+.studio-bar[hidden] { display: none; }
 .studio-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   min-height: var(--bar-height); padding: 16px 22px;

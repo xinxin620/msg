@@ -7,6 +7,7 @@
 - `studio/index.html`：静态骨架（`#railList`/`#stageFrame`/顶部工具条/`#assetDirChip`/`#soonTemplate`）+ 版本守卫，缺/过期 `v` 自动重定向。
 - `studio/assets/studio.js`：
   - `WORKSPACES` 唯一注册表：`frame`=真实页（可带 `tabs` 分段控制器），`soon`=只渲染 `purpose`/`inputs`/`outputs`/`relation` 规划说明，不做假功能。固定六项：`canvas`/`assets` 在线，`story`/`imagelab`/`human`/`tasks` 占位。
+  - `renderBar()`：切工作区时同步页头文案，并且**画布 tab 整行收起**（`studioBar.hidden = workspace.id === "canvas"`）——画布 iframe 自带 `.app-titlebar`（Logo/工作流名/窗口按钮），外壳那行「CANVAS / 画布 / 节点工作流编排 + 首页·重载·新标签页」是重复信息；其它 tab（图片工坊与四个占位区）保持显示。`studio.css` 里 `.studio-bar[hidden]{display:none}` 是必需的，因为 `.studio-bar` 自身声明了 `display:flex` 会盖掉 `hidden`。
   - `ensureFrame()`/`activate()`：每个 frame 工作区只建一次 iframe，切走隐藏不销毁，切回保留工作流与已载索引，仅「重载」强制刷新；当前工作区写 `localStorage["manshiguang:studio"]`（`workspace`+`assetTab`），hash（`#canvas`/`#assets`）深链。
   - `authorizeFromShell()`：**目录授权必须顶层窗口**——顶层点击一定是真实用户手势，结果按桥接层既有格式写进同源 IndexedDB `directoryHandles`，iframe 内画布直接复用，绕开 iframe 用户激活不稳定。
   - `notifyDirectoryChanged()`：重新授权后向所有已加载 iframe `postMessage` 并用 `BroadcastChannel` 通知独立标签页画布，让桥接层丢弃旧 handle 缓存。
