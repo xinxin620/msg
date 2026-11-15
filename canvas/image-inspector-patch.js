@@ -402,6 +402,22 @@
       background: var(--soft-hover) !important;
     }
 
+    /* 图片/文本模型列表统一向下展开，与视频节点一致：bundle 里
+       .inspector .action-panel__dropdown 用 inset:auto 0 calc(100% + 8px)
+       把面板内所有下拉钉在触发器上方，这里必须用 !important 反向覆盖。
+       文本模式必须排除 .action-panel__dropdown--text-preset：那个由
+       positionTextPresetDropdown 自己按行矩形定位，套上 top/left 会被拽偏。 */
+    .inspector.${EDITOR_CLASS} .action-panel--image .action-panel__model-select > .action-panel__dropdown,
+    .inspector.${EDITOR_CLASS}.${TEXT_MODE_CLASS} .action-panel--text .action-panel__model-select > .action-panel__dropdown {
+      inset: auto auto auto 0 !important;
+      top: calc(100% + 8px) !important;
+      bottom: auto !important;
+      left: 0 !important;
+      right: auto !important;
+      width: 100% !important;
+    }
+
+
     /* 只有真的挂了参数面板时才让 footer 换行，文本节点面板保持单行。 */
     .inspector.${EDITOR_CLASS} .action-panel__footer:has(.action-panel__param-sheet) {
       flex-wrap: wrap !important;
@@ -421,6 +437,20 @@
       height: auto !important;
       max-height: calc(100vh - 20px) !important;
       overflow-y: auto !important;
+    }
+
+    /* 模型列表向下展开会超出卡片底部：卡片根、.inspector__body、.action-panel__body
+       在本补丁里都是 overflow:hidden !important，只放开其中一层仍然会被上一层裁掉，
+       所以列表打开时整条祖先链一起放开。 */
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model),
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .inspector__body,
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .action-panel--image,
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .action-panel--text,
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .action-panel__body,
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .action-panel__footer,
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .action-panel__left,
+    .inspector.${EDITOR_CLASS}:has(.action-panel__dropdown--model) .action-panel__model-select {
+      overflow: visible !important;
     }
 
     .inspector.${EDITOR_CLASS} .ms-image-model-line {
@@ -783,6 +813,14 @@
     .inspector.${EDITOR_CLASS}.${TEXT_MODE_CLASS} .ms-text-actions button[data-ms-text-action="generate"]:disabled {
       opacity: 0.48;
       cursor: not-allowed;
+    }
+
+    /* 「模型设置」跳转后高亮当前启用配置的模型列表（分区由 api-profiles-patch.js 渲染） */
+    .ms-api-models--flash {
+      outline: 2px solid #ff6a1a;
+      outline-offset: 6px;
+      border-radius: 12px;
+      transition: outline-color 320ms ease;
     }
   `;
 
@@ -1569,14 +1607,7 @@
     event.stopPropagation();
 
     if (action === "model") {
-      const selects = inspector.querySelectorAll(
-        ".action-panel--text .action-panel__model-select"
-      );
-      if (!selects.length) {
-        showToast("模型设置打开失败：未找到画布模型选择器。", "error");
-        return;
-      }
-      selects[0].click();
+      openApiSettings("text");
       return;
     }
     if (action === "preview") {
@@ -1736,6 +1767,24 @@
     if (inspector.classList.contains(TEXT_MODE_CLASS)) {
       positionTextPresetDropdown(inspector);
     }
+    // 图片/文本的模型列表都要按视口剩余高度收敛，否则向下展开会被屏幕底边切掉
+    fitModelDropdownHeight(inspector);
+  }
+
+  // 列表本身仍由 model-patch.js / text-node-model-patch.js 渲染，
+  // 这里只保证向下展开时不被视口底部切掉。
+  function fitModelDropdownHeight(inspector) {
+    // 文本面板里有「模型」和「API 来源」两个 model-select，都要各自按剩余空间收敛
+    const dropdowns = inspector.querySelectorAll(
+      ".action-panel--image .action-panel__model-select > .action-panel__dropdown--model, " +
+        ".action-panel--text .action-panel__model-select > .action-panel__dropdown--model"
+    );
+    dropdowns.forEach((dropdown) => {
+      const rect = dropdown.getBoundingClientRect();
+      const room = window.innerHeight - rect.top - 12;
+      const maxHeight = Math.max(140, Math.min(300, room));
+      dropdown.style.setProperty("max-height", `${Math.round(maxHeight)}px`, "important");
+    });
   }
 
   function schedulePosition() {
@@ -2150,15 +2199,125 @@
     }, 260);
   }
 
-  function forwardNativeClick(inspector, selector, errorMessage) {
-    const target = inspector.querySelector(selector);
-    if (!target) {
-      showToast(errorMessage, "error");
-      return;
+  // ======= 「模型设置」→ 对应 API 来源设置 =======
+  // 原生模型下拉只列画布内置模型，真正可选的模型来自设置里勾选的「模型列表」，
+  // 所以这个按钮的语义是「去那里勾选模型」，而不是打开原生下拉。
+  // 坑一：设置弹窗没打开时侧栏条目还没渲染，直接 querySelector().click() 就是「点了没反应」，
+  //        必须先点画布自带齿轮打开弹窗，再轮询等条目出现。
+  // 坑二：图片那一项是**原生**条目（api-profiles-patch.js 只负责改名），只能按文本匹配；
+  //        文本/视频那两项是各自补丁注入的，有固定 id，优先按 id 找。
+  const SETTINGS_GEAR_TITLE = "模型与接口设置";
+
+  const API_SETTINGS_TARGETS = {
+    image: {
+      label: "图片API来源设置",
+      sectionId: "ms-api-profiles",
+      cardSelector: ".ms-api-card",
+      refreshSelector: '[data-ms-action="models-refresh"]',
+      navTexts: ["图片API来源设置", "API 来源设置"],
+      navTextPattern: /^API\s*来源设置$/,
+    },
+    text: {
+      label: "文本API来源设置",
+      tabId: "ms-text-api-tab-btn",
+      sectionId: "ms-text-api-section",
+      cardSelector: ".ms-text-api-card",
+      refreshSelector: '[data-ms-text-action="models-refresh"]',
+      navTexts: ["文本API来源设置"],
+    },
+  };
+
+  function findApiNavItem(target) {
+    if (target.tabId) {
+      const byId = document.getElementById(target.tabId);
+      if (byId) return byId;
     }
-    target.click();
+    const items = [...document.querySelectorAll(".settings-sidebar__item")].filter(
+      (el) => !(el.id || "").endsWith("-api-tab-btn")
+    );
+    const texts = items.map((el) => (el.textContent || "").trim());
+    for (const text of target.navTexts) {
+      const index = texts.indexOf(text);
+      if (index >= 0) return items[index];
+    }
+    if (target.navTextPattern) {
+      return items.find((el, index) => target.navTextPattern.test(texts[index])) || null;
+    }
+    return items.find((el) => (el.textContent || "").indexOf(target.label) >= 0) || null;
   }
 
+  function flashModelList(models) {
+    models.scrollIntoView({ behavior: "smooth", block: "start" });
+    models.classList.add("ms-api-models--flash");
+    window.setTimeout(() => models.classList.remove("ms-api-models--flash"), 1600);
+  }
+
+  // 目标分区由各 API 补丁注入，比原生分区渲染更晚，所以短轮询而不是固定延时。
+  function focusApiModelList(target, tries) {
+    const root = document.getElementById(target.sectionId);
+    if (!root) {
+      if ((tries || 0) < 20) {
+        window.setTimeout(() => focusApiModelList(target, (tries || 0) + 1), 60);
+        return;
+      }
+      showToast("未找到「" + target.label + "」分区，请重新打开设置面板。", "error");
+      return;
+    }
+    const card =
+      root.querySelector(target.cardSelector + ".is-active") ||
+      root.querySelector(target.cardSelector);
+    const models = card && card.querySelector("[data-ms-model-section]");
+    if (models) {
+      flashModelList(models);
+      return;
+    }
+    if ((tries || 0) < 20) {
+      window.setTimeout(() => focusApiModelList(target, (tries || 0) + 1), 60);
+      return;
+    }
+    const refresh = card && card.querySelector(target.refreshSelector);
+    if (refresh) {
+      refresh.click();
+      showToast("该配置还没有模型列表，已尝试拉取模型。");
+      return;
+    }
+    showToast("当前" + target.label + "还没有模型列表，请先填写 API 密钥并拉取模型。", "error");
+  }
+
+  function openApiSettings(kind) {
+    const target = API_SETTINGS_TARGETS[kind];
+    if (!target) return;
+    const openAndFocus = (item) => {
+      item.click();
+      window.setTimeout(() => focusApiModelList(target, 0), 120);
+    };
+    const existing = findApiNavItem(target);
+    if (existing) {
+      openAndFocus(existing);
+      return;
+    }
+    const gear = [...document.querySelectorAll(".sidebar__icon-btn")].find(
+      (el) => (el.title || "").indexOf(SETTINGS_GEAR_TITLE) >= 0
+    );
+    if (!gear) {
+      showToast("未找到画布「" + SETTINGS_GEAR_TITLE + "」入口，请从侧栏手动打开设置。", "error");
+      return;
+    }
+    gear.click();
+    let tries = 0;
+    const wait = window.setInterval(() => {
+      const item = findApiNavItem(target);
+      if (item) {
+        window.clearInterval(wait);
+        openAndFocus(item);
+        return;
+      }
+      if (++tries > 40) {
+        window.clearInterval(wait);
+        showToast("「" + target.label + "」入口注入失败，请重新打开设置面板。", "error");
+      }
+    }, 60);
+  }
   function handleActionClick(event) {
     const button = event.target.closest("[data-ms-image-action]");
     if (!button) return;
@@ -2170,11 +2329,7 @@
 
     const action = button.dataset.msImageAction;
     if (action === "model") {
-      forwardNativeClick(
-        inspector,
-        ".action-panel__model-select",
-        "模型设置打开失败：未找到画布模型选择器。"
-      );
+      openApiSettings("image");
       return;
     }
     if (action === "import") {
@@ -2262,9 +2417,11 @@
     window.addEventListener("resize", handleLayoutChange);
 
     window.__MS_IMAGE_EDITOR__ = {
-      version: "20261112-7",
+      version: "20261116-7",
       refresh: decorate,
       reposition: schedulePosition,
+      // 供其它补丁复用「跳到 API 来源设置并定位模型列表」
+      openApiSettings,
       // 当前浮动卡片服务的节点类别；没有卡片时为 null
       mode: () => activeCategory,
       // 最近一次 decorate 的判定结果，供回归脚本定位「面板没出来」的原因

@@ -587,14 +587,14 @@
     const margin = 8;
     const width = Math.max(r.width, 260);
     const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin));
-    const height = modelMenu.offsetHeight;
-    const below = r.bottom + 6;
-    const top = below + height <= window.innerHeight - margin
-      ? below
-      : Math.max(margin, r.top - height - 6);
+    // 固定向下展开（与图片节点一致）：不再按剩余空间翻到触发器上方，
+    // 放不下就压缩高度，靠菜单自身的 overflow-y:auto 内部滚动。
+    const top = r.bottom + 6;
+    const room = window.innerHeight - top - 12;
     modelMenu.style.left = Math.round(left) + "px";
     modelMenu.style.top = Math.round(top) + "px";
     modelMenu.style.width = Math.round(width) + "px";
+    modelMenu.style.maxHeight = Math.round(Math.max(140, Math.min(300, room))) + "px";
   }
 
   function closeModelMenu() {
@@ -940,7 +940,8 @@
     }, 60);
   }
 
-  function focusVideoModelList() {
+  // 视频 API 分区由 video-api-patch.js 注入，比原生分区渲染更晚，短轮询避免定位失败。
+  function focusVideoModelList(tries) {
     const section = document.getElementById("ms-video-api-section");
     const host = section || document.querySelector(".settings-modal__body");
     const card = host && (host.querySelector(".ms-video-api-card.is-active")
@@ -950,6 +951,10 @@
       models.scrollIntoView({ behavior: "smooth", block: "start" });
       models.classList.add("ms-video-models--flash");
       window.setTimeout(() => models.classList.remove("ms-video-models--flash"), 1600);
+      return;
+    }
+    if ((tries || 0) < 20) {
+      window.setTimeout(() => focusVideoModelList((tries || 0) + 1), 60);
       return;
     }
     const refresh = card && card.querySelector('[data-ms-video-action="models-refresh"]');
@@ -962,7 +967,7 @@
       tab.click();
       if (!focusModelList) return;
       // tab 点击后分区才渲染，等一帧再定位模型列表
-      window.setTimeout(focusVideoModelList, 260);
+      window.setTimeout(() => focusVideoModelList(0), 120);
     });
   }
   let toastTimer = null;
@@ -1051,7 +1056,7 @@
     window.addEventListener("storage", event => {
       if (event.key === VIDEO_API_KEY) syncModelMenu();
     });
-    window.__MS_VIDEO_INSPECTOR__ = { version: "20261116-2", refresh: () => { if (card) refreshCard(); } };
+    window.__MS_VIDEO_INSPECTOR__ = { version: "20261116-7", refresh: () => { if (card) refreshCard(); } };
     console.log("[ms] video-inspector-patch v17 ready");
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
