@@ -1,11 +1,17 @@
-// Video Node Inspector Patch v16 - matches the text-node floating card
+// Video Node Inspector Patch v17 - 自建参数面板 / 模型设置跳转 / 视频预览层
 (function () {
   "use strict";
   const STYLE_ID = "ms-video-card-style";
   const CARD_CLASS = "ms-video-card";
   const VIDEO_API_KEY = "manshiguang:canvas-video-api-profiles";
   const NODE_GAP = 10;
+  const PARAM_FIELDS = [
+    { key: "aspectRatio", label: "比例", fallback: "16:9", options: ["16:9", "9:16", "1:1", "3:2", "2:3", "4:3", "3:4", "21:9"] },
+    { key: "videoDuration", label: "时长", fallback: "8s", options: ["4s", "5s", "6s", "8s", "10s", "12s", "15s", "30s"] },
+    { key: "videoResolution", label: "清晰度", fallback: "720p", options: ["480p", "720p", "1080p", "4K"] },
+  ];
   let card = null, lastNodeId = null;
+  let paramSheetOpen = false;
   let modelMenu = null, modelMenuSignature = "";
   let tickTimer = null;
   let hasUserInteracted = false;
@@ -180,6 +186,88 @@
       .${CARD_CLASS}__model-chevron {
         flex: none; color: var(--text-tertiary); font-size: 11px;
       }
+      /* ===== 模型下拉与参数设置同行（复刻图片节点） ===== */
+      .${CARD_CLASS}__model-flex {
+        flex: 0 0 auto; display: flex; align-items: center; gap: 7px; width: 100%;
+      }
+      .${CARD_CLASS}__model-flex .${CARD_CLASS}__model-row { flex: 1 1 auto; width: auto; min-width: 0; }
+      .${CARD_CLASS}__params {
+        flex: none; display: flex; align-items: center; justify-content: center;
+        width: 96px; height: 34px; padding: 0 10px;
+        color: var(--text-primary); background: var(--panel-bg-muted);
+        border: 1px solid var(--panel-border-strong); border-radius: 8px;
+        font-family: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+        transition: background 130ms ease, border-color 130ms ease, transform 100ms ease;
+      }
+      .${CARD_CLASS}__params:hover { background: var(--soft-hover); }
+      .${CARD_CLASS}__params:active { transform: translateY(1px); }
+      .${CARD_CLASS}__params:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .${CARD_CLASS}__params[aria-expanded="true"] { background: var(--soft-hover); border-color: var(--accent); }
+      /* ===== 参数面板：本补丁自建（bundle 不渲染视频原生面板，没有可转发的控件） =====
+         写入的 aspectRatio / videoDuration / videoResolution 正是原生视频生成读取的字段。 ===== */
+      .${CARD_CLASS}.is-params-open {
+        height: auto; max-height: calc(100vh - 20px); overflow-y: auto;
+      }
+      .${CARD_CLASS}__sheet {
+        flex: 0 0 auto; display: none; flex-direction: column; gap: 11px;
+        margin-top: 10px; padding: 12px;
+        background: var(--panel-bg-muted);
+        border: 1px solid var(--panel-border); border-radius: 10px;
+      }
+      .${CARD_CLASS}.is-params-open .${CARD_CLASS}__sheet { display: flex; }
+      .${CARD_CLASS}__group { display: flex; flex-direction: column; gap: 6px; }
+      .${CARD_CLASS}__group-label { color: var(--text-secondary); font-size: 11px; line-height: 1.4; }
+      .${CARD_CLASS}__seg { display: flex; flex-wrap: wrap; gap: 6px; }
+      .${CARD_CLASS}__seg button {
+        height: 28px; min-width: 48px; padding: 0 10px;
+        color: var(--text-primary); background: var(--panel-bg-strong);
+        border: 1px solid var(--panel-border-strong); border-radius: 7px;
+        font-family: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+        transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+      }
+      .${CARD_CLASS}__seg button:hover { background: var(--soft-hover); }
+      .${CARD_CLASS}__seg button.is-active {
+        color: var(--canvas-bg); background: var(--accent);
+        border-color: var(--accent); font-weight: 650;
+      }
+      .ms-video-models--flash {
+        outline: 2px solid var(--accent);
+        outline-offset: 6px;
+        border-radius: 12px;
+        transition: outline-color 320ms ease;
+      }
+      .${CARD_CLASS}__sheet-note {
+        color: var(--text-tertiary); font-size: 11px; line-height: 1.6;
+      }
+      /* ===== 视频预览层：原生 fullscreen-viewer 只渲染 <img>，视频必须自建 ===== */
+      #ms-video-viewer {
+        position: fixed; inset: 0; z-index: 10001;
+        display: none; align-items: center; justify-content: center; padding: 24px;
+      }
+      #ms-video-viewer.is-open { display: flex; }
+      .ms-video-viewer__bg {
+        position: absolute; inset: 0; background: #000000d9;
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      }
+      .ms-video-viewer__wrap {
+        position: relative; z-index: 1; display: flex; flex-direction: column;
+        gap: 10px; width: min(1080px, 92vw);
+      }
+      .ms-video-viewer__video {
+        width: 100%; max-height: 78vh; background: #000; border-radius: 10px;
+        box-shadow: 0 20px 40px #00000080;
+      }
+      .ms-video-viewer__bar {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        color: #fff; font-size: 12px;
+      }
+      .ms-video-viewer__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ms-video-viewer__close {
+        flex: none; height: 30px; padding: 0 14px; color: #fff;
+        background: #ffffff1a; border: 1px solid #ffffff33; border-radius: 999px;
+        font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .ms-video-viewer__close:hover { background: #ffffff33; }
       /* ===== Video API model dropdown ===== */
       .${CARD_CLASS}__menu {
         position: fixed; z-index: 60;
@@ -225,7 +313,7 @@
       /* ===== Footer buttons ===== */
       .${CARD_CLASS}__actions {
         flex: 0 0 auto; display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.45fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.45fr);
         gap: 8px; margin-top: 11px;
       }
       .${CARD_CLASS}__actions button {
@@ -318,7 +406,17 @@
       ev.stopPropagation();
       openModelMenu();
     }, true);
-    c.appendChild(modelRow);
+    const paramsBtn = document.createElement("button");
+    paramsBtn.type = "button"; paramsBtn.className = CARD_CLASS + "__params";
+    paramsBtn.textContent = "参数设置";
+    paramsBtn.setAttribute("aria-expanded", paramSheetOpen ? "true" : "false");
+    paramsBtn.addEventListener("click", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      toggleParamSheet();
+    }, true);
+    const modelFlex = document.createElement("div"); modelFlex.className = CARD_CLASS + "__model-flex";
+    modelFlex.append(modelRow, paramsBtn);
+    c.appendChild(modelFlex);
 
     // Model line
     const ml = document.createElement("div"); ml.className = CARD_CLASS + "__model-line";
@@ -327,7 +425,7 @@
 
     // Action buttons
     const acts = document.createElement("div"); acts.className = CARD_CLASS + "__actions";
-    [["params","参数设置"],["model","模型设置"],["preview","预览视频"],["export","导出视频"],["generate","生成视频"]].forEach(([a,l]) => {
+    [["model","模型设置"],["preview","预览视频"],["export","导出视频"],["generate","生成视频"]].forEach(([a,l]) => {
       const b = document.createElement("button"); b.type = "button"; b.textContent = l; b.dataset.vact = a;
       b.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
@@ -335,12 +433,105 @@
         if (a === "generate") doGenerate(node2);
         else if (a === "preview") doPreview(node2);
         else if (a === "export") doExport(node2);
-        else openSettingsTab();
+        else if (a === "model") openSettingsTab(true);
+        else openSettingsTab(false);
       }, true);
       acts.appendChild(b);
     });
     c.appendChild(acts);
+
+    // 参数面板（自建）
+    const sheet = document.createElement("div");
+    sheet.className = CARD_CLASS + "__sheet";
+    PARAM_FIELDS.forEach(field => {
+      const group = document.createElement("div"); group.className = CARD_CLASS + "__group";
+      const label = document.createElement("div"); label.className = CARD_CLASS + "__group-label";
+      label.textContent = field.label;
+      const seg = document.createElement("div"); seg.className = CARD_CLASS + "__seg";
+      seg.dataset.msParamKey = field.key;
+      field.options.forEach(option => {
+        const b = document.createElement("button");
+        b.type = "button"; b.textContent = option; b.dataset.msParamValue = option;
+        b.addEventListener("click", ev => {
+          ev.preventDefault(); ev.stopPropagation();
+          applyParam(field.key, option);
+        }, true);
+        seg.appendChild(b);
+      });
+      group.append(label, seg); sheet.appendChild(group);
+    });
+    const note = document.createElement("div"); note.className = CARD_CLASS + "__sheet-note";
+    note.textContent = "参数直接写入节点，生成时按所选模型支持的值生效；模型不支持时平台会回退它自己的默认值。";
+    sheet.appendChild(note);
+    c.appendChild(sheet);
+
+    if (paramSheetOpen) c.classList.add("is-params-open");
+    syncParamSheet(c);
     return c;
+  }
+
+  function toggleParamSheet() {
+    if (!card) return;
+    paramSheetOpen = !paramSheetOpen;
+    card.classList.toggle("is-params-open", paramSheetOpen);
+    const btn = card.querySelector("." + CARD_CLASS + "__params");
+    if (btn) btn.setAttribute("aria-expanded", paramSheetOpen ? "true" : "false");
+    if (paramSheetOpen) syncParamSheet();
+  }
+
+  function applyParam(key, value) {
+    const node = getSelectedVideoNode();
+    if (!node) { showToast("请先选中一个视频节点。", "error"); return; }
+    const r = getStateReader(); const st = r && r();
+    if (!st || !st.updateNodeData) { showToast("画布状态不可用，暂时无法保存参数。", "error"); return; }
+    const patch = {};
+    patch[key] = value;
+    // 与原生比例控件一致：手动选比例即锁定 fixed，不再跟随参考图
+    if (key === "aspectRatio") {
+      patch.aspectRatioMode = "fixed";
+      patch.aspectRatioUserSelected = true;
+      patch.aspectRatioReferenceId = void 0;
+    }
+    try {
+      st.updateNodeData(node.id, patch);
+      syncParamSheet();
+      showToast("已设置" + paramLabel(key) + "：" + value);
+    } catch (err) {
+      showToast("参数保存失败：" + ((err && err.message) || "未知错误"), "error");
+    }
+  }
+
+  function paramLabel(key) {
+    const field = PARAM_FIELDS.find(item => item.key === key);
+    return field ? field.label : key;
+  }
+
+  function currentParamValue(node, field) {
+    const raw = node && node.data ? node.data[field.key] : void 0;
+    // 供应商字段大小写不统一（720P / 720p），按忽略大小写回显，写入时统一用列表里的值
+    if (typeof raw === "string") {
+      const hit = field.options.find(option => option.toLowerCase() === raw.toLowerCase());
+      if (hit) return hit;
+    }
+    if (typeof raw === "number") {
+      const match = field.options.find(option => String(raw) === option.replace(/[^0-9]/g, ""));
+      if (match) return match;
+    }
+    return field.fallback;
+  }
+
+  function syncParamSheet(root) {
+    const scope = root || card;
+    if (!scope || !paramSheetOpen) return;
+    const node = getSelectedVideoNode();
+    PARAM_FIELDS.forEach(field => {
+      const seg = scope.querySelector('.' + CARD_CLASS + '__seg[data-ms-param-key="' + field.key + '"]');
+      if (!seg) return;
+      const active = node ? currentParamValue(node, field) : field.fallback;
+      [...seg.children].forEach(btn => {
+        btn.classList.toggle("is-active", btn.dataset.msParamValue === active);
+      });
+    });
   }
 
   function escHtml(t) { return String(t || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -484,7 +675,7 @@
         ev.preventDefault();
         ev.stopPropagation();
         closeModelMenu();
-        openSettingsTab();
+        openSettingsTab(true);
       }, true);
       menu.appendChild(settings);
     }
@@ -530,6 +721,7 @@
     if (modelValue && n) modelValue.textContent = n.data.videoModelId || "veo3fast";
     const ml = card.querySelector("." + CARD_CLASS + "__model-line");
     if (ml && n) ml.innerHTML = '<strong>模型:</strong> ' + escHtml(n.data.videoModelId || "veo3fast");
+    syncParamSheet();
     syncModelMenu();
   }
 
@@ -549,6 +741,7 @@
   }
   function showCard(node) {
     closeModelMenu();
+    closeViewer();
     if (!card) { card = buildCard(node); document.body.appendChild(card); }
     else { if (card.dataset.nodeId !== node.id) { card.remove(); card = buildCard(node); document.body.appendChild(card); } else refreshCard(); }
     card.dataset.nodeId = node.id;
@@ -562,6 +755,7 @@
   }
   function hideCard(dismissed) {
     closeModelMenu();
+    closeViewer();
     if (card) {
       card.classList.remove("is-visible");
       setTimeout(() => { if (!card || !card.classList.contains("is-visible")) { card.remove(); card = null; } }, 320);
@@ -579,31 +773,197 @@
       console.log("[ms] video submitted"); refreshCard();
     } catch (err) { console.error("[ms] generate failed:", err); showToast("生成失败：" + ((err && err.message) || "未知错误"), "error"); }
   }
-  function doPreview(node) {
-    const results = Array.isArray(node.data.results) ? node.data.results : [];
-    const raw = results[node.data.activeResultIndex] || results[0] || null;
-    const src = raw && (raw.mediaUrl || raw.url || "");
-    if (src) window.open(src, "_blank", "noopener");
+  // ======= 视频预览层 =======
+  function ensureViewer() {
+    let viewer = document.getElementById("ms-video-viewer");
+    if (viewer) return viewer;
+    viewer = document.createElement("div");
+    viewer.id = "ms-video-viewer";
+    viewer.setAttribute("role", "dialog");
+    viewer.setAttribute("aria-label", "视频预览");
+    viewer.innerHTML =
+      '<div class="ms-video-viewer__bg" data-ms-video-close></div>' +
+      '<div class="ms-video-viewer__wrap">' +
+        '<video class="ms-video-viewer__video" controls autoplay playsinline></video>' +
+        '<div class="ms-video-viewer__bar">' +
+          '<span class="ms-video-viewer__name"></span>' +
+          '<button type="button" class="ms-video-viewer__close" data-ms-video-close>关闭</button>' +
+        '</div>' +
+      '</div>';
+    viewer.addEventListener("click", ev => {
+      if (!ev.target.closest("[data-ms-video-close]")) return;
+      ev.preventDefault(); ev.stopPropagation();
+      closeViewer();
+    }, true);
+    document.body.appendChild(viewer);
+    return viewer;
   }
-  async function doExport(node) {
-    const results = Array.isArray(node.data.results) ? node.data.results : [];
-    const raw = results[node.data.activeResultIndex] || results[0] || null;
-    const source = raw && (raw.localPath || raw.mediaUrl || raw.url || "");
-    if (!source) { showToast("没有可导出的结果", "error"); return; }
-    if (!/^https?:\/\//.test(source)) { showToast("暂不支持本地路径导出", "error"); return; }
+
+  function closeViewer() {
+    const viewer = document.getElementById("ms-video-viewer");
+    if (!viewer) return;
+    const video = viewer.querySelector("video");
+    if (video) { try { video.pause(); } catch (_) {} video.removeAttribute("src"); video.load(); }
+    viewer.classList.remove("is-open");
+    if (viewer.__msObjectUrl) { URL.revokeObjectURL(viewer.__msObjectUrl); viewer.__msObjectUrl = null; }
+  }
+
+  async function doPreview(node) {
+    const raw = pickResult(node);
+    const source = raw && (raw.mediaUrl || raw.localPath || raw.url || "");
+    if (!source) { showToast("当前视频节点还没有可预览的结果。", "error"); return; }
+    const fileName = resultFileName(node, raw, source);
+    let href = "";
+    try {
+      href = await toPlayableSource(source);
+    } catch (err) {
+      showToast("预览失败：" + ((err && err.message) || "未知错误"), "error");
+      return;
+    }
+    const viewer = ensureViewer();
+    // 连续预览要先释放上一段的 blob，否则每次点预览都留一份内存
+    if (viewer.__msObjectUrl && viewer.__msObjectUrl !== href) {
+      URL.revokeObjectURL(viewer.__msObjectUrl);
+    }
+    viewer.__msObjectUrl = href.startsWith("blob:") ? href : null;
+    const video = viewer.querySelector("video");
+    video.src = href;
+    viewer.querySelector(".ms-video-viewer__name").textContent = fileName;
+    viewer.classList.add("is-open");
+    try { await video.play(); } catch (_) { /* 自动播放被拦时用户可手动点播放 */ }
+    showToast("正在预览：" + fileName);
+  }
+  function looksLikeLocalPath(source) {
+    return /^[A-Za-z]:[\\/]/.test(source) ||
+      source.startsWith("file://") || source.startsWith("webdir:");
+  }
+
+  async function toPlayableSource(source) {
+    if (source.startsWith("blob:") || source.startsWith("data:")) return source;
+    const api = window.electronAPI;
+    if (looksLikeLocalPath(source)) {
+      if (api && typeof api.getLocalMediaFileUrl === "function") {
+        const objectUrl = await api.getLocalMediaFileUrl(source);
+        if (objectUrl) return objectUrl;
+      }
+      if (api && typeof api.readLocalMediaDataUrl === "function") {
+        const dataUrl = await api.readLocalMediaDataUrl(source);
+        if (dataUrl) return dataUrl;
+      }
+      throw new Error("本地视频读取失败，请确认素材目录已授权或重新生成");
+    }
+    // 远程优先浏览器 fetch 成 blob：桥接代理会把整段视频转 base64 data URL，
+    // 体积膨胀约 1/3，几十 MB 的视频很容易直接把页面吃满。
     try {
       const r = await fetch(source, { credentials: "include" });
       if (!r.ok) throw new Error("HTTP " + r.status);
-      const href = URL.createObjectURL(await r.blob());
-      const a = document.createElement("a"); a.href = href;
-      a.download = String(node.data.label || node.id || "video.mp4").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(href), 35000);
-    } catch (e) { showToast("导出失败：" + e.message, "error"); }
+      return URL.createObjectURL(await r.blob());
+    } catch (directError) {
+      if (api && typeof api.fetchRemoteImageDataUrl === "function") {
+        try {
+          const dataUrl = await api.fetchRemoteImageDataUrl(source);
+          if (dataUrl) return dataUrl;
+        } catch (_) { /* 两条路都失败时按下面抛出 */ }
+      }
+      throw new Error("视频读取失败，可能受跨域限制：" + ((directError && directError.message) || "未知错误"));
+    }
   }
-  function openSettingsTab() {
-    const t = document.getElementById("ms-video-api-tab-btn");
-    if (t) t.click();
+
+  function pickResult(node) {
+    const results = Array.isArray(node.data.results) ? node.data.results : [];
+    const index = Number.isInteger(node.data.activeResultIndex) ? node.data.activeResultIndex : 0;
+    return results[index] || results[0] || null;
+  }
+
+  function resultFileName(node, raw, source) {
+    const base = (raw && (raw.fileName || raw.name)) || node.data.fileName || node.data.label || node.id || "video.mp4";
+    let name = String(base).replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim() || "video.mp4";
+    if (!/\.(mp4|webm|mov|m4v)$/i.test(name)) {
+      let ext = ".mp4";
+      try {
+        const match = new URL(source, window.location.href).pathname.match(/\.(mp4|webm|mov|m4v)$/i);
+        if (match) ext = "." + match[1].toLowerCase();
+      } catch (_) {}
+      name += ext;
+    }
+    return name;
+  }
+
+  async function doExport(node) {
+    const raw = pickResult(node);
+    const source = raw && (raw.localPath || raw.mediaUrl || raw.url || "");
+    if (!source) { showToast("当前视频节点还没有可导出的结果。", "error"); return; }
+    const fileName = resultFileName(node, raw, source);
+    let href = "";
+    let revoke = false;
+    try {
+      href = await toPlayableSource(source);
+      revoke = href.startsWith("blob:");
+      const a = document.createElement("a");
+      a.href = href; a.download = fileName; a.rel = "noopener"; a.style.display = "none";
+      document.body.appendChild(a); a.click(); a.remove();
+      showToast("已提交导出：" + fileName);
+    } catch (err) {
+      showToast("导出失败：" + ((err && err.message) || "未知错误"), "error");
+    } finally {
+      if (revoke) setTimeout(() => URL.revokeObjectURL(href), 35000);
+    }
+  }
+  // 本补丁没有可转发的原生模型/参数控件（bundle 不渲染视频 action-panel），
+  // 因此「模型设置」= 打开设置里的「视频API来源设置」并滚到当前启用卡的模型列表。
+  const SETTINGS_GEAR_TITLE = "模型与接口设置";
+
+  function settingsTab() {
+    return document.getElementById("ms-video-api-tab-btn");
+  }
+
+  // 设置弹窗没打开时侧栏 tab 根本不存在，直接 return 就是「点了没反应」。
+  // 这里先点画布自带齿轮打开弹窗，再等 tab 注入出来。
+  function ensureSettingsTab(cb) {
+    const found = settingsTab();
+    if (found) { cb(found); return; }
+    const gear = [...document.querySelectorAll(".sidebar__icon-btn")]
+      .find(el => (el.title || "").indexOf(SETTINGS_GEAR_TITLE) >= 0);
+    if (!gear) {
+      showToast("未找到画布「" + SETTINGS_GEAR_TITLE + "」入口，请从侧栏手动打开设置。", "error");
+      return;
+    }
+    gear.click();
+    let tries = 0;
+    const wait = window.setInterval(() => {
+      const tab = settingsTab();
+      if (tab) { window.clearInterval(wait); cb(tab); return; }
+      if (++tries > 40) {
+        window.clearInterval(wait);
+        showToast("「视频API来源设置」入口注入失败，请重新打开设置面板。", "error");
+      }
+    }, 60);
+  }
+
+  function focusVideoModelList() {
+    const section = document.getElementById("ms-video-api-section");
+    const host = section || document.querySelector(".settings-modal__body");
+    const card = host && (host.querySelector(".ms-video-api-card.is-active")
+      || host.querySelector(".ms-video-api-card"));
+    const models = card && card.querySelector("[data-ms-model-section]");
+    if (models) {
+      models.scrollIntoView({ behavior: "smooth", block: "start" });
+      models.classList.add("ms-video-models--flash");
+      window.setTimeout(() => models.classList.remove("ms-video-models--flash"), 1600);
+      return;
+    }
+    const refresh = card && card.querySelector('[data-ms-video-action="models-refresh"]');
+    if (refresh) { refresh.click(); return; }
+    showToast("当前视频 API 还没有模型列表，请先填写 API 密钥并拉取模型。", "error");
+  }
+
+  function openSettingsTab(focusModelList) {
+    ensureSettingsTab(tab => {
+      tab.click();
+      if (!focusModelList) return;
+      // tab 点击后分区才渲染，等一帧再定位模型列表
+      window.setTimeout(focusVideoModelList, 260);
+    });
   }
   let toastTimer = null;
   function showToast(message, type) {
@@ -665,7 +1025,15 @@
       closeModelMenu();
     }, true);
     document.addEventListener("keydown", ev => {
-      if (ev.key === "Escape" && modelMenu) {
+      if (ev.key !== "Escape") return;
+      const viewer = document.getElementById("ms-video-viewer");
+      if (viewer && viewer.classList.contains("is-open")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeViewer();
+        return;
+      }
+      if (modelMenu) {
         ev.preventDefault();
         ev.stopPropagation();
         closeModelMenu();
@@ -683,8 +1051,8 @@
     window.addEventListener("storage", event => {
       if (event.key === VIDEO_API_KEY) syncModelMenu();
     });
-    window.__MS_VIDEO_INSPECTOR__ = { version: "20261115-16", refresh: () => { if (card) refreshCard(); } };
-    console.log("[ms] video-inspector-patch v16 ready");
+    window.__MS_VIDEO_INSPECTOR__ = { version: "20261116-2", refresh: () => { if (card) refreshCard(); } };
+    console.log("[ms] video-inspector-patch v17 ready");
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
