@@ -8,11 +8,12 @@
 | 画布 / 工作流 / ComfyUI / 图片·文本 API 配置 / 素材上传 / 视频节点 | `docs/画布.md` | `canvas/*.js`（各补丁头注释）、`web-bridge.js` |
 | 图片工坊 / 资产库 / 姿势·服装·人像 / 嵌入 | `docs/gallery.md` | `gallery/assets/gallery.js`、`gallery.css` |
 | 工作台 / studio / 目录授权 / 工作区 | `docs/studio.md` | `studio/assets/studio.js` |
+| 看背影识人 / 小游戏 / 背影素材 / 战绩榜 | `docs/game.md` | `game/assets/game.js`、`game/data/roster.json` |
 | 主站 / 首页 / 番剧 / 收藏 / 导航 | （无 docs，直接） | `index.html` + `assets/app.js` + `assets/styles.css` |
 | 回归验收项 | `docs/acceptance.md` | — |
 | 版本历史/流水账 | `docs/history.md` | — |
 
-主站一行：纯静态 IIFE，`animeLibrary` 是 12 部番剧唯一数据源；`renderAnimeGrid()`/`renderRanking()`/`renderSchedule()`/`renderSearch()` 渲染；`setupEvents()` 统一绑定，画布/资产入口 `target="_blank"`；`init()` 初始化唯一入口。
+主站一行：纯静态 IIFE，`animeLibrary` 是 12 部番剧唯一数据源；`renderAnimeGrid()`/`renderRanking()`/`renderSchedule()`/`renderSearch()`/`renderWebsites()`+`renderWebsitesFilter()` 渲染；`setupEvents()` 统一绑定，画布/资产入口 `target="_blank"`；`init()` 初始化唯一入口。导航是 SPA：`setupHeader()` 用 `sectionMap` 切换 `main > section.is-visible`（`main > section{display:none}`），新增 tab 要同时改 index.html 两处导航、`sectionMap`、`init()` 调用与数据源。网站大全数据源 `websiteDirectory`（按行业大类分组，每组 sites[] 含 name/url/desc），`state.websiteFilter` 控分类筛选。
 
 ## 省 token 写代码模式（用户已启用，默认遵守）
 1. 无开场白、无多余说明，优先直接贴代码。

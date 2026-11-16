@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 800" width="600" height="800">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2440"/><stop offset="1" stop-color="#8ea6ff" stop-opacity=".28"/></linearGradient>
+<radialGradient id="light" cx=".5" cy=".22" r=".7"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="600" height="800" fill="url(#bg)"/>
+<circle cx="300" cy="230" r="300" fill="url(#light)"/>
+<g fill="#331613"><path d="M138 800c0-164 72-252 162-252s162 88 162 252Z"/><path d="M300 170c72 0 114 46 114 120 0 46-8 84-18 116H204c-10-32-18-70-18-116 0-74 42-120 114-120Z"/><circle cx="300" cy="72" r="46"/><path d="M240 130c0-40 26-62 60-62s60 22 60 62c0 26-10 42-10 42H250s-10-16-10-42Z"/></g>
+<g fill="#000" opacity=".18"><path d="M300 470c66 0 118 40 138 110H162c20-70 72-110 138-110Z"/></g>
+<text x="300" y="768" font-size="30" text-anchor="middle" fill="#ffffff" opacity=".22" font-family="sans-serif">DEMO 2</text>
+</svg>

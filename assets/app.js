@@ -287,10 +287,112 @@ const scheduleMap = {
 };
 
 const weekdayLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+// 网站大全：按行业大类收录常用站点，name / url / desc 三项。
+const websiteDirectory = [
+  {
+    category: "开发技术",
+    icon: "</>",
+    sites: [
+      { name: "GitHub", url: "https://github.com", desc: "全球最大的代码托管与开源协作平台。" },
+      { name: "MDN Web Docs", url: "https://developer.mozilla.org/zh-CN/", desc: "权威的 Web 前端与浏览器技术标准文档。" },
+      { name: "Stack Overflow", url: "https://stackoverflow.com", desc: "程序员问答社区，报错排查首选。" },
+      { name: "掘金", url: "https://juejin.cn", desc: "中文技术博客与开发者社区。" },
+      { name: "npm", url: "https://www.npmjs.com", desc: "JavaScript 包管理与依赖仓库。" },
+      { name: "Can I use", url: "https://caniuse.com", desc: "查询浏览器特性兼容支持情况。" },
+    ],
+  },
+  {
+    category: "设计创意",
+    icon: "◐",
+    sites: [
+      { name: "Dribbble", url: "https://dribbble.com", desc: "全球设计师作品灵感社区。" },
+      { name: "Behance", url: "https://www.behance.net", desc: "Adobe 旗下创意设计作品展示平台。" },
+      { name: "Figma", url: "https://www.figma.com", desc: "在线协作 UI/UX 设计工具。" },
+      { name: "花瓣网", url: "https://huaban.com", desc: "中文图片灵感采集与素材库。" },
+      { name: "Unsplash", url: "https://unsplash.com", desc: "高质量免费可商用图片素材。" },
+      { name: "Iconify", url: "https://icon-sets.iconify.design", desc: "聚合多套开源图标集的检索工具。" },
+    ],
+  },
+  {
+    category: "学习教育",
+    icon: "✎",
+    sites: [
+      { name: "哔哩哔哩课堂", url: "https://www.bilibili.com", desc: "大量免费视频教程与学习区。" },
+      { name: "Coursera", url: "https://www.coursera.org", desc: "全球名校在线课程平台。" },
+      { name: "中国大学 MOOC", url: "https://www.icourse163.org", desc: "国内高校精品在线课程。" },
+      { name: "维基百科", url: "https://zh.wikipedia.org", desc: "开放式中文百科知识库。" },
+      { name: "MDN 学习区", url: "https://developer.mozilla.org/zh-CN/docs/Learn", desc: "从零开始的 Web 开发入门教程。" },
+      { name: "LeetCode", url: "https://leetcode.cn", desc: "算法刷题与面试准备平台。" },
+    ],
+  },
+  {
+    category: "影音娱乐",
+    icon: "▶",
+    sites: [
+      { name: "哔哩哔哩", url: "https://www.bilibili.com", desc: "弹幕视频站，动画、影视与知识区。" },
+      { name: "YouTube", url: "https://www.youtube.com", desc: "全球最大综合视频分享平台。" },
+      { name: "豆瓣", url: "https://www.douban.com", desc: "影视书籍评分、影评与兴趣小组。" },
+      { name: "网易云音乐", url: "https://music.163.com", desc: "以歌单和评论氛围著称的在线音乐。" },
+      { name: "IMDb", url: "https://www.imdb.com", desc: "权威影视资料库与评分榜单。" },
+      { name: "Pixiv", url: "https://www.pixiv.net", desc: "亚洲最大的插画与二次元创作社区。" },
+    ],
+  },
+  {
+    category: "效率工具",
+    icon: "⚙",
+    sites: [
+      { name: "Notion", url: "https://www.notion.so", desc: "笔记、数据库与协作一体化工作台。" },
+      { name: "腾讯文档", url: "https://docs.qq.com", desc: "在线协作办公文档套件。" },
+      { name: "TinyPNG", url: "https://tinypng.com", desc: "图片无损压缩在线工具。" },
+      { name: "Squoosh", url: "https://squoosh.app", desc: "浏览器内的图片格式与压缩对比工具。" },
+      { name: "Excalidraw", url: "https://excalidraw.com", desc: "手绘风格的在线白板与流程图。" },
+      { name: "123 云盘", url: "https://www.123pan.com", desc: "免登录大文件传输与网盘。" },
+    ],
+  },
+  {
+    category: "AI 智能",
+    icon: "✦",
+    sites: [
+      { name: "ChatGPT", url: "https://chat.openai.com", desc: "OpenAI 通用对话大模型助手。" },
+      { name: "Claude", url: "https://claude.ai", desc: "Anthropic 出品的安全对齐 AI 助手。" },
+      { name: "Gemini", url: "https://gemini.google.com", desc: "Google 多模态大模型对话入口。" },
+      { name: "Hugging Face", url: "https://huggingface.co", desc: "开源模型、数据集与 AI 应用社区。" },
+      { name: "Poe", url: "https://poe.com", desc: "聚合多家大模型的一站式对话平台。" },
+      { name: "Kimi", url: "https://kimi.moonshot.cn", desc: "月之暗面长文本 AI 助手。" },
+    ],
+  },
+  {
+    category: "生活资讯",
+    icon: "☼",
+    sites: [
+      { name: "微博", url: "https://weibo.com", desc: "中文实时热点与社交资讯平台。" },
+      { name: "知乎", url: "https://www.zhihu.com", desc: "问答与深度讨论的中文社区。" },
+      { name: "小红书", url: "https://www.xiaohongshu.com", desc: "生活方式种草与经验分享社区。" },
+      { name: "高德地图", url: "https://www.amap.com", desc: "在线地图、导航与出行规划。" },
+      { name: "什么值得买", url: "https://www.smzdm.com", desc: "消费决策与优惠信息聚合。" },
+      { name: "Weather", url: "https://weather.com", desc: "全球天气预报与气象服务。" },
+    ],
+  },
+  {
+    category: "开发资源",
+    icon: "⌘",
+    sites: [
+      { name: "V2EX", url: "https://www.v2ex.com", desc: "创意工作者与开发者的交流社区。" },
+      { name: "freeCodeCamp", url: "https://www.freecodecamp.org/chinese/", desc: "免费自编程式 Web 开发学习。" },
+      { name: "CodePen", url: "https://codepen.io", desc: "前端代码片段在线演示与分享。" },
+      { name: "DevDocs", url: "https://devdocs.io", desc: "聚合多种 API 文档的离线速查。" },
+      { name: "Regex101", url: "https://regex101.com", desc: "在线正则表达式调试与解释。" },
+      { name: "JSON.cn", url: "https://www.json.cn", desc: "JSON 格式化与校验在线工具。" },
+    ],
+  },
+];
+
 const state = {
   filter: "全部",
   showFavorites: false,
   activeDay: weekdayLabels[new Date().getDay()],
+  websiteFilter: "全部",
 };
 
 const byId = (id) => animeLibrary.find((anime) => anime.id === id);
@@ -463,6 +565,90 @@ function renderSchedule(day = state.activeDay) {
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-selected", String(isActive));
   });
+}
+
+function websiteCategories() {
+  return ["全部", ...websiteDirectory.map((group) => group.category)];
+}
+
+function websiteCount() {
+  return websiteDirectory.reduce((sum, group) => sum + group.sites.length, 0);
+}
+
+function renderWebsitesFilter() {
+  const bar = $("#websitesFilter");
+  if (!bar) return;
+
+  bar.innerHTML = websiteCategories()
+    .map(
+      (category) => `
+        <button
+          class="filter-chip ${category === state.websiteFilter ? "is-active" : ""}"
+          type="button"
+          data-website-filter="${category}"
+        >${category}</button>
+      `,
+    )
+    .join("");
+
+  const counter = $("#websitesCount");
+  if (counter) counter.textContent = `共 ${websiteCount()} 个站点`;
+}
+
+function renderWebsites() {
+  const grid = $("#websitesGrid");
+  if (!grid) return;
+
+  const groups =
+    state.websiteFilter === "全部"
+      ? websiteDirectory
+      : websiteDirectory.filter((group) => group.category === state.websiteFilter);
+
+  if (!groups.length) {
+    grid.innerHTML = `<div class="websites-empty">这个分类暂时没有收录站点，换一个看看。</div>`;
+    return;
+  }
+
+  grid.innerHTML = groups
+    .map(
+      (group) => `
+        <section class="website-group">
+          <div class="website-group-head">
+            <span class="website-group-icon" aria-hidden="true">${group.icon}</span>
+            <h3>${group.category}</h3>
+            <span class="website-group-count">${group.sites.length}</span>
+          </div>
+          <div class="website-list">
+            ${group.sites
+              .map(
+                (site) => `
+                  <a class="website-card" href="${site.url}" target="_blank" rel="noopener noreferrer">
+                    <span class="website-avatar" aria-hidden="true">${escapeHtml(site.name.slice(0, 1))}</span>
+                    <span class="website-body">
+                      <span class="website-name">${site.name}</span>
+                      <span class="website-desc">${site.desc}</span>
+                      <span class="website-host">${hostOf(site.url)}</span>
+                    </span>
+                    <span class="website-go" aria-hidden="true">
+                      <svg class="icon"><use href="#icon-arrow"></use></svg>
+                    </span>
+                  </a>
+                `,
+              )
+              .join("")}
+          </div>
+        </section>
+      `,
+    )
+    .join("");
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 function updateFavoriteUI() {
@@ -749,7 +935,7 @@ function setupHeader() {
   window.addEventListener('scroll', updateHeader, { passive: true });
 
   const navLinks = [...document.querySelectorAll('.desktop-nav a')];
-  const sectionMap = { '#top': 'top', '#library': 'library', '#schedule': 'schedule', '#ranking': 'ranking', '#community': 'community' };
+  const sectionMap = { '#top': 'top', '#library': 'library', '#schedule': 'schedule', '#ranking': 'ranking', '#community': 'community', '#websites': 'websites' };
 
   function showSection(id) {
     // Hide all sections
@@ -863,6 +1049,16 @@ function setupEvents() {
     if (!button) return;
     state.activeDay = button.dataset.day;
     renderSchedule(state.activeDay);
+  });
+
+  $("#websitesFilter")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-website-filter]");
+    if (!chip) return;
+    state.websiteFilter = chip.dataset.websiteFilter || "全部";
+    $$("#websitesFilter .filter-chip").forEach((item) =>
+      item.classList.toggle("is-active", item === chip),
+    );
+    renderWebsites();
   });
 
   document.addEventListener("click", (event) => {
@@ -999,6 +1195,8 @@ function init() {
   renderRanking();
   renderSchedule();
   renderSearch();
+  renderWebsitesFilter();
+  renderWebsites();
   updateFavoriteUI();
   setupEvents();
 }

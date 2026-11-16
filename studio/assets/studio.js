@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "20261115-1";
+  const VERSION = "20261117-1";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";
@@ -102,6 +102,16 @@
       ],
       relation:
         "生成任务本身继续在画布里跑（节点工作流），这里负责按镜头组织与验收，不重复实现生成逻辑。",
+    },
+    {
+      id: "game",
+      label: "看背影识人",
+      tagline: "背影片段限时辨认小游戏",
+      kicker: "BACK VIEW QUIZ",
+      icon: "icon-trophy",
+      type: "frame",
+      url: "../game/index.html?v=" + VERSION + "&host=studio",
+      state: "在线",
     },
     {
       id: "tasks",

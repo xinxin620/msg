@@ -3,15 +3,15 @@
   <desc id="desc">一位少女望着月亮，身后是流动的星光与深夜城市。</desc>
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#08122b"/>
-      <stop offset=".46" stop-color="#0d1838"/>
-      <stop offset="1" stop-color="#060916"/>
+      <stop stop-color="#dbe6ff"/>
+      <stop offset=".46" stop-color="#e8e4fb"/>
+      <stop offset="1" stop-color="#f3eefc"/>
     </linearGradient>
     <radialGradient id="moonGlow" cx=".5" cy=".5" r=".5">
-      <stop stop-color="#f7f2ff" stop-opacity=".95"/>
-      <stop offset=".28" stop-color="#a8dfff" stop-opacity=".66"/>
-      <stop offset=".7" stop-color="#5d8fff" stop-opacity=".1"/>
-      <stop offset="1" stop-color="#5d8fff" stop-opacity="0"/>
+      <stop stop-color="#fff6e8" stop-opacity=".95"/>
+      <stop offset=".28" stop-color="#cfe6ff" stop-opacity=".7"/>
+      <stop offset=".7" stop-color="#8fb5ff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#8fb5ff" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="moon" x1=".2" y1=".1" x2=".8" y2=".9">
       <stop stop-color="#fffaf2"/>
@@ -39,8 +39,8 @@
       <stop offset="1" stop-color="#3f2a82"/>
     </linearGradient>
     <linearGradient id="city" x1="0" y1="0" x2="0" y2="1">
-      <stop stop-color="#07132d" stop-opacity=".2"/>
-      <stop offset="1" stop-color="#040712"/>
+      <stop stop-color="#c7d2ea" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#aebcd8"/>
     </linearGradient>
     <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
       <feGaussianBlur stdDeviation="10"/>
@@ -53,7 +53,7 @@
       </feMerge>
     </filter>
     <pattern id="dotPattern" width="34" height="34" patternUnits="userSpaceOnUse">
-      <circle cx="2" cy="2" r="1" fill="#a9c8ff" opacity=".3"/>
+      <circle cx="2" cy="2" r="1" fill="#7c5cff" opacity=".18"/>
     </pattern>
     <clipPath id="posterClip">
       <rect width="900" height="1200" rx="30"/>
@@ -64,7 +64,7 @@
     <rect width="900" height="1200" fill="url(#sky)"/>
     <rect width="900" height="1200" fill="url(#dotPattern)" opacity=".42"/>
 
-    <g fill="#d8e8ff">
+    <g fill="#8fa5d9">
       <circle cx="96" cy="144" r="2.2" opacity=".85"/>
       <circle cx="178" cy="238" r="1.2" opacity=".55"/>
       <circle cx="276" cy="105" r="1.5" opacity=".65"/>
@@ -83,7 +83,7 @@
       <circle cx="68" cy="760" r="2" opacity=".65"/>
     </g>
 
-    <g fill="none" stroke="#8bb6ff" opacity=".22">
+    <g fill="none" stroke="#7c5cff" opacity=".18">
       <path d="M-70 298C170 104 426 94 784 244"/>
       <path d="M-20 455C230 259 508 260 965 472"/>
       <path d="M610 40C684 223 714 422 680 680"/>
@@ -100,7 +100,7 @@
       <circle cx="688" cy="307" r="5" opacity=".17"/>
     </g>
 
-    <g fill="#09132c" opacity=".96">
+    <g fill="#b9c6e0" opacity=".9">
       <path d="M0 825 82 825 82 744 142 744 142 852 208 852 208 791 256 791 256 902 0 902Z"/>
       <path d="M604 854 652 854 652 780 706 780 706 834 770 834 770 758 824 758 824 879 900 879 900 980 560 980Z"/>
       <path d="M186 888 218 888 218 828 246 828 246 918 186 918Z"/>
@@ -113,7 +113,7 @@
       <path d="M38 1126H862"/>
     </g>
 
-    <ellipse cx="470" cy="690" rx="230" ry="370" fill="#4f6fff" opacity=".12" filter="url(#glow)"/>
+    <ellipse cx="470" cy="690" rx="230" ry="370" fill="#4f6fff" opacity=".08" filter="url(#glow)"/>
 
     <g opacity=".9">
       <path

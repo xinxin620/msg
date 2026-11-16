@@ -1,0 +1,145 @@
+{
+  "_readme": "看背影识人素材清单。people[].images 相对 game/assets/backview/；也可放 game/assets/backview/index.json 自动登记文件名。",
+  "people": [
+    {
+      "id": "demo-01",
+      "name": "示例·长发",
+      "aliases": [],
+      "tags": [
+        "甜妹",
+        "舞蹈"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-01/01.svg",
+        "demo-01/02.svg"
+      ]
+    },
+    {
+      "id": "demo-02",
+      "name": "示例·短发",
+      "aliases": [],
+      "tags": [
+        "御姐",
+        "穿搭"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-02/01.svg",
+        "demo-02/02.svg"
+      ]
+    },
+    {
+      "id": "demo-03",
+      "name": "示例·双马尾",
+      "aliases": [],
+      "tags": [
+        "二次元",
+        "舞蹈"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-03/01.svg",
+        "demo-03/02.svg"
+      ]
+    },
+    {
+      "id": "demo-04",
+      "name": "示例·卷发",
+      "aliases": [],
+      "tags": [
+        "御姐",
+        "音乐"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-04/01.svg",
+        "demo-04/02.svg"
+      ]
+    },
+    {
+      "id": "demo-05",
+      "name": "示例·低马尾",
+      "aliases": [],
+      "tags": [
+        "气质",
+        "穿搭"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-05/01.svg",
+        "demo-05/02.svg"
+      ]
+    },
+    {
+      "id": "demo-06",
+      "name": "示例·丸子头",
+      "aliases": [],
+      "tags": [
+        "甜妹",
+        "运动"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-06/01.svg",
+        "demo-06/02.svg"
+      ]
+    },
+    {
+      "id": "demo-07",
+      "name": "示例·披发",
+      "aliases": [],
+      "tags": [
+        "气质",
+        "旅行"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-07/01.svg",
+        "demo-07/02.svg"
+      ]
+    },
+    {
+      "id": "demo-08",
+      "name": "示例·齐刘海",
+      "aliases": [],
+      "tags": [
+        "二次元",
+        "甜妹"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-08/01.svg",
+        "demo-08/02.svg"
+      ]
+    },
+    {
+      "id": "demo-09",
+      "name": "示例·高马尾",
+      "aliases": [],
+      "tags": [
+        "运动",
+        "舞蹈"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-09/01.svg",
+        "demo-09/02.svg"
+      ]
+    },
+    {
+      "id": "demo-10",
+      "name": "示例·短发酷",
+      "aliases": [],
+      "tags": [
+        "酷",
+        "穿搭"
+      ],
+      "note": "占位剪影，替换为半写实或 3D 漫画背影图即可",
+      "images": [
+        "demo-10/01.svg",
+        "demo-10/02.svg"
+      ]
+    }
+  ]
+}
