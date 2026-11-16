@@ -58,9 +58,6 @@
   }
 
   // ======= 取画布 store =======
-  // bundle 里的 zustand store 是模块私有变量，没有挂到 window，只能从 React fiber 上取。
-  // 取到之后用的仍然是画布自己的原生方法（replaceCanvasState 就是「导入工作流」用的那个），
-  // 因此持久化、渲染、撤销链路都不需要补丁自己复刻。
   function isCanvasState(state) {
     return !!state && typeof state === "object"
       && Array.isArray(state.nodes) && Array.isArray(state.edges)
@@ -90,7 +87,6 @@
         const candidates = [hook.memoizedState, hook.queue && hook.queue.lastRenderedState];
         for (const cand of candidates) {
           if (!cand || typeof cand !== "object" || Array.isArray(cand)) continue;
-          // useSyncExternalStore 形态：优先读 getSnapshot，保证拿到最新 state
           if (typeof cand.getSnapshot === "function") {
             let latest = null;
             try { latest = cand.getSnapshot(); } catch (_) { latest = null; }
@@ -112,9 +108,77 @@
     return null;
   }
 
+  // ======= 强制 React Flow 测量节点 =======
+  // 根因：补丁用 replaceCanvasState（导入工作流的方式）建节点，React Flow 的
+  // nodeLookup 里该节点 internals.handleBounds 为空，拖线时 Fl() 找不到它的
+  // handle，连线在到达 isValidConnection 之前就被判无效——所以刷新前连不上、
+  // 刷新后（走正常初始化被测量）才连得上。修复：建节点后调用 React Flow 的
+  // updateNodeInternals 强制测量。React Flow 的 store 同样是模块私有，从 fiber 取。
+  function findReactFlowStore() {
+    const rootEl = document.getElementById("root");
+    if (!rootEl) return null;
+    const containerKey = Object.keys(rootEl).find(k => k.startsWith("__reactContainer$"));
+    const startFiber = containerKey ? rootEl[containerKey] : null;
+    if (!startFiber) return null;
+
+    const isRFState = s => !!s && typeof s === "object"
+      && s.nodeLookup instanceof Map && typeof s.updateNodeInternals === "function";
+
+    const stack = [startFiber];
+    const seen = new Set();
+    let visited = 0;
+    while (stack.length && visited < 200000) {
+      const fiber = stack.pop();
+      if (!fiber || seen.has(fiber)) continue;
+      seen.add(fiber);
+      visited += 1;
+
+      let hook = fiber.memoizedState;
+      let guard = 0;
+      while (hook && typeof hook === "object" && guard++ < 400) {
+        const candidates = [hook.memoizedState, hook.queue && hook.queue.lastRenderedState];
+        for (const cand of candidates) {
+          if (!cand || typeof cand !== "object" || Array.isArray(cand)) continue;
+          if (typeof cand.getSnapshot === "function") {
+            try { if (isRFState(cand.getSnapshot())) return () => { try { return isRFState(cand.getSnapshot()) ? cand.getSnapshot() : null; } catch (_) { return null; } }; } catch (_) {}
+            continue;
+          }
+          if (isRFState(cand)) return () => cand;
+        }
+        hook = hook.next;
+      }
+
+      if (fiber.child) stack.push(fiber.child);
+      if (fiber.sibling) stack.push(fiber.sibling);
+    }
+    return null;
+  }
+
+  function forceMeasureNode(nodeId) {
+    const getRF = findReactFlowStore();
+    if (!getRF) return false;
+    const rf = getRF();
+    if (!rf || typeof rf.updateNodeInternals !== "function") return false;
+    const nodeEl = document.querySelector('.react-flow__node[data-id="' + nodeId + '"]');
+    if (!nodeEl) return false;
+    try {
+      rf.updateNodeInternals(new Map([[nodeId, { id: nodeId, nodeElement: nodeEl, force: true }]]));
+      return true;
+    } catch (_) { return false; }
+  }
+
+  // 新节点 DOM 渲染需要时间，多次延迟重试直到测量成功
+  function measureNodeWithRetry(nodeId) {
+    let tries = 0;
+    const tick = () => {
+      if (forceMeasureNode(nodeId)) return;
+      if (++tries < 25) window.setTimeout(tick, 120);
+    };
+    tick();
+  }
+
   // ======= 建视频节点 =======
   function randomPosition() {
-    // 与原生侧栏「图片 / 文本」完全相同的落点
     return { x: 200 + Math.random() * 400, y: 100 + Math.random() * 300 };
   }
 
@@ -166,6 +230,11 @@
       return false;
     }
 
+    // 关键修复：replaceCanvasState 建的节点不会被 React Flow 测量 handleBounds，
+    // 必须强制测量，否则拖线找不到该节点的连接点，连线在到达 isValidConnection
+    // 之前就被判无效（表现为新建连不上、刷新后正常）。
+    measureNodeWithRetry(node.id);
+
     // 与原生 addNode 一样，新节点直接进入选中态
     window.requestAnimationFrame(() => {
       const fresh = read();
@@ -179,8 +248,6 @@
   }
 
   // ======= 注入菜单项 =======
-  // 两个菜单容器都是 display:flex + flex-direction:column，React 每次打开菜单都会重建它们。
-  // 为了不在 React 自己维护的子节点之间插 DOM，统一「追加到末尾 + CSS order」排到图片之后。
   function nativeItems(container) {
     return [...container.querySelectorAll("button")].filter(btn => !btn.hasAttribute("data-ms-video-item"));
   }
@@ -256,22 +323,27 @@
     document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   }
 
-  // ======= 让视频节点可以连线 =======
-  // bundle 里有一张模块私有的类别能力表（video: acceptsInput [] / canOutputTo []），
-  // 原生 isValidConnection 完全照它判定，所以视频节点是「孤岛」：拖进去、拖出去都无效。
-  // 压缩包只读，这里只做一件事：在 store 的校验函数外面包一层放行规则，
-  // 其余情况原样交给原生函数，不改变任何既有连线行为。
+  // ======= 让视频 / 音频节点可以连线 =======
+  // bundle 私有类别能力表 yt 把 video 与 audio 都裁成 acceptsInput:[] / canOutputTo:[]，
+  // 两者都是孤岛；音频节点渲染的 handle 与视频是同一段代码（左 target、右 source），
+  // 所以拖线物理上可行，缺的只是这里放行。放行规则集中在本补丁，其它补丁不再各自包装。
   const PATCH_FLAG = "__msVideoConnectPatch";
+  const RF_PATCH_FLAG = "__msVideoRfPatch";
+  const INNER_FLAG = "__msVideoInner";
   const VIDEO_CATEGORY = "video";
-  const ALLOW_INTO_VIDEO = ["text", "image", "upload"];
-  let connectivityDone = false;
+  const AUDIO_CATEGORY = "audio";
+  // 音频也放行（用户要求）：注意 bundle 的视频请求体没有任何字段能承载音频/音色
+  // （全库 audio_url / driving_audio / lip_sync / mixAudio 命中 0 处），连上的真实作用是
+  // ①工作流拓扑可见 ②executeNode 会先跑上游音频 ③音频卡片的配音文稿可由视频卡片并入提示词。
+  const ALLOW_INTO_VIDEO = ["text", "image", "upload", "audio"];
+  // 音频生成只读上游文本（qv 的 upstreamTexts 进请求体 text），放行图片进音频就是伪功能
+  const ALLOW_INTO_AUDIO = ["text"];
 
   function uploadIsImage(node) {
     return !!node && node.data && node.data.assetType === "image";
   }
 
   function wouldCycle(edges, fromId, toId) {
-    // 目标若能绕回起点就是成环，和原生 zv 同一口径
     const map = new Map();
     for (const edge of edges || []) {
       if (!edge || !edge.source || !edge.target) continue;
@@ -298,32 +370,78 @@
     const source = state.nodes.find(n => n.id === connection.source);
     const target = state.nodes.find(n => n.id === connection.target);
     if (!source || !target) return false;
-    if (target.data.category !== VIDEO_CATEGORY) return false;
-    if (source.data.category === "upload" && !uploadIsImage(source)) return false;
-    if (!ALLOW_INTO_VIDEO.includes(source.data.category)) return false;
+    if (target.data.category === VIDEO_CATEGORY) {
+      if (source.data.category === "upload" && !uploadIsImage(source)) return false;
+      if (!ALLOW_INTO_VIDEO.includes(source.data.category)) return false;
+    } else if (target.data.category === AUDIO_CATEGORY) {
+      if (!ALLOW_INTO_AUDIO.includes(source.data.category)) return false;
+    } else {
+      return false;
+    }
     return !wouldCycle(state.edges, connection.target, connection.source);
   }
 
-  function patchConnectivity() {
-    const read = findCanvasStore();
-    const state = read ? read() : null;
-    if (!state || typeof state.isValidConnection !== "function") return false;
-    if (state[PATCH_FLAG]) return true;
-
-    const original = state.isValidConnection;
-    state[PATCH_FLAG] = true;
-    state.isValidConnection = connection => {
-      const latest = read ? read() : state;
-      if (latest && allowsConnection(connection, latest)) return true;
-      return original(connection);
+  // 放行校验器：每次调用都重新遍历 fiber 取最新 state。
+  // 关键：findCanvasStore 的静态快照路径 () => cand 会冻结在 patch 那一刻的
+  // state 对象上；新建视频节点后 replaceCanvasState 生成了新 state 对象，
+  // 若沿用 patch 时缓存的闭包，latest.nodes 里查不到新节点 → 放行失败 →
+  // 表现为「新建连不上、刷新后才连得上」。每次现取即可拿到最新 nodes。
+  function makeWrapper(original) {
+    return connection => {
+      const getFresh = findCanvasStore();
+      const latest = getFresh ? getFresh() : null;
+      const allowed = latest && allowsConnection(connection, latest);
+      const result = allowed ? true : original(connection);
+      if (window.__MS_VIDEO_DEBUG__ !== false && connection && connection.source && connection.target) {
+        const src = latest && latest.nodes.find(n => n.id === connection.source);
+        const tgt = latest && latest.nodes.find(n => n.id === connection.target);
+        console.log(`[MS-IVC] ${src && src.data.category}#${connection.source} → ${tgt && tgt.data.category}#${connection.target} | allows=${allowed} | result=${result}`);
+      }
+      return result;
     };
+  }
 
-    // React Flow 的 isValidConnection 是渲染时取值的 props，必须让画布重渲染一次才会生效
+  // React Flow 内部 store 的 isValidConnection 是组件渲染时从 prop 同步进来的，
+  // 拖线实时校验读的是它，而不是画布 store。必须直接写进 RF store 才生效。
+  function patchReactFlowStore(wrapper) {
+    const getRF = findReactFlowStore();
+    if (!getRF) return false;
+    const rf = getRF();
+    if (!rf || typeof rf.setState !== "function") return false;
+    if (rf[RF_PATCH_FLAG]) return true;
+    rf[RF_PATCH_FLAG] = true;
+    try { rf.setState({ isValidConnection: wrapper }); } catch (_) { return false; }
+    return true;
+  }
+
+  // ===== 核心修复：patchConnectivity =====
+  function patchConnectivity(state) {
+    if (!state) {
+      const read = findCanvasStore();
+      state = read ? read() : null;
+    }
+    if (!state || typeof state.isValidConnection !== "function") return false;
+
+    const read = findCanvasStore();
+    let original = state.isValidConnection;
+    // 若当前值已是本补丁的包装（上一轮快照），取其内部原函数，避免层层套娃
+    if (original[INNER_FLAG]) original = original[INNER_FLAG];
+
+    const wrapper = makeWrapper(original);
+    wrapper[INNER_FLAG] = original;
+    state[PATCH_FLAG] = true;
+    try { state.isValidConnection = wrapper; } catch (_) {}
+
+    // 同步写进 React Flow 内部 store（拖线校验真正读取的位置）
+    patchReactFlowStore(wrapper);
+
+    // 触发一次重渲染，让 React Flow 组件把最新校验器同步进内部 store
     try {
       if (typeof state.setSelectedNode === "function") {
         state.setSelectedNode(state.selectedNodeId ?? null);
       }
-    } catch (_) { /* 重渲染失败不影响下一次 sync 重试 */ }
+    } catch (_) {}
+
     return true;
   }
 
@@ -345,8 +463,7 @@
   function sync() {
     patchSidebarDropdown();
     patchContextSubmenu();
-    // fiber 遍历有代价，补成功一次就不再重复
-    if (!connectivityDone) connectivityDone = patchConnectivity();
+    patchConnectivity();
   }
 
   function scheduleSync() {
@@ -357,7 +474,6 @@
 
   function init() {
     injectStyles();
-    // 右键菜单没有 React 的 flowPosition 可复用，记录最后一次右键坐标自己换算
     document.addEventListener("contextmenu", event => {
       lastPointer = { x: event.clientX, y: event.clientY };
     }, true);
@@ -370,12 +486,14 @@
   window.__MS_VIDEO_NODE_PATCH__ = {
     addVideoNode: useFlowPosition => addVideoNode(!!useFlowPosition),
     isReady: () => !!findCanvasStore(),
+    // 供语音补丁复用同一套「新建节点强制测量 handleBounds」实现，避免两处重复
+    measureNode: nodeId => measureNodeWithRetry(nodeId),
     connectivityPatched: () => {
       const read = findCanvasStore();
       const state = read ? read() : null;
       return !!(state && state[PATCH_FLAG]);
     },
-    version: "20261116-8",
+    version: "20261116-15",
   };
 
   if (document.readyState === "loading") {

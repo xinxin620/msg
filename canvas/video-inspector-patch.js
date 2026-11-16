@@ -127,6 +127,20 @@
       .${CARD_CLASS}__ref-hint {
         flex: none; color: var(--text-tertiary); font-size: 11px;
       }
+      /* ===== 参考行按钮：与音频卡片 __ref-btn 同一规格 ===== */
+      .${CARD_CLASS}__ref-btn {
+        flex: none; display: none; align-items: center; justify-content: center; gap: 5px;
+        height: 24px; padding: 0 10px;
+        color: var(--text-primary); background: var(--panel-bg-muted);
+        border: 1px solid var(--panel-border-strong); border-radius: 8px;
+        font-family: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+        transition: background 130ms ease, border-color 130ms ease;
+      }
+      .${CARD_CLASS}__ref-btn.is-available { display: flex; }
+      .${CARD_CLASS}__ref-btn:hover { background: var(--soft-hover); }
+      .${CARD_CLASS}__ref-btn:active { transform: translateY(1px); }
+      .${CARD_CLASS}__ref-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .${CARD_CLASS}__ref-btn:disabled { opacity: .45; cursor: not-allowed; }
       /* ===== Prompt area (mimics action-panel__prompt-shell + input) ===== */
       .${CARD_CLASS}__prompt-label {
         flex: 0 0 auto; margin: 0 2px 7px;
@@ -354,6 +368,74 @@
   }
 
   // ======= Build card DOM =======
+  // 与 bundle 生成时真正读取的上游对齐：Yv 只收 image / upload(image)，
+  // qv 的 upstreamTexts 只收 text；audio 是本次新放的连线，单独计数。
+  function upstreamStats(nodeId) {
+    const r = getStateReader(); const st = r && r();
+    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return null;
+    const stats = { images: 0, texts: 0, audios: 0, audioScripts: [] };
+    st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
+      const src = st.nodes.find(n => n && n.id === edge.source);
+      if (!src || !src.data) return;
+      const c = src.data.category;
+      if (c === "image" || (c === "upload" && src.data.assetType === "image")) stats.images += 1;
+      else if (c === "text") stats.texts += 1;
+      else if (c === "audio") {
+        stats.audios += 1;
+        const text = String(src.data.promptText || "").trim();
+        if (text) stats.audioScripts.push({ id: src.id, label: src.data.label || src.id, text });
+      }
+    });
+    return stats;
+  }
+
+  function statsText(stats) {
+    if (!stats) return "画布状态不可用";
+    if (!stats.images && !stats.texts && !stats.audios) return "暂无上游参考（可从文本/图片/音频节点连线）";
+    const parts = [];
+    if (stats.images) parts.push("图片 " + stats.images + " 张");
+    if (stats.texts) parts.push("文本 " + stats.texts + " 段");
+    if (stats.audios) parts.push("音频 " + stats.audios + " 段");
+    return "已引用：" + parts.join(" · ");
+  }
+
+  // 真实生效的那部分：bundle 的视频请求没有任何字段承载音频/音色，
+  // 但 promptText 会进请求，所以这里把上游音频的合成文本并入提示词。
+  function mergeAudioScripts() {
+    const node = getSelectedVideoNode();
+    if (!node) return;
+    const stats = upstreamStats(node.id);
+    if (!stats || !stats.audios) {
+      showToast("当前视频节点没有连入音频节点。", "error");
+      return;
+    }
+    if (!stats.audioScripts.length) {
+      showToast("上游音频节点还没有填写合成文本，先在音频卡片里补上。", "error");
+      return;
+    }
+    const r = getStateReader(); const st = r && r();
+    if (!st || typeof st.updateNodeData !== "function") {
+      showToast("画布状态不可用，暂时无法写入提示词。", "error");
+      return;
+    }
+    const current = String(node.data.promptText || "").trim();
+    const fresh = stats.audioScripts.filter(item => !current.includes(item.text));
+    if (!fresh.length) {
+      showToast("配音文稿已经在提示词里，无需重复并入。");
+      return;
+    }
+    const next = (current ? current + "\n\n" : "") + "【配音】" + fresh.map(i => i.text).join(" ");
+    try {
+      st.updateNodeData(node.id, { promptText: next });
+    } catch (err) {
+      showToast("并入失败：" + ((err && err.message) || "未知错误"), "error");
+      return;
+    }
+    const ta = card && card.querySelector("." + CARD_CLASS + "__prompt-input");
+    if (ta) { ta.value = next; const ph = card.querySelector("." + CARD_CLASS + "__prompt-ph"); if (ph) ph.style.display = "none"; }
+    showToast("已并入 " + fresh.length + " 段配音文稿到提示词（音色本身不会进入视频请求）", "success");
+  }
+
   function buildCard(node) {
     const c = document.createElement("div"); c.className = CARD_CLASS; c.dataset.msVideoCard = "1";
 
@@ -366,11 +448,19 @@
 
     // Reference row
     const refRow = document.createElement("div"); refRow.className = CARD_CLASS + "__ref-row";
-    const refLabel = document.createElement("span"); refLabel.className = CARD_CLASS + "__ref-label"; refLabel.textContent = "参考图";
+    const refLabel = document.createElement("span"); refLabel.className = CARD_CLASS + "__ref-label"; refLabel.textContent = "上游参考";
     const refValue = document.createElement("span"); refValue.className = CARD_CLASS + "__ref-value";
-    refValue.textContent = "已引用：0 张";
+    refValue.textContent = statsText(upstreamStats(node.id));
     const refHint = document.createElement("span"); refHint.className = CARD_CLASS + "__ref-hint"; refHint.textContent = "输入 @ 引用";
-    refRow.append(refLabel, refValue, refHint); c.appendChild(refRow);
+    const refBtn = document.createElement("button");
+    refBtn.type = "button"; refBtn.className = CARD_CLASS + "__ref-btn";
+    refBtn.textContent = "并入配音文稿";
+    refBtn.addEventListener("click", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      mergeAudioScripts();
+    }, true);
+    refRow.append(refLabel, refValue, refHint, refBtn); c.appendChild(refRow);
+    syncRefRow(c, node);
 
     // Prompt label
     const plbl = document.createElement("div"); plbl.className = CARD_CLASS + "__prompt-label"; plbl.textContent = "提示词 / 文本";
@@ -705,6 +795,23 @@
     openModelMenu();
   }
 
+  function syncRefRow(root, explicitNode) {
+    if (!root) return;
+    // buildCard 期间全局 card 还没赋值，必须能显式传入节点
+    const node = explicitNode || getSelectedVideoNode();
+    const stats = node ? upstreamStats(node.id) : null;
+    const refValue = root.querySelector("." + CARD_CLASS + "__ref-value");
+    if (refValue) refValue.textContent = statsText(stats);
+    const btn = root.querySelector("." + CARD_CLASS + "__ref-btn");
+    if (btn) btn.classList.toggle("is-available", !!(stats && stats.audios));
+    // 连了音频就把代价写在行内：executeNode 会先自动跑一次配音（真实扣费），
+    // 配音失败还会让本节点直接 UpstreamError；而音色本身不会进入视频请求。
+    const hint = root.querySelector("." + CARD_CLASS + "__ref-hint");
+    if (hint) hint.textContent = stats && stats.audios
+      ? "生成前会先跑配音（扣费）"
+      : "输入 @ 引用";
+  }
+
   function refreshCard() {
     if (!card) return;
     const gb = card.querySelector('[data-vact="generate"]');
@@ -714,8 +821,7 @@
       gb.disabled = busy;
       gb.textContent = busy ? "生成中…" : "生成视频";
     }
-    const refValue = card.querySelector("." + CARD_CLASS + "__ref-value");
-    if (refValue) refValue.textContent = "已引用：0 张";
+    syncRefRow(card);
     const modelValue = card.querySelector("." + CARD_CLASS + "__model-value");
     const n = getSelectedVideoNode();
     if (modelValue && n) modelValue.textContent = n.data.videoModelId || "veo3fast";
@@ -758,7 +864,7 @@
     closeViewer();
     if (card) {
       card.classList.remove("is-visible");
-      setTimeout(() => { if (!card || !card.classList.contains("is-visible")) { card.remove(); card = null; } }, 320);
+      setTimeout(() => { if (card && !card.classList.contains("is-visible")) { card.remove(); card = null; } }, 320);
     }
     if (dismissed && lastNodeId) dismissedNodeId = lastNodeId;
     lastNodeId = null;
@@ -1056,7 +1162,7 @@
     window.addEventListener("storage", event => {
       if (event.key === VIDEO_API_KEY) syncModelMenu();
     });
-    window.__MS_VIDEO_INSPECTOR__ = { version: "20261116-7", refresh: () => { if (card) refreshCard(); } };
+    window.__MS_VIDEO_INSPECTOR__ = { version: "20261116-15", refresh: () => { if (card) refreshCard(); } };
     console.log("[ms] video-inspector-patch v17 ready");
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

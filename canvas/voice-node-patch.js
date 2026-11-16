@@ -3,12 +3,14 @@
 
   // 画布压缩包 bundle 把「语音」的入口裁掉了：侧栏「+」只剩 文本 / 图片 / 视频 / 上传，
   // 画布右键「添加节点」也缺少「语音」项。但 bundle 内部的语音能力是完整的——
-  // category "voice" 会渲染成语音节点（含文本输入 + 播放控制），
+  // category "audio"（bundle 里并没有 voice 这个类别）会渲染成 canvas-node__audio-card，
   // 结果落盘、历史记录、连线规则、工作流导入导出都已支持，原生 addNode 只是对
   // text/image/video/audio 之外的 category 直接 return。
   //
   // 因此本补丁只做两件事：把「语音」补回两处菜单，并用画布自己的 store 建节点。
-  // 不修改压缩 bundle，也不依赖其它补丁的内部实现。
+  // 不修改压缩 bundle。连线放行规则不在这里：audio 与 video 一样被 bundle 裁成孤岛
+  // （yt[q.Audio] = acceptsInput:[] / canOutputTo:[]），统一由 canvas/video-node-patch.js
+  // 的 allowsConnection 放行「文本 → 音频」，本补丁不再第二次包装共享 isValidConnection。
 
   const LABEL = "语音";
   const UPLOAD_ITEM_TEXT = "上传";
@@ -16,17 +18,20 @@
   const DROPDOWN_SEL = ".sidebar__dropdown";
   const SUBMENU_SEL = ".canvas-context-menu__submenu";
 
-  // 与 bundle 里语音节点的默认形状保持一致。
-  // payload: { text, model }，model 留空则由运行时从 API 配置中取 minimax。
+  // 与 bundle 里 y_(q.Audio) 的默认节点形状逐字保持一致：
+  // 原生 tts 生成只读 audioModelId / audioVoiceId / audioLanguage / promptText，
+  // 旧形状（category "voice" + text）bundle 完全不认，节点既渲染不出内容也不发请求。
   const DEFAULT_VOICE_DATA = {
-    label: "Voice",
-    category: "voice",
+    label: "Audio",
+    category: "audio",
     status: "idle",
     activeResultIndex: 0,
-    voiceModelId: "",
-    vendorId: "minimax",
-    text: "",
-    outputFormat: "mp3",
+    audioMode: "tts",
+    audioModelId: "speech-2.8-hd",
+    audioLanguage: "zh-CN",
+    audioGender: "male",
+    audioVoiceId: "Chinese (Mandarin)_Reliable_Executive",
+    promptText: "",
   };
 
   const VOICE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>';
@@ -159,6 +164,11 @@
       return false;
     }
 
+    // replaceCanvasState 建的节点不会被 React Flow 测量 handleBounds，
+    // 不补这一步就得刷新页面才能拖线；实现复用 video-node-patch 对外暴露的 measureNode。
+    const bridge = window.__MS_VIDEO_NODE_PATCH__;
+    if (bridge && typeof bridge.measureNode === "function") bridge.measureNode(node.id);
+
     window.requestAnimationFrame(() => {
       const fresh = read();
       if (fresh && typeof fresh.setSelectedNode === "function") {
@@ -246,6 +256,37 @@
     document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   }
 
+  // ======= 迁移旧补丁建的错误节点 =======
+  // 旧版本建的是 category "voice" + text，bundle 没有这个类别，节点渲染成空壳、运行也不发请求。
+  // 用原生 updateNodeData 原地换成 audio 形状：只碰这些旧节点，不动坐标、不碰别人的节点。
+  const LEGACY_CATEGORY = "voice";
+  let migrated = false;
+
+  function migrateLegacyVoiceNodes() {
+    const read = findCanvasStore();
+    const state = read ? read() : null;
+    if (!state || typeof state.updateNodeData !== "function") return false;
+    const legacy = (state.nodes || []).filter(
+      node => node && node.data && node.data.category === LEGACY_CATEGORY
+    );
+    legacy.forEach(node => {
+      const data = node.data;
+      try {
+        state.updateNodeData(node.id, {
+          label: "Audio",
+          category: "audio",
+          audioMode: "tts",
+          audioModelId: data.audioModelId || data.voiceModelId || DEFAULT_VOICE_DATA.audioModelId,
+          audioLanguage: data.audioLanguage || DEFAULT_VOICE_DATA.audioLanguage,
+          audioGender: data.audioGender || DEFAULT_VOICE_DATA.audioGender,
+          audioVoiceId: data.audioVoiceId || DEFAULT_VOICE_DATA.audioVoiceId,
+          promptText: typeof data.promptText === "string" ? data.promptText : (data.text || ""),
+        });
+      } catch (_) { /* 单个节点迁移失败不影响其它 */ }
+    });
+    return true;
+  }
+
   // ======= 样式 =======
   function injectStyles() {
     if (document.getElementById("ms-voice-node-styles")) return;
@@ -286,7 +327,7 @@
   window.__MS_VOICE_NODE_PATCH__ = {
     addVoiceNode: useFlowPosition => addVoiceNode(!!useFlowPosition),
     isReady: () => !!findCanvasStore(),
-    version: "20261114-13",
+    version: "20261116-14",
   };
 
   if (document.readyState === "loading") {
