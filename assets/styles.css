@@ -947,8 +947,8 @@ input:focus-visible,
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 30%, transparent 58%, rgba(255, 255, 255, 0.82)),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.16), transparent 35%);
+    linear-gradient(180deg, transparent 30%, transparent 63%, rgba(26, 26, 26, 0.75)),
+    linear-gradient(90deg, rgba(26, 26, 26, 0.25), transparent 35%);
 }
 
 .poster-scan {
