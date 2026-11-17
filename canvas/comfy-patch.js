@@ -8,6 +8,7 @@
   const TAB_ID = "ms-comfy-tab-btn";
   const SECTION_ID = "ms-comfy-section";
   const VIEW_CLASS = "ms-comfy-view";
+  const DRAWER_ID = "ms-comfy-drawer";
   const PROXY_PREFIX = "/__comfy/";
   const LOCAL_ID = "local";
   const CLOUD_ID = "cloud";
@@ -19,6 +20,7 @@
 
   let comfyState = null;
   let comfyActive = false;
+  let comfyDrawerVisible = false;
   let modalWasOpen = false;
   let tabButton = null;
   let section = null;
@@ -202,6 +204,58 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
+      /* 侧栏抽屉样式 */
+      #ms-comfy-drawer {
+        position: fixed;
+        z-index: 99991;
+        top: 52px;
+        right: 0;
+        bottom: 0;
+        width: min(600px, calc(100vw - 100px));
+        background: #f8f6f3;
+        border-left: 1px solid #e4dfd8;
+        box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+        transform: translateX(100%);
+        transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        flex-direction: column;
+      }
+      #ms-comfy-drawer.is-open { transform: translateX(0); }
+      .ms-comfy-drawer__header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid #e4dfd8;
+        background: #fff;
+        flex: 0 0 auto;
+      }
+      .ms-comfy-drawer__title {
+        flex: 1;
+        font-size: 14px;
+        font-weight: 700;
+        color: #3f352e;
+      }
+      .ms-comfy-drawer__close {
+        padding: 4px 10px;
+        border: 1px solid #d4cdc4;
+        border-radius: 8px;
+        background: #fff;
+        color: #6d5e52;
+        font-size: 11px;
+        cursor: pointer;
+        transition: 0.16s;
+      }
+      .ms-comfy-drawer__close:hover {
+        background: #f5f2ef;
+        border-color: #bfb5a8;
+      }
+      .ms-comfy-drawer__body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+      }
+      /* 原有的弹窗样式保留 */
       .settings-modal__body.ms-comfy-view > *:not(#${SECTION_ID}) { display: none !important; }
       #${SECTION_ID} { display: none; }
       .settings-modal__body.ms-comfy-view > #${SECTION_ID} { display: flex !important; }
@@ -1157,6 +1211,104 @@
     }
   }
 
+
+  // ======= 侧栏快捷入口：ComfyUI 设置按钮（插在资产按钮下方） =======
+  const COMFY_SIDEBAR_ID = "ms-comfy-sidebar-btn";
+  function injectSidebarButton() {
+    const sidebar = document.querySelector(".sidebar");
+    if (!sidebar) return false;
+    if (sidebar.querySelector("#" + COMFY_SIDEBAR_ID)) return true;
+    const assetBtn = sidebar.querySelector('[data-ms-gallery-btn="assets"]');
+    const target = assetBtn ? assetBtn.nextSibling : null;
+    if (!target) return false;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sidebar__icon-btn";
+    btn.id = COMFY_SIDEBAR_ID;
+    btn.title = "ComfyUI 设置";
+    btn.setAttribute("data-ms-comfy-sidebar", "true");
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m-9.5-7h6m6 0h6M4.2 4.2l4.2 4.2m7.6 7.6l4.2 4.2m0-16l-4.2 4.2m-7.6 7.6l-4.2 4.2"/></svg>';
+    btn.addEventListener("click", () => {
+      if (comfyDrawerVisible) {
+        closeComfyDrawer();
+      } else {
+        openComfyDrawer();
+      }
+    });
+    target.parentNode.insertBefore(btn, target);
+    return true;
+  }
+
+
+  // ======= ComfyUI 设置抽屉 =======
+  let comfyDrawerEl = null;
+
+  function createComfyDrawer() {
+    if (comfyDrawerEl) return;
+    comfyDrawerEl = document.createElement("div");
+    comfyDrawerEl.id = DRAWER_ID;
+    comfyDrawerEl.className = "ms-comfy-drawer";
+    comfyDrawerEl.innerHTML = `
+      <div class="ms-comfy-drawer__header">
+        <span class="ms-comfy-drawer__title">ComfyUI 设置</span>
+        <button class="ms-comfy-drawer__close" id="msComfyDrawerClose" type="button">关闭</button>
+      </div>
+      <div class="ms-comfy-drawer__body" id="msComfyDrawerBody"></div>
+    `;
+    comfyDrawerEl.querySelector("#msComfyDrawerClose").addEventListener("click", closeComfyDrawer);
+    document.body.appendChild(comfyDrawerEl);
+  }
+
+  function openComfyDrawer() {
+    createComfyDrawer();
+    comfyDrawerVisible = true;
+    comfyDrawerEl.classList.add("is-open");
+    renderComfyToDrawer();
+  }
+
+  function closeComfyDrawer() {
+    comfyDrawerVisible = false;
+    comfyDrawerEl?.classList.remove("is-open");
+  }
+
+  function renderComfyToDrawer() {
+    const body = document.getElementById("msComfyDrawerBody");
+    if (!body || !comfyState) return;
+    const active = activeComfyProfile();
+    const html = `
+      <div class="settings-section__header">
+        <h3>ComfyUI 设置</h3>
+        <p>${active ? "当前启用：" + escapeHtml(active.name) : "当前未启用"}。请求统一经本地 server.py 转发。</p>
+      </div>
+      <div class="ms-comfy__note">
+        画布运行在浏览器里，ComfyUI 默认只放行同源请求。
+        这里通过本机静态服务转发连接；测试时需要 server.py 正在运行。
+      </div>
+      <div class="ms-comfy__list">
+        ${(comfyState.profiles || []).map(p => renderComfyCard(p, profileMeta(p.id), p.id === comfyState.activeId)).join("")}
+      </div>
+      <p class="ms-comfy__footnote">本地与云端同一时间只会启用一个；切换后立即生效。</p>
+    `;
+    if (body.innerHTML !== html) {
+      body.innerHTML = html;
+    }
+    (comfyState.profiles || []).forEach(p => {
+      applyStatusToDom(p.id);
+      if (p.id === comfyState.activeId) {
+        renderWorkflowPanel(p);
+        renderRunPanel(p);
+      }
+    });
+  }
+
+  // 等待 .sidebar 出现后注入（React 异步渲染）
+  function ensureSidebarButton() {
+    const root = document.getElementById("root") || document.documentElement;
+    new MutationObserver(() => {
+      if (injectSidebarButton()) return;
+    }).observe(root, { childList: true, subtree: true });
+  }
+
   function init() {
     comfyState = readComfyState();
     publishActiveComfy();
@@ -1165,6 +1317,7 @@
     document.addEventListener("input", handleInput);
     new MutationObserver(queueSync).observe(document.body, { childList: true, subtree: true });
     queueSync();
+    ensureSidebarButton();
   }
 
   if (document.readyState === "loading") {
