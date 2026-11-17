@@ -1,12 +1,15 @@
 (() => {
   "use strict";
-  // ComfyUI 节点补丁：在画布侧栏和右键菜单新增 ComfyUI 节点入口
+
+  // ComfyUI 节点补丁：在画布中新增 ComfyUI 节点类型及 Inspector 面板
+  // 参照 video-node-patch.js / video-inspector-patch.js 的模式实现
   const COMFY_KEY = "manshiguang:canvas-comfyui";
   const LABEL = "ComfyUI";
   const DROPDOWN_SEL = ".sidebar__dropdown";
   const SUBMENU_SEL = ".canvas-context-menu__submenu";
   const COMFY_CATEGORY = "comfy";
   const PROXY_PREFIX = "/__comfy/";
+  const EDITOR_CLASS = "ms-comfy-editor";
 
   const COMFY_MODES = [
     { id: "txt2img", name: "文生图", icon: "🎨" },
@@ -20,7 +23,9 @@
   let seq = 0;
   let lastPointer = null;
   let toastTimer = null;
+  let comfyNodeElement = null;
 
+  // ======= 工具函数 =======
   function findCanvasStore() {
     const rootEl = document.getElementById("root");
     if (!rootEl) return null;
@@ -107,6 +112,7 @@
     return { x: (lastPointer.x - rect.left - offsetX) / zoom, y: (lastPointer.y - rect.top - offsetY) / zoom };
   }
 
+  // ======= 创建节点 =======
   function addComfyNode(useFlowPosition) {
     const read = findCanvasStore();
     const state = read ? read() : null;
@@ -126,6 +132,7 @@
         comfyProfile: "local",
         comfyPrompt: "",
         comfyWorkflow: null,
+        results: [],
       },
     };
     try {
@@ -145,6 +152,7 @@
     return true;
   }
 
+  // ======= 侧栏和右键菜单注入 =======
   function nativeItems(container) {
     return [...container.querySelectorAll("button")].filter(btn => !btn.hasAttribute("data-ms-comfy-item"));
   }
@@ -154,7 +162,7 @@
     btn.type = "button";
     btn.className = opts.className;
     btn.setAttribute("data-ms-comfy-item", "1");
-    btn.innerHTML = `<span class="comfy-icon">${COMFY_MODES[0].icon}</span><span>${LABEL}</span>`;
+    btn.innerHTML = `<span>${COMFY_MODES[0].icon}</span><span>${LABEL}</span>`;
     btn.style.order = "6";
     if (opts.gap) { btn.style.gap = "8px"; btn.style.justifyContent = "flex-start"; }
     btn.addEventListener("click", event => { event.stopPropagation(); event.preventDefault(); onClick(); });
@@ -199,75 +207,114 @@
     }
   }
 
+  // ======= Inspector 面板 =======
+  const CARD_CLASS = `${EDITOR_CLASS}__card`;
+  const PANEL_CLASS = `${EDITOR_CLASS}__panel`;
+
   function installStyles() {
     if (document.getElementById("ms-comfy-node-style")) return;
     const style = document.createElement("style");
     style.id = "ms-comfy-node-style";
     style.textContent = `
+      /* Toast */
       .ms-comfy-toast {
         position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
         background: #1a1a1a; color: #fff; border-radius: 8px; font-size: 13px;
-        z-index: 10000; animation: fadeIn 0.2s ease;
+        z-index: 10000; animation: ms-fadeIn 0.2s ease;
       }
       .ms-comfy-toast.is-error { background: #b42318; }
-      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      .ms-comfy-inspector { margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 12px; }
-      .ms-comfy-panel-header { font-weight: 600; font-size: 13px; color: var(--text, #f7f8ff); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.1)); }
-      .ms-comfy-field { margin-bottom: 12px; }
-      .ms-comfy-field label { display: block; font-size: 11px; color: var(--muted, #99a4c5); margin-bottom: 4px; }
-      .ms-comfy-select, .ms-comfy-textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 8px; background: var(--surface, #0d1428); color: var(--text, #f7f8ff); font-size: 13px; font-family: inherit; box-sizing: border-box; }
-      .ms-comfy-textarea { min-height: 80px; resize: vertical; }
-      .ms-comfy-actions { display: flex; gap: 8px; margin-top: 16px; }
-      .ms-comfy-btn { flex: 1; padding: 8px 12px; border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 8px; background: var(--surface-raised, #131c35); color: var(--text, #f7f8ff); font-size: 12px; cursor: pointer; transition: all 0.15s ease; }
-      .ms-comfy-btn:hover { background: var(--primary, #7c5cff); border-color: var(--primary, #7c5cff); }
-      .ms-comfy-btn--primary { background: var(--primary, #7c5cff); border-color: var(--primary, #7c5cff); color: #fff; }
-      .ms-comfy-btn--primary:hover { opacity: 0.9; }
-      .canvas-node--comfy { border-color: var(--primary, #7c5cff) !important; }
-      .canvas-node--comfy .node-header { background: linear-gradient(135deg, var(--primary, #7c5cff), var(--secondary, #22d3ee)); }
+      @keyframes ms-fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+      /* Node highlight */
+      .canvas-node--comfy { border-color: #7c5cff !important; }
+      .canvas-node--comfy .node-header { background: linear-gradient(135deg, #7c5cff, #22d3ee); }
+
+      /* Inspector panel */
+      .${PANEL_CLASS} {
+        display: flex; flex-direction: column; gap: 12px; padding: 16px;
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border, rgba(255,255,255,0.1));
+        border-radius: 12px; margin-top: 12px;
+      }
+      .${PANEL_CLASS}__header {
+        display: flex; align-items: center; justify-content: space-between;
+        font-weight: 600; font-size: 13px; color: var(--text, #f7f8ff);
+        padding-bottom: 10px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.1));
+      }
+      .${PANEL_CLASS}__mode-select {
+        width: 100%; padding: 8px 10px; border: 1px solid var(--border, rgba(255,255,255,0.1));
+        border-radius: 8px; background: var(--surface, #0d1428); color: var(--text, #f7f8ff);
+        font-size: 13px; box-sizing: border-box;
+      }
+      .${PANEL_CLASS}__prompt textarea {
+        width: 100%; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border, rgba(255,255,255,0.1));
+        border-radius: 8px; background: var(--surface, #0d1428); color: var(--text, #f7f8ff);
+        font-size: 13px; font-family: inherit; resize: vertical; box-sizing: border-box;
+      }
+      .${PANEL_CLASS}__actions {
+        display: flex; gap: 8px; margin-top: 4px;
+      }
+      .${PANEL_CLASS}__btn {
+        flex: 1; padding: 8px 12px; border: 1px solid var(--border, rgba(255,255,255,0.1));
+        border-radius: 8px; background: var(--surface-raised, #131c35); color: var(--text, #f7f8ff);
+        font-size: 12px; cursor: pointer; transition: all 0.15s ease;
+      }
+      .${PANEL_CLASS}__btn:hover { background: #7c5cff; border-color: #7c5cff; color: #fff; }
+      .${PANEL_CLASS}__btn--primary { background: #7c5cff; border-color: #7c5cff; color: #fff; }
+      .${PANEL_CLASS}__btn--primary:hover { opacity: 0.9; }
+      .${PANEL_CLASS}__status { font-size: 11px; color: var(--muted, #99a4c5); margin-top: 4px; }
+      .${PANEL_CLASS}__results { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+      .${PANEL_CLASS}__thumb { width: 80px; height: 80px; border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 8px; overflow: hidden; }
+      .${PANEL_CLASS}__thumb img { width: 100%; height: 100%; object-fit: cover; }
     `;
     document.head.appendChild(style);
   }
 
-  function patchInspector() {
-    const observer = new MutationObserver(() => {
-      const inspector = document.querySelector(".canvas-inspector");
-      if (!inspector || inspector.querySelector("[data-ms-comfy-inspector]")) return;
-      const checkNode = () => {
-        const read = findCanvasStore();
-        const state = read ? read() : null;
-        if (!state || !state.selectedNodeId) return;
-        const node = state.nodes.find(n => n.id === state.selectedNodeId);
-        if (!node || node.data.category !== COMFY_CATEGORY) return;
-        insertComfyPanel(inspector, node);
-      };
-      checkNode();
-      if (findCanvasStore()) {
-        const unsubscribe = findCanvasStore().subscribe?.(() => checkNode());
-        if (unsubscribe) setTimeout(unsubscribe, 5000);
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-
   function insertComfyPanel(inspector, node) {
-    const panel = document.createElement("div");
-    panel.className = "ms-comfy-inspector";
-    panel.setAttribute("data-ms-comfy-inspector", "true");
+    if (!inspector || !node) return;
+
+    // 检查是否已存在
+    const existing = inspector.querySelector(`.${PANEL_CLASS}`);
+    if (existing) return;
+
     const modes = COMFY_MODES.map(m => `<option value="${m.id}">${m.icon} ${m.name}</option>`).join("");
+
+    const panel = document.createElement("div");
+    panel.className = PANEL_CLASS;
     panel.innerHTML = `
-      <div class="ms-comfy-panel-header"><span>⚡ ComfyUI 设置</span></div>
-      <div class="ms-comfy-panel-body">
-        <div class="ms-comfy-field"><label>工作模式</label><select class="ms-comfy-select" data-field="comfyMode">${modes}</select></div>
-        <div class="ms-comfy-field"><label>配置文件</label><select class="ms-comfy-select" data-field="comfyProfile"><option value="local">本地 ComfyUI</option><option value="cloud">云端 ComfyUI</option></select></div>
-        <div class="ms-comfy-field ms-comfy-field--wide"><label>提示词</label><textarea class="ms-comfy-textarea" data-field="comfyPrompt" placeholder="输入提示词..."></textarea></div>
-        <div class="ms-comfy-actions"><button class="ms-comfy-btn ms-comfy-btn--primary" data-action="run">▶ 生成</button><button class="ms-comfy-btn" data-action="clear">清空</button></div>
+      <div class="${PANEL_CLASS}__header">
+        <span>⚡ ComfyUI 设置</span>
+        <span class="${PANEL_CLASS}__status" data-field="status"></span>
       </div>
+      <div class="${PANEL_CLASS}__field">
+        <label>工作模式</label>
+        <select class="${PANEL_CLASS}__mode-select" data-field="comfyMode">${modes}</select>
+      </div>
+      <div class="${PANEL_CLASS}__field">
+        <label>配置文件</label>
+        <select class="${PANEL_CLASS}__mode-select" data-field="comfyProfile">
+          <option value="local">本地 ComfyUI</option>
+          <option value="cloud">云端 ComfyUI</option>
+        </select>
+      </div>
+      <div class="${PANEL_CLASS}__field ${PANEL_CLASS}__prompt">
+        <label>提示词</label>
+        <textarea data-field="comfyPrompt" placeholder="输入提示词..."></textarea>
+      </div>
+      <div class="${PANEL_CLASS}__actions">
+        <button class="${PANEL_CLASS}__btn ${PANEL_CLASS}__btn--primary" data-action="run">▶ 生成</button>
+        <button class="${PANEL_CLASS}__btn" data-action="clear">清空</button>
+      </div>
+      <div class="${PANEL_CLASS}__results" data-field="results"></div>
     `;
+
+    // 填充当前值
     const data = node.data || {};
     panel.querySelector('[data-field="comfyMode"]').value = data.comfyMode || "txt2img";
     panel.querySelector('[data-field="comfyProfile"]').value = data.comfyProfile || "local";
     panel.querySelector('[data-field="comfyPrompt"]').value = data.comfyPrompt || "";
-    panel.querySelectorAll("[data-field]").forEach(el => {
+
+    // 绑定事件
+    panel.querySelectorAll('[data-field]').forEach(el => {
       el.addEventListener("input", e => {
         const field = e.target.dataset.field;
         const read = findCanvasStore();
@@ -279,58 +326,151 @@
         state.replaceCanvasState(state.nodes, state.edges, state.groups);
       });
     });
-    panel.querySelectorAll("[data-action]").forEach(el => {
+
+    panel.querySelectorAll('[data-action]').forEach(el => {
       el.addEventListener("click", e => {
         const action = e.target.dataset.action;
-        if (action === "clear") panel.querySelector('[data-field="comfyPrompt"]').value = "";
-        else if (action === "run") runComfyNode(node, panel);
+        if (action === "clear") {
+          panel.querySelector('[data-field="comfyPrompt"]').value = "";
+          updateField("comfyPrompt", "");
+        } else if (action === "run") {
+          runComfyNode(node, panel);
+        }
       });
     });
+
     inspector.appendChild(panel);
+  }
+
+  function updateField(field, value) {
+    const panel = document.querySelector(`.${PANEL_CLASS}`);
+    if (!panel) return;
+    const el = panel.querySelector(`[data-field="${field}"]`);
+    if (el) el.value = value;
   }
 
   async function runComfyNode(node, panel) {
     const read = findCanvasStore();
     const state = read ? read() : null;
     if (!state) { showToast("无法获取画布状态", "error"); return; }
+
     const data = node.data;
     const profileId = data.comfyProfile || "local";
     const mode = data.comfyMode || "txt2img";
     const prompt = data.comfyPrompt || "";
+
     if (!prompt.trim()) { showToast("请输入提示词", "error"); return; }
+
+    // 更新 UI 状态
+    updateField("status", "运行中...");
     node.data.status = "running";
     state.replaceCanvasState(state.nodes, state.edges, state.groups);
+
+    // 获取配置
     const cs = readComfyState();
     const profile = cs.profiles.find(p => p.id === profileId);
-    if (!profile || !profile.baseUrl) { showToast("请先配置 ComfyUI 地址", "error"); node.data.status = "idle"; state.replaceCanvasState(state.nodes, state.edges, state.groups); return; }
+    if (!profile || !profile.baseUrl) {
+      showToast("请先配置 ComfyUI 地址", "error");
+      updateField("status", "未配置");
+      node.data.status = "idle";
+      state.replaceCanvasState(state.nodes, state.edges, state.groups);
+      return;
+    }
+
     try {
       const headers = { "Content-Type": "application/json" };
       if (profile.apiKey) headers["X-MS-Comfy-Key"] = profile.apiKey;
+
       const body = JSON.stringify({ prompt, mode, workflow: data.comfyWorkflow });
-      const resp = await fetch(`${PROXY_PREFIX}queue?base=${encodeURIComponent(profile.baseUrl)}`, { method: "POST", headers, body });
+      const resp = await fetch(`${PROXY_PREFIX}queue?base=${encodeURIComponent(profile.baseUrl)}`, {
+        method: "POST", headers, body
+      });
+
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
       const result = await resp.json();
       node.data.status = "success";
       node.data.result = result;
+
+      // 处理结果（根据模式不同返回不同类型）
+      if (result.images) {
+        node.data.results = result.images.map(img => ({
+          url: img.url || img.filename,
+          fileName: img.filename || "output.png",
+          viewUrl: img.viewUrl
+        }));
+      }
+
       showToast("生成完成", "success");
+      updateField("status", "已完成");
+      renderResults(panel, node.data.results || []);
+
     } catch (err) {
       console.error("[ComfyUI] 执行失败:", err);
       node.data.status = "error";
       node.data.errorMessage = err.message;
       showToast("生成失败: " + err.message, "error");
+      updateField("status", "失败: " + err.message.substring(0, 30));
     }
+
     state.replaceCanvasState(state.nodes, state.edges, state.groups);
   }
 
+  function renderResults(panel, results) {
+    const container = panel.querySelector('[data-field="results"]');
+    if (!container || !results.length) return;
+
+    container.innerHTML = results.map(r => `
+      <div class="${PANEL_CLASS}__thumb">
+        <img src="${r.viewUrl || r.url || r.fileName}" alt="${r.fileName}" />
+      </div>
+    `).join("");
+  }
+
+  // ======= Inspector 监听 =======
+  function patchInspector() {
+    const observer = new MutationObserver(() => {
+      const inspector = document.querySelector(".inspector.is-visible, .inspector.inspector--open");
+      if (!inspector) return;
+
+      const read = findCanvasStore();
+      const state = read ? read() : null;
+      if (!state || !state.selectedNodeId) return;
+
+      const node = state.nodes.find(n => n.id === state.selectedNodeId);
+      if (!node || node.data.category !== COMFY_CATEGORY) return;
+
+      // 确保 panel 只插入一次
+      if (!inspector.querySelector(`.${PANEL_CLASS}`)) {
+        insertComfyPanel(inspector, node);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // ======= 初始化 =======
   function init() {
     comfyState = readComfyState();
     installStyles();
-    const observer = new MutationObserver(() => { patchSidebarDropdown(); patchContextSubmenu(); patchInspector(); });
+
+    // 使用 MutationObserver 等待菜单出现
+    const observer = new MutationObserver(() => {
+      patchSidebarDropdown();
+      patchContextSubmenu();
+      patchInspector();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
+
+    // 立即执行
     patchSidebarDropdown();
     patchContextSubmenu();
     patchInspector();
-    document.addEventListener("pointermove", e => { lastPointer = { x: e.clientX, y: e.clientY }; });
+
+    // 记录鼠标位置
+    document.addEventListener("pointermove", e => {
+      lastPointer = { x: e.clientX, y: e.clientY };
+    });
   }
 
   if (document.readyState === "loading") {
