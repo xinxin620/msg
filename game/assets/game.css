@@ -1,31 +1,31 @@
 /* 看背影识人 · 素材页样式。变量名与 assets/styles.css 对齐，改主站配色这里自动跟随。 */
 :root {
-  --bg: #070b18;
-  --bg-deep: #040712;
-  --bg-soft: #0a1020;
-  --surface: #0d1428;
-  --surface-raised: #131c35;
-  --surface-glass: rgba(13, 20, 40, 0.72);
-  --primary: #7c5cff;
-  --primary-soft: #a28dff;
-  --secondary: #22d3ee;
+  --bg: #eeecea;
+  --bg-deep: #e5e3e0;
+  --bg-soft: #f8f5f1;
+  --surface: #fff;
+  --surface-raised: #f3f1ef;
+  --surface-glass: rgba(255, 255, 255, 0.85);
+  --primary: #1a1a1a;
+  --primary-soft: #333;
+  --secondary: #7c5cff;
   --accent: #ff6fb5;
-  --gold: #ffd166;
-  --text: #f7f8ff;
-  --text-soft: #d9def0;
-  --muted: #99a4c5;
-  --muted-deep: #687494;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --success: #4ade80;
-  --danger: #fb7185;
-  --font-display: "Zen Maru Gothic", "Noto Sans SC", sans-serif;
-  --font-body: "Noto Sans SC", sans-serif;
-  --font-latin: "Outfit", "Noto Sans SC", sans-serif;
-  --radius-sm: 12px;
-  --radius-md: 18px;
-  --radius-lg: 26px;
-  --shadow-lg: 0 32px 90px rgba(0, 0, 0, 0.42);
+  --gold: #b26b00;
+  --text: #1a1a1a;
+  --text-soft: #555;
+  --muted: #777;
+  --muted-deep: #aaa;
+  --border: #e0deda;
+  --border-strong: #c5c3c0;
+  --success: #168a5b;
+  --danger: #e54d42;
+  --font-display: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", "Noto Sans SC", sans-serif;
+  --font-body: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", "Noto Sans SC", sans-serif;
+  --font-latin: "Segoe UI", "Noto Sans SC", sans-serif;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.1);
 }
 
 * { box-sizing: border-box; }
@@ -36,8 +36,7 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
-  background: radial-gradient(circle at 12% 8%, #14204a 0%, transparent 45%),
-    radial-gradient(circle at 88% 92%, #2a1440 0%, transparent 48%), var(--bg-deep);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
@@ -293,7 +292,7 @@ body {
   aspect-ratio: 3 / 4;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
-  background: #0b1122;
+  background: var(--surface-raised);
   overflow: hidden;
   box-shadow: var(--shadow-lg);
 }
@@ -307,7 +306,7 @@ body {
   text-align: center;
   padding: 24px;
   color: var(--muted);
-  background: repeating-linear-gradient(45deg, #0d1428, #0d1428 12px, #101a33 12px, #101a33 24px);
+  background: repeating-linear-gradient(45deg, var(--surface-raised), var(--surface-raised) 12px, var(--surface) 12px, var(--surface) 24px);
 }
 .stage-empty .icon { width: 30px; height: 30px; margin: 0 auto; }
 .stage-empty p { margin: 0; font-size: 14px; }
@@ -370,7 +369,7 @@ body {
   padding: 34px clamp(20px, 4vw, 40px);
   border-radius: var(--radius-xl, 36px);
   border: 1px solid var(--border-strong);
-  background: linear-gradient(170deg, rgba(124, 92, 255, 0.16), rgba(13, 20, 40, 0.9));
+  background: linear-gradient(170deg, rgba(124, 92, 255, 0.16), rgba(255, 255, 255, 0.6));
   box-shadow: var(--shadow-lg);
   text-align: center;
 }
@@ -396,7 +395,7 @@ body {
   background: rgba(255, 255, 255, 0.04);
   font-size: 13px;
 }
-.wrong-item img { width: 42px; height: 56px; border-radius: 8px; object-fit: cover; flex: none; background: #0b1122; }
+.wrong-item img { width: 42px; height: 56px; border-radius: 8px; object-fit: cover; flex: none; background: var(--surface-raised); }
 .wrong-item em { font-style: normal; color: var(--danger); }
 .wrong-item b { color: var(--success); }
 .wrong-item small { margin-left: auto; color: var(--muted-deep); }
@@ -408,7 +407,7 @@ body {
   z-index: 60;
   display: grid;
   justify-items: end;
-  background: rgba(4, 7, 18, 0.7);
+  background: rgba(26, 26, 26, 0.05);
   backdrop-filter: blur(4px);
   animation: rise 0.2s ease both;
 }
@@ -456,7 +455,7 @@ body {
   background: rgba(255, 255, 255, 0.03);
   font-size: 13px;
 }
-.person-row img { width: 38px; height: 50px; border-radius: 7px; object-fit: cover; flex: none; background: #0b1122; }
+.person-row img { width: 38px; height: 50px; border-radius: 7px; object-fit: cover; flex: none; background: var(--surface-raised); }
 .person-row .ph { width: 38px; height: 50px; border-radius: 7px; flex: none; display: grid; place-items: center; background: rgba(255,255,255,0.05); color: var(--muted-deep); font-size: 11px; }
 .person-main { flex: 1; min-width: 0; }
 .person-main strong { display: block; }
