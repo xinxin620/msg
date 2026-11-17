@@ -2546,7 +2546,7 @@ input:focus-visible,
   padding: 15px 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(11, 17, 34, 0.56);
+  background: var(--surface);
   color: inherit;
   text-decoration: none;
   transition:
@@ -2557,7 +2557,7 @@ input:focus-visible,
 
 .website-card:hover {
   border-color: rgba(34, 211, 238, 0.4);
-  background: rgba(13, 20, 40, 0.82);
+  background: var(--surface-raised);
   transform: translateY(-3px);
 }
 
