@@ -8,7 +8,6 @@
   const TAB_ID = "ms-comfy-tab-btn";
   const SECTION_ID = "ms-comfy-section";
   const VIEW_CLASS = "ms-comfy-view";
-  const DRAWER_ID = "ms-comfy-drawer";
   const PROXY_PREFIX = "/__comfy/";
   const LOCAL_ID = "local";
   const CLOUD_ID = "cloud";
@@ -20,12 +19,11 @@
 
   let comfyState = null;
   let comfyActive = false;
-  let comfyDrawerVisible = false;
   let modalWasOpen = false;
   let tabButton = null;
   let section = null;
   let syncQueued = false;
-  const runtime = { status: new Map(), timers: new Map(), workflows: new Map(), runs: new Map(), details: new Map() };
+  const runtime = { status: new Map(), timers: new Map(), workflows: new Map(), details: new Map() };
 
   const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -84,16 +82,49 @@
     const byId = new Map((Array.isArray(stored?.profiles) ? stored.profiles : []).map(item => [item?.id, item || {}]));
     const profiles = PROFILE_META.map(meta => {
       const saved = byId.get(meta.id) || {};
+      // 兼容旧版单选字段 selectedWorkflow
+      const legacy = normalizeSelectedWorkflow(saved.selectedWorkflow);
+      const list = Array.isArray(saved.selectedWorkflows)
+        ? saved.selectedWorkflows.map(normalizeSelectedWorkflow).filter(Boolean)
+        : (legacy ? [legacy] : []);
       return {
         id: meta.id,
         name: typeof saved.name === "string" && saved.name.trim() ? saved.name.trim() : meta.name,
         baseUrl: typeof saved.baseUrl === "string" ? saved.baseUrl : (meta.id === LOCAL_ID ? "http://127.0.0.1:8188" : ""),
         apiKey: typeof saved.apiKey === "string" ? saved.apiKey : "",
-        selectedWorkflow: normalizeSelectedWorkflow(saved.selectedWorkflow),
+        selectedWorkflows: list,
       };
     });
     const activeId = profiles.some(p => p.id === stored?.activeId) ? stored.activeId : "";
-    return { version: 1, activeId, profiles };
+    return { version: 2, activeId, profiles };
+  }
+
+  // 单选兼容：旧代码读 profile.selectedWorkflow 时取第一项
+  function selectedWorkflowsOf(profile) {
+    const url = normalizeComfyUrl(profile?.baseUrl);
+    const list = Array.isArray(profile?.selectedWorkflows) ? profile.selectedWorkflows : [];
+    return list.filter(item => item && item.path && normalizeComfyUrl(item.baseUrl) === url);
+  }
+
+  function isWorkflowSelected(profile, path) {
+    return selectedWorkflowsOf(profile).some(item => item.path === path);
+  }
+
+  function toggleSelectedWorkflow(profile, item, url) {
+    const list = Array.isArray(profile.selectedWorkflows) ? profile.selectedWorkflows : [];
+    const index = list.findIndex(entry => entry.path === item.path);
+    if (index >= 0) list.splice(index, 1);
+    else list.push({
+      path: item.path,
+      name: item.name,
+      size: item.size,
+      modified: item.modified,
+      nodeCount: Number.isFinite(item.nodeCount) ? item.nodeCount : 0,
+      fetchedAt: Date.now(),
+      baseUrl: url,
+    });
+    profile.selectedWorkflows = list;
+    return index < 0;
   }
 
   function saveComfyState() {
@@ -113,14 +144,14 @@
   function publishActiveComfy() {
     const active = activeComfyProfile();
     const baseUrl = active ? normalizeComfyUrl(active.baseUrl) : "";
-    const selectedWorkflow = active?.selectedWorkflow && normalizeComfyUrl(active.selectedWorkflow.baseUrl) === baseUrl
-      ? { ...active.selectedWorkflow }
-      : null;
+    const selectedWorkflows = active ? selectedWorkflowsOf(active).map(item => ({ ...item })) : [];
     window.__MS_COMFY__ = {
       activeId: active?.id || "",
       baseUrl,
       apiKey: active?.apiKey || "",
-      selectedWorkflow,
+      selectedWorkflows,
+      // 兼容旧消费者：仍暴露第一项
+      selectedWorkflow: selectedWorkflows[0] || null,
       updatedAt: Date.now(),
     };
     window.dispatchEvent(new CustomEvent("manshiguang:comfy-changed", { detail: window.__MS_COMFY__ }));
@@ -204,58 +235,6 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      /* 侧栏抽屉样式 */
-      #ms-comfy-drawer {
-        position: fixed;
-        z-index: 99991;
-        top: 52px;
-        right: 0;
-        bottom: 0;
-        width: min(600px, calc(100vw - 100px));
-        background: #f8f6f3;
-        border-left: 1px solid #e4dfd8;
-        box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
-        transform: translateX(100%);
-        transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
-        display: flex;
-        flex-direction: column;
-      }
-      #ms-comfy-drawer.is-open { transform: translateX(0); }
-      .ms-comfy-drawer__header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 12px 16px;
-        border-bottom: 1px solid #e4dfd8;
-        background: #fff;
-        flex: 0 0 auto;
-      }
-      .ms-comfy-drawer__title {
-        flex: 1;
-        font-size: 14px;
-        font-weight: 700;
-        color: #3f352e;
-      }
-      .ms-comfy-drawer__close {
-        padding: 4px 10px;
-        border: 1px solid #d4cdc4;
-        border-radius: 8px;
-        background: #fff;
-        color: #6d5e52;
-        font-size: 11px;
-        cursor: pointer;
-        transition: 0.16s;
-      }
-      .ms-comfy-drawer__close:hover {
-        background: #f5f2ef;
-        border-color: #bfb5a8;
-      }
-      .ms-comfy-drawer__body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px;
-      }
-      /* 原有的弹窗样式保留 */
       .settings-modal__body.ms-comfy-view > *:not(#${SECTION_ID}) { display: none !important; }
       #${SECTION_ID} { display: none; }
       .settings-modal__body.ms-comfy-view > #${SECTION_ID} { display: flex !important; }
@@ -269,50 +248,33 @@
       .ms-comfy__result.is-muted { color: #8b7c6f; }
       .ms-comfy__footnote { margin: 0; color: #8b7c6f; font-size: 12px; line-height: 1.7; }
       #${TAB_ID} .ms-comfy-tab-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; font-size: 13px; }
-      .ms-comfy__workflows { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px dashed #e4dcd4; }
-      .ms-comfy__workflows-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      .ms-comfy__workflows-heading { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-      .ms-comfy__workflows-title { color: #3f352e; font-size: 13px; font-weight: 700; }
-      .ms-comfy__workflows-count { color: #8b7c6f; font-size: 12px; }
-      .ms-comfy__workflow-selected { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #e4dcd4; border-radius: 12px; background: #fffdfa; }
-      .ms-comfy__workflow-selected.is-empty { color: #8b7c6f; font-size: 12px; line-height: 1.7; }
-      .ms-comfy__workflow-selected-label { color: #8b7c6f; font-size: 11px; letter-spacing: 0.04em; }
-      .ms-comfy__workflow-selected-name { color: #3f352e; font-size: 13px; font-weight: 700; word-break: break-all; }
-      .ms-comfy__workflow-selected-meta { color: #6d5e52; font-size: 12px; line-height: 1.6; }
-      .ms-comfy__workflow-selected-path { color: #a29488; font-size: 11px; line-height: 1.5; word-break: break-all; }
+      .ms-comfy__workflows { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid #8f7c681f; }
+      .ms-comfy__workflows-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .ms-comfy__workflows-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+      .ms-comfy__workflows-title { color: #4b3d33; font-size: 13px; font-weight: 700; }
+      .ms-comfy__workflows-count { color: #8d7868; font-size: 11px; }
+      .ms-comfy__workflows-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .ms-comfy__workflows-button { height: 28px; padding: 0 12px; border: 1px solid #d8c9bb; border-radius: 999px; background: #fff; color: #6d5e52; font-size: 11px; font-weight: 700; cursor: pointer; }
+      .ms-comfy__workflows-button:hover:not(:disabled) { border-color: #ff6a1a; color: #d9530d; }
+      .ms-comfy__workflows-button--primary { border-color: #ff6a1a; background: #fff4ec; color: #d9530d; }
+      .ms-comfy__workflows-button:disabled { cursor: not-allowed; opacity: .52; }
       .ms-comfy__workflow-search { width: 100%; box-sizing: border-box; }
-      .ms-comfy__workflow-message { margin: 0; font-size: 12px; line-height: 1.6; color: #6d5e52; }
-      .ms-comfy__workflow-message.is-error { color: #b42318; }
-      .ms-comfy__workflow-message.is-ok { color: #1a7f4b; }
-      .ms-comfy__workflows-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; padding: 2px; }
-      .ms-comfy__workflow { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 9px 11px; border: 1px solid #e8e1da; border-radius: 11px; background: #fff; color: #3f352e; text-align: left; cursor: pointer; font: inherit; transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
-      .ms-comfy__workflow:hover { border-color: #ff6a1a66; background: #fff7f1; transform: translateY(-1px); }
-      .ms-comfy__workflow.is-selected { border-color: #ff6a1a; background: #fff1e8; box-shadow: 0 0 0 2px #ff6a1a14; }
+      .ms-comfy__workflow-message { margin: 0; padding: 9px 11px; border-radius: 10px; background: #8f7c680d; color: #8d7868; font-size: 11px; line-height: 1.65; }
+      .ms-comfy__workflow-message[hidden] { display: none !important; }
+      .ms-comfy__workflow-message.is-error { background: #fff1ee; color: #b42318; }
+      .ms-comfy__workflow-message.is-ok { background: #e9f7ef; color: #217a50; }
+      .ms-comfy__workflows-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; max-height: 236px; overflow: auto; overflow-anchor: none; padding: 2px; }
+      .ms-comfy__workflow { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #8f7c681f; border-radius: 10px; background: #ffffffa6; color: #3a2f27; cursor: pointer; }
+      .ms-comfy__workflow:hover { border-color: #ff6a1a59; background: #fffaf6; }
+      .ms-comfy__workflow.is-selected { border-color: #ff6a1a80; background: #fff5ee; }
       .ms-comfy__workflow.is-busy { opacity: 0.65; pointer-events: none; }
-      .ms-comfy__workflow-name { font-size: 12px; font-weight: 700; word-break: break-all; }
-      .ms-comfy__workflow-meta { color: #8b7c6f; font-size: 11px; }
-      .ms-comfy__workflow-path { color: #a29488; font-size: 10px; line-height: 1.4; word-break: break-all; }
-      .ms-comfy__workflow-empty { padding: 12px; border: 1px dashed #e4dcd4; border-radius: 11px; color: #8b7c6f; font-size: 12px; line-height: 1.6; text-align: center; }
-      .ms-comfy__run { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px dashed #e4dcd4; }
-      .ms-comfy__run-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-      .ms-comfy__run-heading { display: flex; align-items: baseline; gap: 8px; }
-      .ms-comfy__run-title { color: #3f352e; font-size: 13px; font-weight: 700; }
-      .ms-comfy__run-phase { color: #ff6a1a; font-size: 11px; font-weight: 700; }
-      .ms-comfy__run-actions { display: flex; gap: 8px; }
-      .ms-comfy__run-status { margin: 0; font-size: 12px; line-height: 1.6; color: #6d5e52; word-break: break-word; }
-      .ms-comfy__run-status.is-error { color: #b42318; }
-      .ms-comfy__run-note { margin: 0; font-size: 12px; line-height: 1.7; color: #6d5e52; }
-      .ms-comfy__run-note.is-error { color: #b42318; }
-      .ms-comfy__run-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-      .ms-comfy__run-field { display: flex; flex-direction: column; gap: 4px; }
-      .ms-comfy__run-field.is-wide { grid-column: 1 / -1; }
-      .ms-comfy__run-field-label { color: #6d5e52; font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
-      .ms-comfy__run-field-label em { color: #a29488; font-size: 10px; font-style: normal; }
-      .ms-comfy__run-input { width: 100%; box-sizing: border-box; font: inherit; }
-      .ms-comfy__run-more { align-self: flex-start; padding: 4px 10px; border: 1px solid #e8e1da; border-radius: 9px; background: #fff; color: #6d5e52; font-size: 11px; cursor: pointer; }
-      .ms-comfy__results { display: flex; flex-wrap: wrap; gap: 8px; }
-      .ms-comfy__thumb { display: block; width: 92px; height: 92px; border: 1px solid #e4dcd4; border-radius: 11px; overflow: hidden; background: #fffdfa; }
-      .ms-comfy__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .ms-comfy__workflow-check { flex: 0 0 auto; width: 14px; height: 14px; margin: 0; accent-color: #ff6a1a; cursor: pointer; }
+      .ms-comfy__workflow-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+      .ms-comfy__workflow-name { min-width: 0; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+      .ms-comfy__workflow-meta { color: #8d7868; font-size: 10px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ms-comfy__workflow-tag { margin-left: auto; padding: 2px 6px; border-radius: 999px; background: #8f7c6814; color: #8d7868; font-size: 9px; line-height: 1.4; flex: 0 0 auto; }
+      .ms-comfy__workflow-tag.is-selected { background: #ff6a1a1a; color: #d9530d; }
+      .ms-comfy__workflow-empty { grid-column: 1 / -1; padding: 9px 11px; border-radius: 10px; background: #8f7c680d; color: #8d7868; font-size: 11px; line-height: 1.65; }
     `;
     document.head.appendChild(style);
   }
@@ -325,9 +287,8 @@
     const filtered = items
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => !query || `${item.name} ${item.path}`.toLowerCase().includes(query));
-    const selected = profile.selectedWorkflow && normalizeComfyUrl(profile.selectedWorkflow.baseUrl) === url
-      ? profile.selectedWorkflow
-      : null;
+    const selectedList = selectedWorkflowsOf(profile);
+    const selectedMap = new Map(selectedList.map(item => [item.path, item]));
 
     let message = "";
     let messageKind = "";
@@ -354,28 +315,29 @@
       messageKind = "muted";
     }
 
-    const count = cache?.loading ? "读取中" : (cache?.loadedAt ? `${items.length} 个` : "");
-    const selectedHtml = selected ? `
-      <div class="ms-comfy__workflow-selected-label">当前已选工作流</div>
-      <div class="ms-comfy__workflow-selected-name">${escapeHtml(selected.name)}</div>
-      <div class="ms-comfy__workflow-selected-meta">${selected.nodeCount ? `${selected.nodeCount} 个节点` : "节点数量未知"} · ${formatBytes(selected.size)} · ${formatWorkflowTime(selected.modified)}</div>
-      <div class="ms-comfy__workflow-selected-path">${escapeHtml(selected.path)}</div>` : `
-      <div class="ms-comfy__workflow-selected-label">当前已选工作流</div>
-      还没有选择工作流；点击下方列表中的一项读取并校验。`;
+    const count = cache?.loading ? "读取中…" : (cache?.loadedAt ? `共 ${items.length} 个` : "");
+    let loadedAt = "";
+    if (cache?.loadedAt) {
+      try { loadedAt = `最近拉取 ${new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(cache.loadedAt))}`; } catch { loadedAt = ""; }
+    }
     const listHtml = filtered.length ? filtered.map(({ item, index }) => {
-      const isSelected = selected?.path === item.path;
+      const picked = selectedMap.get(item.path);
+      const isSelected = Boolean(picked);
       const isBusy = cache?.detailLoading === item.path;
       return `
-        <button type="button" class="ms-comfy__workflow${isSelected ? " is-selected" : ""}${isBusy ? " is-busy" : ""}" data-ms-comfy-workflow-index="${index}"${isBusy ? " disabled" : ""}>
-          <span class="ms-comfy__workflow-name">${escapeHtml(item.name)}</span>
-          <span class="ms-comfy__workflow-meta">${formatBytes(item.size)} · ${formatWorkflowTime(item.modified)}${isSelected && selected?.nodeCount ? ` · ${selected.nodeCount} 个节点` : ""}</span>
-          <span class="ms-comfy__workflow-path">${escapeHtml(item.path)}</span>
-        </button>`;
+        <label class="ms-comfy__workflow${isSelected ? " is-selected" : ""}${isBusy ? " is-busy" : ""}" data-ms-comfy-workflow-index="${index}" title="${escapeHtml(item.path)}"${isBusy ? ' aria-busy="true"' : ""}>
+          <input type="checkbox" class="ms-comfy__workflow-check" data-ms-comfy-workflow-check="${index}"${isSelected ? " checked" : ""}${isBusy ? " disabled" : ""} />
+          <span class="ms-comfy__workflow-body">
+            <span class="ms-comfy__workflow-name">${escapeHtml(item.name)}</span>
+            <span class="ms-comfy__workflow-meta">${formatBytes(item.size)} · ${formatWorkflowTime(item.modified)}${isSelected && picked?.nodeCount ? ` · ${picked.nodeCount} 个节点` : ""}</span>
+          </span>
+          <span class="ms-comfy__workflow-tag${isSelected ? " is-selected" : ""}">${isBusy ? "读取中" : isSelected ? "已选" : "选用"}</span>
+        </label>`;
     }).join("") : `<div class="ms-comfy__workflow-empty">${cache?.loading ? "正在读取…" : "暂无可选工作流"}</div>`;
 
     return {
       count,
-      selectedHtml: `<div class="ms-comfy__workflow-selected${selected ? "" : " is-empty"}">${selectedHtml}</div>`,
+      loadedAt,
       message,
       messageClass: `ms-comfy__workflow-message${messageKind ? ` is-${messageKind}` : ""}`,
       listHtml,
@@ -387,16 +349,20 @@
       <div class="ms-comfy__workflows" data-ms-comfy-workflows>
         <div class="ms-comfy__workflows-head">
           <div class="ms-comfy__workflows-heading">
-            <span class="ms-comfy__workflows-title">工作流</span>
+            <span class="ms-comfy__workflows-title">工作流列表</span>
             <span class="ms-comfy__workflows-count" data-ms-comfy-workflow-count></span>
+            <span class="ms-comfy__workflows-count" data-ms-comfy-workflow-time></span>
           </div>
-          <button type="button" class="ms-api-card__button ms-api-card__button--apply" data-ms-comfy-action="refresh-workflows">刷新</button>
+          <div class="ms-comfy__workflows-actions">
+            <button type="button" class="ms-comfy__workflows-button ms-comfy__workflows-button--primary" data-ms-comfy-action="refresh-workflows">刷新列表</button>
+            <button type="button" class="ms-comfy__workflows-button" data-ms-comfy-action="select-all-workflows">全选</button>
+            <button type="button" class="ms-comfy__workflows-button" data-ms-comfy-action="clear-workflow">清空</button>
+          </div>
         </div>
-        <div data-ms-comfy-workflow-selected></div>
         <input class="ms-api-card__input ms-comfy__workflow-search" data-ms-comfy-workflow-search type="search" autocomplete="off" placeholder="搜索工作流名称或路径" />
-        <p data-ms-comfy-workflow-message hidden></p>
+        <div data-ms-comfy-workflow-message hidden></div>
         <div class="ms-comfy__workflows-list" data-ms-comfy-workflow-list></div>
-        <p class="ms-comfy__footnote">选中工作流后，下方「生成」区会自动解析出可修改的参数；提交后结果会作为图片节点插入画布。</p>
+        <p class="ms-comfy__footnote">可勾选多个工作流；画布上的 ComfyUI 节点下拉只列出这里勾选的项。</p>
       </div>`;
   }
 
@@ -406,12 +372,12 @@
     if (!block) return;
     const parts = workflowPanelParts(profile);
     const count = block.querySelector("[data-ms-comfy-workflow-count]");
-    const selected = block.querySelector("[data-ms-comfy-workflow-selected]");
+    const time = block.querySelector("[data-ms-comfy-workflow-time]");
     const message = block.querySelector("[data-ms-comfy-workflow-message]");
     const list = block.querySelector("[data-ms-comfy-workflow-list]");
     const search = block.querySelector("[data-ms-comfy-workflow-search]");
     if (count && count.textContent !== parts.count) count.textContent = parts.count;
-    setHtmlIfChanged(selected, parts.selectedHtml);
+    if (time && time.textContent !== parts.loadedAt) time.textContent = parts.loadedAt;
     if (search && document.activeElement !== search) {
       const nextSearch = workflowCache(profile)?.search || "";
       if (search.value !== nextSearch) search.value = nextSearch;
@@ -421,7 +387,23 @@
       if (message.className !== parts.messageClass) message.className = parts.messageClass;
       if (message.hidden === Boolean(parts.message)) message.hidden = !parts.message;
     }
+    syncWorkflowChecks(list, profile);
     setHtmlIfChanged(list, parts.listHtml);
+  }
+
+  function syncWorkflowChecks(list, profile) {
+    if (!list) return;
+    const selectedPaths = new Set(selectedWorkflowsOf(profile).map(item => item.path));
+    list.querySelectorAll("[data-ms-comfy-workflow-check]").forEach(input => {
+      const item = workflowCache(profile)?.items?.[Number(input.dataset.msComfyWorkflowCheck)];
+      const checked = Boolean(item && selectedPaths.has(item.path));
+      if (input.checked !== checked) input.checked = checked;
+      const row = input.closest(".ms-comfy__workflow");
+      row?.classList.toggle("is-selected", checked);
+      row?.querySelector(".ms-comfy__workflow-tag")?.classList.toggle("is-selected", checked);
+      const tag = row?.querySelector(".ms-comfy__workflow-tag");
+      if (tag && !row?.classList.contains("is-busy")) tag.textContent = checked ? "已选" : "选用";
+    });
   }
 
   function renderComfyCard(profile, meta, isActive) {
@@ -493,7 +475,6 @@
       applyStatusToDom(p.id);
       if (p.id === comfyState.activeId) {
         renderWorkflowPanel(p);
-        renderRunPanel(p);
       }
     });
   }
@@ -694,13 +675,22 @@
     fetchWorkflows(profile);
   }
 
-  async function selectWorkflow(profile, index) {
+  // 多选：勾选即加入勾选列表，取消即移除；新增的会顺便读取校验一次
+  async function toggleWorkflow(profile, index) {
     const invalid = comfyUrlError(profile.baseUrl);
     if (invalid) { setStatus(profile.id, "error", invalid); return; }
     const cache = workflowCache(profile, true);
     const item = cache?.items?.[index];
     if (!item) return;
     const url = normalizeComfyUrl(profile.baseUrl);
+    const wasSelected = isWorkflowSelected(profile, item.path);
+    toggleSelectedWorkflow(profile, item, url);
+    if (wasSelected) {
+      cache.notice = { kind: "", text: `已取消勾选「${item.name}」。` };
+      saveComfyState();
+      renderWorkflowPanel(profile);
+      return;
+    }
     cache.detailLoading = item.path;
     cache.error = "";
     cache.notice = null;
@@ -715,414 +705,61 @@
       try { payload = JSON.parse(text); } catch { payload = null; }
       if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
       if (!payload || !Array.isArray(payload.nodes)) throw new Error("这个文件不是可执行的 ComfyUI 工作流（缺少 nodes 数组）");
-      profile.selectedWorkflow = {
-        path: item.path,
-        name: item.name,
-        size: item.size,
-        modified: item.modified,
-        nodeCount: payload.nodes.length,
-        fetchedAt: Date.now(),
-        baseUrl: url,
-      };
-      runtime.details.set(runKey(profile), payload);
+      const list = profile.selectedWorkflows || [];
+      const entry = list.find(one => one.path === item.path);
+      if (entry) {
+        entry.nodeCount = payload.nodes.length;
+        entry.size = item.size;
+        entry.modified = item.modified;
+        entry.fetchedAt = Date.now();
+      }
+      runtime.details.set(`${url}::${item.path}`, payload);
       saveComfyState();
-      prepareRun(profile, true);
       cache.detailLoading = "";
-      cache.notice = { kind: "ok", text: `已选择「${item.name}」：校验通过，共 ${payload.nodes.length} 个节点。` };
+      cache.notice = { kind: "ok", text: `已勾选「${item.name}」：校验通过，共 ${payload.nodes.length} 个节点。` };
     } catch (error) {
+      // 校验失败时撤销这次勾选
+      toggleSelectedWorkflow(profile, item, url);
+      saveComfyState();
       cache.detailLoading = "";
       cache.error = `读取工作流失败：${error?.message || "网络异常"}。`;
     }
     renderWorkflowPanel(profile);
   }
 
-  // ── 生成执行：解析参数 → 提交任务 → 轮询进度 → 结果回填画布 ──────────────
-  const RUN_POLL_MS = 1500;
-  const RUN_MAX_WAIT_MS = 30 * 60 * 1000;
-  const RUN_PRIMARY_RE = /(prompt|^text$|^image$|seed|steps|cfg|denoise|width|height|batch_size|sampler_name|scheduler|filename_prefix|lora_name|unet_name|vae_name|clip_name|checkpoint)/i;
-  const RUN_PHASE_LABEL = { idle: "", prepared: "待生成", blocked: "无法自动转换", preparing: "解析中", running: "生成中", done: "已完成", error: "失败" };
-
-  function runKey(profile) {
-    const selected = profile?.selectedWorkflow;
-    if (!selected?.path) return "";
-    return `${normalizeComfyUrl(profile.baseUrl)}::${selected.path}`;
-  }
-
-  function runState(profile, create = false) {
-    let state = runtime.runs.get(profile.id);
-    if (!state && create) {
-      state = { phase: "idle", text: "", promptId: "", signature: "", prompt: null, fields: [], edits: {}, advanced: false, images: [], videos: [], timer: 0, startedAt: 0 };
-      runtime.runs.set(profile.id, state);
-    }
-    return state || null;
-  }
-
-  function stopRun(profile) {
-    const state = runtime.runs.get(profile.id);
-    if (state?.timer) window.clearTimeout(state.timer);
-    if (state) state.timer = 0;
-  }
-
-  function resetRun(profile, phase, text) {
-    stopRun(profile);
-    runtime.runs.set(profile.id, {
-      phase, text: text || "", promptId: "", signature: "", prompt: null,
-      fields: [], edits: {}, advanced: false, images: [], videos: [], timer: 0, startedAt: 0,
-    });
-  }
-
-  function blockerText(blockers) {
-    const kinds = new Set((blockers || []).map(item => item.kind));
-    const names = [...new Set((blockers || []).map(item => item.type).filter(Boolean))].slice(0, 3);
-    let reason = "这个工作流包含画布无法安全转换的节点。";
-    if (kinds.has("subgraph")) reason = "这个工作流里包含「子图」节点，画布无法安全还原成可执行任务。请在 ComfyUI 里展开子图后另存为新工作流再选。";
-    else if (kinds.has("virtual")) reason = "这个工作流使用了只在前端生效的节点（分组开关、取值/存值等），画布无法安全转换。";
-    else if (kinds.has("legacy-widgets")) reason = "这个工作流里有些节点的参数没有命名记录（较早版本保存的格式）。请在 ComfyUI 里重新保存一次该工作流，再回来刷新选择。";
-    return `${reason}${names.length ? ` 涉及节点：${names.join("、")}。` : ""}`;
-  }
-
-  function viewUrl(profile, item) {
-    const params = new URLSearchParams({
-      filename: String(item.filename || ""),
-      type: String(item.type || "output"),
-      subfolder: String(item.subfolder || ""),
-      rand: String(Math.random()),
-      base: normalizeComfyUrl(profile.baseUrl),
-    });
-    return `${PROXY_PREFIX}view?${params.toString()}`;
-  }
-
-  async function ensureWorkflowRaw(profile) {
-    const key = runKey(profile);
-    if (!key) return null;
-    if (runtime.details.has(key)) return runtime.details.get(key);
-    const selected = profile.selectedWorkflow;
-    const url = normalizeComfyUrl(profile.baseUrl);
-    const response = await fetch(
-      `${PROXY_PREFIX}api/userdata/${encodeURIComponent(`workflows/${selected.path}`)}?base=${encodeURIComponent(url)}`,
-      { method: "GET", cache: "no-store", headers: workflowHeaders(profile) },
-    );
-    const text = await response.text();
-    let payload = null;
-    try { payload = JSON.parse(text); } catch { payload = null; }
-    if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
-    if (!payload || !Array.isArray(payload.nodes)) throw new Error("这个文件不是可执行的 ComfyUI 工作流（缺少 nodes 数组）");
-    runtime.details.set(key, payload);
-    return payload;
-  }
-
-  async function prepareRun(profile, force = false) {
-    const helper = window.__MS_COMFY_WORKFLOW__;
-    const selected = profile.selectedWorkflow;
-    const signature = runKey(profile);
-    if (!selected) return;
-    if (force) { stopRun(profile); runtime.runs.delete(profile.id); }
-    if (!helper) {
-      resetRun(profile, "error", "工作流转换模块未加载，请刷新画布页面后重试。");
-      renderRunPanel(profile, true);
-      return;
-    }
-    const current = runtime.runs.get(profile.id);
-    if (current?.signature === signature && (current.phase === "prepared" || current.phase === "blocked" || current.phase === "preparing")) return;
-
-    resetRun(profile, "preparing", "正在把工作流解析成可执行任务…");
-    runtime.runs.get(profile.id).signature = signature;
-    renderRunPanel(profile, true);
-    try {
-      const raw = await ensureWorkflowRaw(profile);
-      if (runKey(profile) !== signature) return;
-      const verdict = helper.analyze(raw);
-      if (!verdict.ok) {
-        resetRun(profile, "blocked", blockerText(verdict.blockers));
-        runtime.runs.get(profile.id).signature = signature;
-        renderRunPanel(profile, true);
-        return;
-      }
-      const prompt = helper.convert(raw);
-      const state = runtime.runs.get(profile.id) || {};
-      Object.assign(state, {
-        phase: "prepared",
-        text: `已准备好「${selected.name}」，共 ${Object.keys(prompt).length} 个节点。可修改参数后点「开始生成」。`,
-        signature, prompt, fields: helper.editableFields(prompt),
-        edits: {}, advanced: false, images: [], videos: [], promptId: "", timer: 0,
-      });
-      runtime.runs.set(profile.id, state);
-    } catch (error) {
-      resetRun(profile, "error", `解析失败：${error?.message || error}`);
-      runtime.runs.get(profile.id).signature = signature;
-    }
-    renderRunPanel(profile, true);
-  }
-
-  function isPrimaryField(field) {
-    return RUN_PRIMARY_RE.test(String(field.key || "")) || RUN_PRIMARY_RE.test(String(field.classType || ""));
-  }
-
-  function editValue(state, field) {
-    const edited = state?.edits?.[field.nodeId]?.[field.key];
-    return edited === undefined ? field.value : edited;
-  }
-
-  function fieldMarkup(state, field) {
-    const value = editValue(state, field);
-    const dataKey = `${field.nodeId}|${field.key}`;
-    const numeric = typeof field.value === "number";
-    const boolish = typeof field.value === "boolean";
-    const wide = typeof value === "string" && value.length > 48;
-    const control = boolish
-      ? `<select class="ms-api-card__input ms-comfy__run-input" data-ms-comfy-run-field="${escapeHtml(dataKey)}"><option value="true"${value === true ? " selected" : ""}>是</option><option value="false"${value === false ? " selected" : ""}>否</option></select>`
-      : wide
-        ? `<textarea class="ms-api-card__input ms-comfy__run-input" rows="3" data-ms-comfy-run-field="${escapeHtml(dataKey)}">${escapeHtml(value)}</textarea>`
-        : `<input class="ms-api-card__input ms-comfy__run-input" data-ms-comfy-run-field="${escapeHtml(dataKey)}" type="${numeric ? "number" : "text"}" step="any" value="${escapeHtml(value)}" />`;
-    return `<label class="ms-comfy__run-field${wide ? " is-wide" : ""}"><span class="ms-comfy__run-field-label">${escapeHtml(field.key)}<em>节点 ${escapeHtml(field.nodeId)} · ${escapeHtml(field.classType)}</em></span>${control}</label>`;
-  }
-
-  function runPanelMarkup(profile) {
-    const state = runState(profile);
-    const phase = state?.phase || "idle";
-    const busy = phase === "preparing" || phase === "running";
-    const canRun = (phase === "prepared" || phase === "done" || phase === "error") && !busy;
-    let body = "";
-    if (!state?.fields?.length) {
-      body = `<p class="ms-comfy__run-note${phase === "error" || phase === "blocked" ? " is-error" : ""}">${escapeHtml(state?.text || (phase === "idle" ? "点「准备生成」把工作流解析成可执行任务。" : ""))}</p>`;
-    } else {
-      const shown = state.advanced ? state.fields : state.fields.filter(isPrimaryField);
-      const hidden = state.fields.length - shown.length;
-      body = `<div class="ms-comfy__run-fields">${shown.map(field => fieldMarkup(state, field)).join("")}</div>
-        <button type="button" class="ms-comfy__run-more" data-ms-comfy-run-action="toggle-advanced">${state.advanced ? "只看常用参数" : `显示全部 ${state.fields.length} 个参数${hidden ? `（含 ${hidden} 个不常用项）` : ""}`}</button>`;
-    }
-    const thumbs = [...(state?.images || []), ...(state?.videos || [])];
-    const thumbsHtml = thumbs.length
-      ? `<div class="ms-comfy__results">${thumbs.map(item => { const href = item.viewUrl || viewUrl(profile, item); return `<a class="ms-comfy__thumb" href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${escapeHtml(item.filename || "")}"><img src="${escapeHtml(href)}" alt="${escapeHtml(item.filename || "")}" loading="lazy" /></a>`; }).join("")}</div>`
-      : "";
-    return `<div class="ms-comfy__run" data-ms-comfy-run>
-      <div class="ms-comfy__run-head">
-        <div class="ms-comfy__run-heading"><span class="ms-comfy__run-title">生成</span><span class="ms-comfy__run-phase" data-ms-comfy-run-phase>${escapeHtml(RUN_PHASE_LABEL[phase] || "")}</span></div>
-        <div class="ms-comfy__run-actions">
-          <button type="button" class="ms-api-card__button" data-ms-comfy-run-action="prepare"${busy ? " disabled" : ""}>${phase === "prepared" || phase === "done" ? "重新解析" : "准备生成"}</button>
-          <button type="button" class="ms-api-card__button ms-api-card__button--enable" data-ms-comfy-run-action="run"${canRun ? "" : " disabled"}>${phase === "running" ? "生成中…" : "开始生成"}</button>
-          ${busy ? '<button type="button" class="ms-api-card__button" data-ms-comfy-run-action="cancel">取消等待</button>' : ""}
-        </div>
-      </div>
-      <p class="ms-comfy__run-status${phase === "error" || phase === "blocked" ? " is-error" : ""}" data-ms-comfy-run-status${state?.fields?.length || phase === "idle" || phase === "preparing" ? "" : " hidden"}>${escapeHtml(state?.text || "")}</p>
-      ${body}
-      ${thumbsHtml}
-    </div>`;
-  }
-
-  function runRenderSignature(profile) {
-    const state = runtime.runs.get(profile.id);
-    if (!state) return "none";
-    return [profile.selectedWorkflow?.path || "", state.phase, state.signature, state.advanced ? "all" : "primary",
-      state.fields.length, (state.images?.length || 0) + (state.videos?.length || 0)].join("|");
-  }
-
-  function renderRunPanel(profile, force = false) {
-    const block = document.querySelector(`#${SECTION_ID} [data-comfy-id="${CSS.escape(profile.id)}"] [data-ms-comfy-workflows]`);
-    if (!block || !profile.selectedWorkflow) return;
-    const host = block.querySelector("[data-ms-comfy-run]");
-    const state = runtime.runs.get(profile.id);
-    const signature = runRenderSignature(profile);
-    if (force || !host || host.__msRunSignature !== signature) {
-      const markup = runPanelMarkup(profile);
-      if (host) host.outerHTML = markup;
-      else block.insertAdjacentHTML("beforeend", markup);
-      const created = block.querySelector("[data-ms-comfy-run]");
-      if (created) created.__msRunSignature = signature;
-      return;
-    }
-    const status = host.querySelector("[data-ms-comfy-run-status]");
-    if (status && status.textContent !== (state?.text || "")) status.textContent = state?.text || "";
-    const phaseLabel = host.querySelector("[data-ms-comfy-run-phase]");
-    const label = RUN_PHASE_LABEL[state?.phase] || "";
-    if (phaseLabel && phaseLabel.textContent !== label) phaseLabel.textContent = label;
-  }
-
-  function deliverResults(profile, state) {
-    const host = window.__MS_CANVAS_ASSET_HOST__;
-    const images = (state.images || []).slice(0, 4);
-    if (!images.length) return (state.videos || []).length ? "视频结果请点击缩略图查看。" : "该工作流没有可插入画布的图片输出（输出节点可能被静音）。";
-    if (!host?.receiveAsset) return "生成完成，但画布插入入口未就绪，可点缩略图查看。";
-    let sent = 0;
-    for (const image of images) {
-      const name = String(image.filename || "comfy").replace(/\.[a-z0-9]+$/i, "");
-      if (host.receiveAsset({ id: `comfy-${name}-${Date.now()}-${sent}`, name, imageUrl: image.viewUrl || viewUrl(profile, image), category: "comfy" })) sent += 1;
-    }
-    return sent ? `已把 ${sent} 张结果插入画布图片节点。` : "生成完成，但画布上传入口未就绪，可点缩略图查看。";
-  }
-
-  function statusErrorText(status) {
-    const messages = Array.isArray(status?.messages) ? status.messages : [];
-    for (const message of messages) {
-      const detail = Array.isArray(message) ? message[1] : null;
-      const text = detail?.exception_message || detail?.message || (typeof message === "string" ? message : "");
-      if (text) return String(text);
-    }
-    return status?.status_str === "error" ? "ComfyUI 执行失败" : "";
-  }
-
-  function schedulePoll(profile, delay) {
-    const state = runtime.runs.get(profile.id);
-    if (!state) return;
-    stopRun(profile);
-    state.timer = window.setTimeout(() => pollRun(profile), delay);
-  }
-
-  async function pollRun(profile) {
-    const state = runtime.runs.get(profile.id);
-    if (!state || state.phase !== "running" || !state.promptId) return;
-    const url = normalizeComfyUrl(profile.baseUrl);
-    if (!profileStillAt(profile.id, url)) { resetRun(profile, "error", "ComfyUI 地址已变更，等待已中止。"); renderRunPanel(profile, true); return; }
-    const headers = workflowHeaders(profile);
-    try {
-      const historyResponse = await fetch(`${PROXY_PREFIX}history/${encodeURIComponent(state.promptId)}?base=${encodeURIComponent(url)}`, { method: "GET", cache: "no-store", headers });
-      const historyText = await historyResponse.text();
-      let history = null;
-      try { history = JSON.parse(historyText); } catch { history = null; }
-      if (!historyResponse.ok) throw new Error(history?.error || `HTTP ${historyResponse.status}`);
-      const entry = history?.[state.promptId];
-      if (entry) {
-        const entryStatus = entry.status || {};
-        if (entryStatus.status_str === "error") throw new Error(statusErrorText(entryStatus) || "ComfyUI 执行失败");
-        const outputs = window.__MS_COMFY_WORKFLOW__.collectOutputs(entry);
-        state.images = (outputs.images || []).slice(0, 8).map(item => ({ ...item, viewUrl: viewUrl(profile, item) }));
-        state.videos = (outputs.videos || []).slice(0, 4).map(item => ({ ...item, viewUrl: viewUrl(profile, item) }));
-        state.timer = 0;
-        state.phase = "done";
-        const summary = state.images.length || state.videos.length
-          ? `生成完成：${state.images.length} 张图片${state.videos.length ? `、${state.videos.length} 个视频` : ""}。`
-          : "任务已完成，但没有取到输出文件。";
-        state.text = `${summary}${deliverResults(profile, state)}`;
-        renderRunPanel(profile, true);
-        return;
-      }
-
-      const queueResponse = await fetch(`${PROXY_PREFIX}queue?base=${encodeURIComponent(url)}`, { method: "GET", cache: "no-store", headers });
-      const queueText = await queueResponse.text();
-      let queue = null;
-      try { queue = JSON.parse(queueText); } catch { queue = null; }
-      const running = (queue?.queue_running || []).some(item => item?.[1] === state.promptId);
-      const pending = (queue?.queue_pending || []).some(item => item?.[1] === state.promptId);
-      const elapsed = Math.round((Date.now() - state.startedAt) / 1000);
-      state.text = running
-        ? `ComfyUI 正在生成…（已等待 ${elapsed} 秒）`
-        : pending
-          ? `任务已排队，等前面的任务完成后执行…（已等待 ${elapsed} 秒）`
-          : `ComfyUI 仍在处理该任务…（已等待 ${elapsed} 秒）`;
-      if (Date.now() - state.startedAt > RUN_MAX_WAIT_MS) throw new Error("等待超过 30 分钟，已停止轮询。可在 ComfyUI 里查看该任务结果。");
-      renderRunPanel(profile);
-      schedulePoll(profile, RUN_POLL_MS);
-    } catch (error) {
-      state.phase = "error";
-      state.timer = 0;
-      state.text = `执行失败：${error?.message || error}`;
-      renderRunPanel(profile, true);
-    }
-  }
-
-  async function submitRun(profile) {
-    const state = runState(profile, true);
-    const selected = profile.selectedWorkflow;
-    if (!selected) return;
-    if (state.phase === "preparing" || state.phase === "running") return;
-    if (!state.prompt || state.signature !== runKey(profile)) { prepareRun(profile); return; }
-    if (state.phase === "blocked") return;
-    const invalid = comfyUrlError(profile.baseUrl);
-    if (invalid) { state.phase = "error"; state.text = invalid; renderRunPanel(profile, true); return; }
-
-    let prompt;
-    try {
-      prompt = window.__MS_COMFY_WORKFLOW__.applyEdits(state.prompt, state.edits);
-    } catch (error) {
-      state.phase = "error";
-      state.text = `参数写入失败：${error?.message || error}`;
-      renderRunPanel(profile, true);
-      return;
-    }
-
-    const url = normalizeComfyUrl(profile.baseUrl);
-    state.phase = "running";
-    state.text = "正在提交任务到 ComfyUI…";
-    state.images = [];
-    state.videos = [];
-    state.promptId = "";
-    renderRunPanel(profile, true);
-    try {
-      const response = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json", ...workflowHeaders(profile) },
-        body: JSON.stringify({ prompt }),
-      });
-      const text = await response.text();
-      let payload = null;
-      try { payload = JSON.parse(text); } catch { payload = null; }
-      if (!profileStillAt(profile.id, url)) { resetRun(profile, "error", "ComfyUI 地址已变更，任务未跟踪。"); renderRunPanel(profile, true); return; }
-      if (!response.ok) {
-        const detail = payload?.error?.message || payload?.error?.details || payload?.error?.type;
-        const firstNodeError = Object.values(payload?.node_errors || {})[0]?.errors?.[0]?.message;
-        throw new Error([detail, firstNodeError].filter(Boolean).join(" · ") || `HTTP ${response.status}`);
-      }
-      if (!payload?.prompt_id) throw new Error("ComfyUI 没有返回任务编号，无法跟踪结果。");
-      state.promptId = payload.prompt_id;
-      state.startedAt = Date.now();
-      state.text = "任务已提交，等待 ComfyUI 执行…";
-      renderRunPanel(profile, true);
-      schedulePoll(profile, 800);
-    } catch (error) {
-      state.phase = "error";
-      state.timer = 0;
-      state.text = `提交失败：${error?.message || error}`;
-      renderRunPanel(profile, true);
-    }
-  }
-
-  function handleRunInput(profile, input) {
-    const state = runtime.runs.get(profile.id);
-    if (!state) return;
-    const parts = String(input.dataset.msComfyRunField || "").split("|");
-    const nodeId = parts[0];
-    const key = parts.slice(1).join("|");
-    if (!nodeId || !key) return;
-    const field = state.fields.find(item => item.nodeId === nodeId && item.key === key);
-    if (!field) return;
-    let value = input.value;
-    if (typeof field.value === "number") {
-      const parsed = Number(value);
-      value = Number.isFinite(parsed) ? parsed : field.value;
-    } else if (typeof field.value === "boolean") {
-      value = value === "true";
-    }
-    if (!state.edits[nodeId]) state.edits[nodeId] = {};
-    state.edits[nodeId][key] = value;
-  }
-
-  function handleRunAction(action, profile) {
-    const state = runState(profile, true);
-    if (action === "prepare") { prepareRun(profile); return; }
-    if (action === "run") { submitRun(profile); return; }
-    if (action === "cancel") {
-      stopRun(profile);
-      state.phase = "idle";
-      state.text = "已停止等待。任务可能仍在 ComfyUI 中执行，可在 ComfyUI 界面查看结果。";
-      renderRunPanel(profile, true);
-      return;
-    }
-    if (action === "toggle-advanced") {
-      state.advanced = !state.advanced;
-      renderRunPanel(profile, true);
-    }
-  }
   function handleAction(action, profile) {
     if (!profile) return;
     if (action === "test") { testConnection(profile); return; }
     if (action === "refresh-workflows") { fetchWorkflows(profile, true); return; }
+    if (action === "select-all-workflows") {
+      const cache = workflowCache(profile, true);
+      const items = Array.isArray(cache?.items) ? cache.items : [];
+      if (!items.length) return;
+      const url = normalizeComfyUrl(profile.baseUrl);
+      profile.selectedWorkflows = items.map(item => ({
+        path: item.path,
+        name: item.name,
+        size: item.size,
+        modified: item.modified,
+        nodeCount: 0,
+        fetchedAt: 0,
+        baseUrl: url,
+      }));
+      saveComfyState();
+      cache.notice = { kind: "ok", text: `已勾选全部 ${items.length} 个工作流。` };
+      renderWorkflowPanel(profile);
+      return;
+    }
+    if (action === "clear-workflow") {
+      profile.selectedWorkflows = [];
+      saveComfyState();
+      const cache = workflowCache(profile, true);
+      if (cache) cache.notice = { kind: "", text: "已清空勾选的工作流。" };
+      renderWorkflowPanel(profile);
+      return;
+    }
     if (action === "enable") {
       if (comfyState.activeId === profile.id) return;
-      runtime.runs.forEach((_value, key) => {
-        stopRun({ id: key });
-        runtime.runs.delete(key);
-      });
       runtime.details.clear();
       const invalid = comfyUrlError(profile.baseUrl);
       comfyState.activeId = profile.id;
@@ -1150,16 +787,14 @@
     }
     const workflowItem = event.target?.closest?.("[data-ms-comfy-workflow-index]");
     if (workflowItem && workflowItem.closest(`#${SECTION_ID}`)) {
+      // 勾选框由 change 事件处理
+      if (event.target?.matches?.("[data-ms-comfy-workflow-check]")) {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       const found = cardFor(workflowItem);
-      if (found) selectWorkflow(found.profile, Number(workflowItem.dataset.msComfyWorkflowIndex));
-      return;
-    }
-    const runTrigger = event.target?.closest?.("[data-ms-comfy-run-action]");
-    if (runTrigger && runTrigger.closest(`#${SECTION_ID}`)) {
-      event.preventDefault();
-      const foundRun = cardFor(runTrigger);
-      if (foundRun) handleRunAction(runTrigger.dataset.msComfyRunAction, foundRun.profile);
+      if (found) toggleWorkflow(found.profile, Number(workflowItem.dataset.msComfyWorkflowIndex));
       return;
     }
     const trigger = event.target?.closest?.("[data-ms-comfy-action]");
@@ -1167,6 +802,15 @@
     const found = cardFor(trigger);
     if (!found) return;
     handleAction(trigger.dataset.msComfyAction, found.profile);
+  }
+
+  function handleChange(event) {
+    const checkbox = event.target;
+    if (!checkbox?.matches?.("[data-ms-comfy-workflow-check]")) return;
+    if (!checkbox.closest(`#${SECTION_ID}`)) return;
+    const found = cardFor(checkbox);
+    if (!found) return;
+    toggleWorkflow(found.profile, Number(checkbox.dataset.msComfyWorkflowCheck));
   }
 
   function handleInput(event) {
@@ -1180,21 +824,15 @@
       renderWorkflowPanel(found.profile);
       return;
     }
-    if ("msComfyRunField" in (input.dataset || {})) {
-      const foundRun = cardFor(input);
-      if (foundRun) handleRunInput(foundRun.profile, input);
-      return;
-    }
     if (!input.dataset?.msComfyField) return;
     const found = cardFor(input);
     if (!found) return;
     const { profile } = found;
     profile[input.dataset.msComfyField] = input.value;
-    if (input.dataset.msComfyField === "baseUrl" && profile.selectedWorkflow
-      && normalizeComfyUrl(profile.selectedWorkflow.baseUrl) !== normalizeComfyUrl(profile.baseUrl)) {
-      delete profile.selectedWorkflow;
-      stopRun(profile);
-      runtime.runs.delete(profile.id);
+    if (input.dataset.msComfyField === "baseUrl") {
+      // 地址变更后旧的勾选记录不再属于这个服务
+      const url = normalizeComfyUrl(profile.baseUrl);
+      profile.selectedWorkflows = (profile.selectedWorkflows || []).filter(item => normalizeComfyUrl(item.baseUrl) === url);
     }
     saveComfyState();
     if (input.dataset.msComfyField === "baseUrl") {
@@ -1211,113 +849,15 @@
     }
   }
 
-
-  // ======= 侧栏快捷入口：ComfyUI 设置按钮（插在资产按钮下方） =======
-  const COMFY_SIDEBAR_ID = "ms-comfy-sidebar-btn";
-  function injectSidebarButton() {
-    const sidebar = document.querySelector(".sidebar");
-    if (!sidebar) return false;
-    if (sidebar.querySelector("#" + COMFY_SIDEBAR_ID)) return true;
-    const assetBtn = sidebar.querySelector('[data-ms-gallery-btn="assets"]');
-    const target = assetBtn ? assetBtn.nextSibling : null;
-    if (!target) return false;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "sidebar__icon-btn";
-    btn.id = COMFY_SIDEBAR_ID;
-    btn.title = "ComfyUI 设置";
-    btn.setAttribute("data-ms-comfy-sidebar", "true");
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m-9.5-7h6m6 0h6M4.2 4.2l4.2 4.2m7.6 7.6l4.2 4.2m0-16l-4.2 4.2m-7.6 7.6l-4.2 4.2"/></svg>';
-    btn.addEventListener("click", () => {
-      if (comfyDrawerVisible) {
-        closeComfyDrawer();
-      } else {
-        openComfyDrawer();
-      }
-    });
-    target.parentNode.insertBefore(btn, target);
-    return true;
-  }
-
-
-  // ======= ComfyUI 设置抽屉 =======
-  let comfyDrawerEl = null;
-
-  function createComfyDrawer() {
-    if (comfyDrawerEl) return;
-    comfyDrawerEl = document.createElement("div");
-    comfyDrawerEl.id = DRAWER_ID;
-    comfyDrawerEl.className = "ms-comfy-drawer";
-    comfyDrawerEl.innerHTML = `
-      <div class="ms-comfy-drawer__header">
-        <span class="ms-comfy-drawer__title">ComfyUI 设置</span>
-        <button class="ms-comfy-drawer__close" id="msComfyDrawerClose" type="button">关闭</button>
-      </div>
-      <div class="ms-comfy-drawer__body" id="msComfyDrawerBody"></div>
-    `;
-    comfyDrawerEl.querySelector("#msComfyDrawerClose").addEventListener("click", closeComfyDrawer);
-    document.body.appendChild(comfyDrawerEl);
-  }
-
-  function openComfyDrawer() {
-    createComfyDrawer();
-    comfyDrawerVisible = true;
-    comfyDrawerEl.classList.add("is-open");
-    renderComfyToDrawer();
-  }
-
-  function closeComfyDrawer() {
-    comfyDrawerVisible = false;
-    comfyDrawerEl?.classList.remove("is-open");
-  }
-
-  function renderComfyToDrawer() {
-    const body = document.getElementById("msComfyDrawerBody");
-    if (!body || !comfyState) return;
-    const active = activeComfyProfile();
-    const html = `
-      <div class="settings-section__header">
-        <h3>ComfyUI 设置</h3>
-        <p>${active ? "当前启用：" + escapeHtml(active.name) : "当前未启用"}。请求统一经本地 server.py 转发。</p>
-      </div>
-      <div class="ms-comfy__note">
-        画布运行在浏览器里，ComfyUI 默认只放行同源请求。
-        这里通过本机静态服务转发连接；测试时需要 server.py 正在运行。
-      </div>
-      <div class="ms-comfy__list">
-        ${(comfyState.profiles || []).map(p => renderComfyCard(p, profileMeta(p.id), p.id === comfyState.activeId)).join("")}
-      </div>
-      <p class="ms-comfy__footnote">本地与云端同一时间只会启用一个；切换后立即生效。</p>
-    `;
-    if (body.innerHTML !== html) {
-      body.innerHTML = html;
-    }
-    (comfyState.profiles || []).forEach(p => {
-      applyStatusToDom(p.id);
-      if (p.id === comfyState.activeId) {
-        renderWorkflowPanel(p);
-        renderRunPanel(p);
-      }
-    });
-  }
-
-  // 等待 .sidebar 出现后注入（React 异步渲染）
-  function ensureSidebarButton() {
-    const root = document.getElementById("root") || document.documentElement;
-    new MutationObserver(() => {
-      if (injectSidebarButton()) return;
-    }).observe(root, { childList: true, subtree: true });
-  }
-
   function init() {
     comfyState = readComfyState();
     publishActiveComfy();
     installStyles();
     document.addEventListener("click", handleClick, true);
     document.addEventListener("input", handleInput);
+    document.addEventListener("change", handleChange);
     new MutationObserver(queueSync).observe(document.body, { childList: true, subtree: true });
     queueSync();
-    ensureSidebarButton();
   }
 
   if (document.readyState === "loading") {

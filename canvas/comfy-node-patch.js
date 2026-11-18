@@ -145,11 +145,21 @@
     } catch (_) { return withScheme.replace(/\/+$/, ""); }
   }
 
-  function profileById(id) {
+  // 节点始终跟随「ComfyUI 设置」里启用的活动配置（卡片内不再单独切换）
+  function activeComfyProfile() {
     const cs = readComfyState();
-    return cs.profiles.find(p => p && p.id === id)
-      || cs.profiles.find(p => p && p.id === cs.activeId)
-      || cs.profiles[0] || null;
+    return cs.profiles.find(p => p && p.id === cs.activeId) || cs.profiles[0] || null;
+  }
+
+  // 启用配置的勾选集合（comfy-patch.js 多选契约 selectedWorkflows；兼容旧单选字段）
+  function checkedPathsOf(profile) {
+    if (!profile) return new Set();
+    const list = Array.isArray(profile.selectedWorkflows) ? profile.selectedWorkflows : [];
+    const paths = list.map(item => (typeof item === "string" ? item : item && item.path)).filter(Boolean);
+    if (!paths.length && profile.selectedWorkflow && typeof profile.selectedWorkflow.path === "string") {
+      paths.push(profile.selectedWorkflow.path);
+    }
+    return new Set(paths);
   }
 
   function comfyHeaders(profile) {
@@ -192,7 +202,6 @@
     if (!store) { showToast("无法获取画布状态", "error"); return null; }
     seq += 1;
     const id = `comfy-${Date.now()}-${seq}`;
-    const cs = readComfyState();
     const node = {
       id,
       type: "custom",
@@ -201,7 +210,6 @@
         label: "ComfyUI",
         category: COMFY_CATEGORY,
         comfyMode: "txt2img",
-        comfyProfile: cs.activeId || "local",
         comfyPrompt: "",
         comfyWorkflowPath: "",
         status: "idle",
@@ -608,32 +616,6 @@
     ta.addEventListener("input", updatePlaceholder); updatePlaceholder();
     shell.append(ta, ph); c.appendChild(shell);
 
-    const fieldLabel = document.createElement("div"); fieldLabel.className = CARD_CLASS + "__field-label"; fieldLabel.textContent = "ComfyUI 配置";
-    c.appendChild(fieldLabel);
-
-    const profileRow = document.createElement("button");
-    profileRow.type = "button"; profileRow.className = CARD_CLASS + "__model-row";
-    profileRow.dataset.crow = "profile";
-    profileRow.setAttribute("aria-haspopup", "listbox");
-    profileRow.setAttribute("aria-expanded", "false");
-    const profileLabel = document.createElement("span"); profileLabel.className = CARD_CLASS + "__model-label"; profileLabel.textContent = "ComfyUI API";
-    const profileValue = document.createElement("span"); profileValue.className = CARD_CLASS + "__model-value";
-    const profileChevron = document.createElement("span"); profileChevron.className = CARD_CLASS + "__model-chevron"; profileChevron.textContent = "▾";
-    profileRow.append(profileLabel, profileValue, profileChevron);
-    profileRow.addEventListener("click", ev => {
-      ev.preventDefault(); ev.stopPropagation();
-      toggleMenu("profile", profileRow);
-    }, true);
-
-    const paramsBtn = document.createElement("button");
-    paramsBtn.type = "button"; paramsBtn.className = CARD_CLASS + "__params";
-    paramsBtn.textContent = "模式设置";
-    paramsBtn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
-    paramsBtn.addEventListener("click", ev => { ev.preventDefault(); ev.stopPropagation(); toggleModeSheet(); }, true);
-
-    const flex1 = document.createElement("div"); flex1.className = CARD_CLASS + "__model-flex";
-    flex1.append(profileRow, paramsBtn); c.appendChild(flex1);
-
     const workflowRow = document.createElement("button");
     workflowRow.type = "button"; workflowRow.className = CARD_CLASS + "__model-row";
     workflowRow.dataset.crow = "workflow";
@@ -653,7 +635,7 @@
     reloadBtn.addEventListener("click", ev => {
       ev.preventDefault(); ev.stopPropagation();
       const n = getSelectedComfyNode(); if (!n) return;
-      const profile = profileById(n.data.comfyProfile);
+      const profile = activeComfyProfile();
       const url = profile ? normalizeComfyUrl(profile.baseUrl) : "";
       if (!url) { showToast("当前配置没有 ComfyUI 服务地址", "error"); return; }
       workflowLists.delete(url);
@@ -662,9 +644,14 @@
         else showToast(`已读取 ${cache.items.length} 个工作流`, "success");
       });
     }, true);
-    const flex2 = document.createElement("div"); flex2.className = CARD_CLASS + "__model-flex";
-    flex2.style.marginBottom = "0";
-    flex2.append(workflowRow, reloadBtn); c.appendChild(flex2);
+    const paramsBtn = document.createElement("button");
+    paramsBtn.type = "button"; paramsBtn.className = CARD_CLASS + "__params";
+    paramsBtn.textContent = "模式设置";
+    paramsBtn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
+    paramsBtn.addEventListener("click", ev => { ev.preventDefault(); ev.stopPropagation(); toggleModeSheet(); }, true);
+    const ctrlRow = document.createElement("div"); ctrlRow.className = CARD_CLASS + "__model-flex";
+    ctrlRow.style.marginBottom = "0";
+    ctrlRow.append(workflowRow, reloadBtn, paramsBtn); c.appendChild(ctrlRow);
 
     const ml = document.createElement("div"); ml.className = CARD_CLASS + "__model-line";
     c.appendChild(ml);
@@ -717,11 +704,7 @@
 
   function syncCardValues(root, node) {
     if (!root || !node) return;
-    const profile = profileById(node.data.comfyProfile);
-    const pv = root.querySelector("." + CARD_CLASS + "__model-value");
-    if (pv) pv.textContent = (profile && profile.name) || "未配置";
-    const rows = root.querySelectorAll("." + CARD_CLASS + "__model-row");
-    const wfValue = rows[1] && rows[1].querySelector("." + CARD_CLASS + "__model-value");
+    const wfValue = root.querySelector('[data-crow="workflow"] .' + CARD_CLASS + "__model-value");
     if (wfValue) wfValue.textContent = node.data.comfyWorkflowPath
       ? node.data.comfyWorkflowPath.split("/").filter(Boolean).pop()
       : "未选择（点击选择）";
@@ -757,61 +740,28 @@
     });
   }
 
-  // ======= 下拉菜单（配置 / 工作流共用） =======
+  // ======= 下拉菜单（工作流） =======
   function menuSignature() {
     const node = getSelectedComfyNode();
     if (!node) return "";
-    if (menu && menu.dataset.kind === "workflow") {
-      return [menu.dataset.kind, node.id, node.data.comfyProfile, node.data.comfyWorkflowPath || ""].join("|");
-    }
-    return [menu.dataset.kind, node.id, node.data.comfyProfile || ""].join("|");
+    const profile = activeComfyProfile();
+    const checks = [...checkedPathsOf(profile)].sort().join(",");
+    return [menu ? menu.dataset.kind : "", node.id, profile ? profile.id : "", node.data.comfyWorkflowPath || "", checks].join("|");
   }
 
   function buildMenuBody() {
     const node = getSelectedComfyNode(); if (!node || !menu) return;
     menu.innerHTML = "";
-    const kind = menu.dataset.kind;
     const header = document.createElement("div"); header.className = CARD_CLASS + "__menu-header";
     menu.appendChild(header);
 
-    if (kind === "profile") {
-      const cs = readComfyState();
-      header.textContent = "ComfyUI 配置文件";
-      cs.profiles.forEach(p => {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className = CARD_CLASS + "__menu-item" + (p.id === node.data.comfyProfile ? " is-active" : "");
-        const name = document.createElement("span"); name.className = CARD_CLASS + "__menu-name";
-        name.textContent = p.name + (normalizeComfyUrl(p.baseUrl) ? "" : "（未配置地址）");
-        item.appendChild(name);
-        if (p.id === node.data.comfyProfile) {
-          const badge = document.createElement("span"); badge.className = CARD_CLASS + "__menu-badge"; badge.textContent = "当前";
-          item.appendChild(badge);
-        }
-        item.addEventListener("click", ev => {
-          ev.preventDefault(); ev.stopPropagation();
-          patchNodeData(node.id, { comfyProfile: p.id });
-          closeMenu(); refreshCard();
-        }, true);
-        menu.appendChild(item);
-      });
-      const settings = document.createElement("button");
-      settings.type = "button"; settings.className = CARD_CLASS + "__menu-item";
-      const sl = document.createElement("span"); sl.className = CARD_CLASS + "__menu-name"; sl.textContent = "去 ComfyUI 设置";
-      settings.appendChild(sl);
-      settings.addEventListener("click", ev => {
-        ev.preventDefault(); ev.stopPropagation();
-        closeMenu(); openComfySettings();
-      }, true);
-      menu.appendChild(settings);
-      return;
-    }
-
     // 工作流菜单
-    const profile = profileById(node.data.comfyProfile);
+    const profile = activeComfyProfile();
     const url = profile ? normalizeComfyUrl(profile.baseUrl) : "";
     const cache = url ? workflowLists.get(url) : null;
     const chosen = node.data.comfyWorkflowPath || "";
+    const checked = checkedPathsOf(profile);
+    const visible = (cache && Array.isArray(cache.items) ? cache.items : []).filter(item => checked.has(item.path) || item.path === chosen);
     if (!url) {
       header.textContent = "工作流";
       const empty = document.createElement("div"); empty.className = CARD_CLASS + "__menu-empty is-error";
@@ -819,7 +769,7 @@
       menu.appendChild(empty);
       return;
     }
-    header.textContent = `${profile.name || "ComfyUI"} · ${cache && cache.loadedAt ? cache.items.length + " 个工作流" : "工作流"}`;
+    header.textContent = `${profile.name || "ComfyUI"} · ${cache && cache.loadedAt ? visible.length + " 个已勾选工作流" : "工作流"}`;
     if (!cache || cache.loading) {
       const empty = document.createElement("div"); empty.className = CARD_CLASS + "__menu-empty";
       empty.textContent = "正在读取工作流列表…";
@@ -833,13 +783,27 @@
       menu.appendChild(empty);
       return;
     }
-    if (!cache.items.length) {
+    if (!visible.length) {
       const empty = document.createElement("div"); empty.className = CARD_CLASS + "__menu-empty";
-      empty.textContent = "这个 ComfyUI 的 workflows 目录里还没有保存的工作流。";
+      empty.textContent = cache.items.length
+        ? "该配置下还没有勾选任何工作流。请到「ComfyUI 设置」→ 工作流列表勾选，勾选后才会出现在这里。"
+        : "这个 ComfyUI 的 workflows 目录里还没有保存的工作流。";
       menu.appendChild(empty);
+      if (cache.items.length) {
+        const go = document.createElement("button");
+        go.type = "button"; go.className = CARD_CLASS + "__menu-item";
+        const gl = document.createElement("span"); gl.className = CARD_CLASS + "__menu-name";
+        gl.textContent = "去 ComfyUI 设置勾选工作流";
+        go.appendChild(gl);
+        go.addEventListener("click", ev => {
+          ev.preventDefault(); ev.stopPropagation();
+          closeMenu(); openComfySettings();
+        }, true);
+        menu.appendChild(go);
+      }
       return;
     }
-    cache.items.forEach(item => {
+    visible.forEach(item => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = CARD_CLASS + "__menu-item" + (chosen === item.path ? " is-active" : "");
@@ -1025,7 +989,7 @@
   async function startRun(node, promptText) {
     if (runningNodes.has(node.id)) { showToast("该节点正在生成中…", "error"); return; }
     const data = node.data;
-    const profile = profileById(data.comfyProfile);
+    const profile = activeComfyProfile();
     if (!profile || !normalizeComfyUrl(profile.baseUrl)) { showToast("请先配置 ComfyUI 服务地址", "error"); return; }
     const path = data.comfyWorkflowPath || "";
     if (!path) { showToast("请先在卡片里选择一个 ComfyUI 工作流", "error"); return; }
