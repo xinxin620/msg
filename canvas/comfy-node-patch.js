@@ -538,23 +538,25 @@
   function upstreamStats(nodeId) {
     const r = getStateReader(); const st = r && r();
     if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return null;
-    const stats = { images: 0, texts: 0 };
+    const stats = { images: 0, texts: 0, audios: 0 };
     st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
       const src = st.nodes.find(n => n && n.id === edge.source);
       if (!src || !src.data) return;
       const c = src.data.category;
       if (c === "image" || (c === "upload" && src.data.assetType === "image")) stats.images += 1;
       else if (c === "text") stats.texts += 1;
+      else if (c === "audio") stats.audios += 1;
     });
     return stats;
   }
 
   function statsText(stats) {
     if (!stats) return "画布状态不可用";
-    if (!stats.images && !stats.texts) return "暂无上游参考（可从文本/图片节点连线）";
+    if (!stats.images && !stats.texts && !stats.audios) return "暂无上游参考（可从文本/图片/音频节点连线）";
     const parts = [];
     if (stats.images) parts.push("图片 " + stats.images + " 张");
     if (stats.texts) parts.push("文本 " + stats.texts + " 段");
+    if (stats.audios) parts.push("音频 " + stats.audios + " 条（文稿并入提示词）");
     return "已引用：" + parts.join(" · ");
   }
 
@@ -583,8 +585,12 @@
       const src = st.nodes.find(n => n && n.id === edge.source);
       if (!src || !src.data) return;
       const c = src.data.category;
-      if (c === "text") { nodeTextOf(src).forEach(t => texts.push(t)); }
-      else if (c === "image" || (c === "upload" && src.data.assetType === "image")) {
+      if (c === "text" || c === "audio") {
+        // 音频取配音文稿 promptText（bundle 音频分支请求体 text 同源字段）
+        const script = c === "audio" ? String(src.data.promptText || "").trim() : "";
+        if (script) texts.push(script);
+        else nodeTextOf(src).forEach(t => texts.push(t));
+      } else if (c === "image" || (c === "upload" && src.data.assetType === "image")) {
         const res = Array.isArray(src.data.results) ? src.data.results[src.data.activeResultIndex || 0] : null;
         const source = (res && (res.localPath || res.mediaUrl)) || (c === "image" ? src.data.referenceImage : "");
         if (source) images.push(String(source));

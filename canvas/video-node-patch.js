@@ -335,7 +335,7 @@
   // comfy 不在 bundle 连线矩阵 yt 内，且共享校验器在允许 target 不是 video/audio 时
   // 直接 return false；ComfyUI 节点要连线必须在这里放行（音频补丁同此约定）。
   const COMFY_CATEGORY = "comfy";
-  const ALLOW_INTO_COMFY = ["text", "image"];
+  const ALLOW_INTO_COMFY = ["text", "image", "audio"];
   const ALLOW_OUT_OF_COMFY = ["image", "video"];
   // 音频也放行（用户要求）：注意 bundle 的视频请求体没有任何字段能承载音频/音色
   // （全库 audio_url / driving_audio / lip_sync / mixAudio 命中 0 处），连上的真实作用是
