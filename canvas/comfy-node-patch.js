@@ -204,7 +204,9 @@
     const id = `comfy-${Date.now()}-${seq}`;
     const node = {
       id,
-      type: "custom",
+      // 必须用 canvasNode：bundle 只给 type==="canvasNode" 渲染连接点 handle，
+      // 用 custom 会落到 React Flow 内置无 handle 的 fallback，节点无法连线。
+      type: "canvasNode",
       position: pos || flowPositionFromPointer(),
       data: {
         label: "ComfyUI",
@@ -219,6 +221,10 @@
     store.nodes.push(node);
     store.replaceCanvasState(store.nodes, store.edges || [], store.groups || []);
     store.setSelectedNode(id);
+    // replaceCanvasState 建的新节点不会被 React Flow 自动测量 handleBounds，
+    // 复用 video-node-patch 的强制测量，否则刷新前拖线找不到连接点。
+    const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
+    if (typeof measure === "function") { try { measure(id); } catch (_) {} }
     return node;
   }
 
@@ -550,6 +556,95 @@
     if (stats.images) parts.push("图片 " + stats.images + " 张");
     if (stats.texts) parts.push("文本 " + stats.texts + " 段");
     return "已引用：" + parts.join(" · ");
+  }
+
+  // ======= 上游输入（连线带来的文本 / 图片计数） =======
+  function nodeTextOf(node) {
+    const d = (node && node.data) || {};
+    const fromResults = Array.isArray(d.results)
+      ? d.results.map(r => (r && r.textContent) || "").filter(Boolean).join("\n")
+      : "";
+    const direct = [d.promptText, d.text, d.prompt, fromResults]
+      .map(v => String(v == null ? "" : v).trim())
+      .filter(Boolean);
+    // 去重，保持顺序
+    const seen = new Set();
+    const out = [];
+    for (const t of direct) { if (!seen.has(t)) { seen.add(t); out.push(t); } }
+    return out;
+  }
+
+  // 读取直接连入本节点的上游：文本数组 + 图片源数组（口径与 bundle qv/Nv 一致：localPath 优先）
+  function upstreamInputs(nodeId) {
+    const r = getStateReader(); const st = r && r();
+    const texts = []; const images = [];
+    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return { texts, images };
+    st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
+      const src = st.nodes.find(n => n && n.id === edge.source);
+      if (!src || !src.data) return;
+      const c = src.data.category;
+      if (c === "text") { nodeTextOf(src).forEach(t => texts.push(t)); }
+      else if (c === "image" || (c === "upload" && src.data.assetType === "image")) {
+        const res = Array.isArray(src.data.results) ? src.data.results[src.data.activeResultIndex || 0] : null;
+        const source = (res && (res.localPath || res.mediaUrl)) || (c === "image" ? src.data.referenceImage : "");
+        if (source) images.push(String(source));
+      }
+    });
+    return { texts, images };
+  }
+
+  // data:/http(s) 图片可取回；file:// 或盘符路径浏览器读不到
+  async function fetchImageBlob(src) {
+    try {
+      if (/^data:/i.test(src)) {
+        const resp = await fetch(src);
+        return await resp.blob();
+      }
+      if (/^https?:/i.test(src)) {
+        const resp = await fetch(src, { mode: "cors", cache: "no-store" });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return await resp.blob();
+      }
+    } catch (_) { return null; }
+    return null;
+  }
+
+  function imageFileName(src, index) {
+    const mimeMatch = /^data:([^;,]+)/i.exec(src);
+    const extFromMime = mimeMatch ? String(mimeMatch[1].split("/")[1] || "png").replace("jpeg", "jpg") : "png";
+    const clean = String(src).split("?")[0].split("#")[0];
+    const tail = clean.slice(clean.lastIndexOf("/") + 1);
+    const named = /^[\w.-]+\.(png|jpe?g|webp|gif|bmp)$/i.test(tail) ? tail : "canvas-up-" + Date.now() + "-" + index + "." + extFromMime;
+    return named;
+  }
+
+  // 上传上游图片到 ComfyUI 并写进工作流 LoadImage 节点；返回告警文案数组
+  async function injectUpstreamImages(profile, url, headers, promptObj, imageSources) {
+    const warnings = [];
+    if (!imageSources.length) return warnings;
+    const loaders = Object.entries(promptObj).filter(([, node]) => node && node.class_type === "LoadImage");
+    if (!loaders.length) { warnings.push("工作流里没有 LoadImage 节点，上游图片未注入"); return warnings; }
+    for (let i = 0; i < imageSources.length; i++) {
+      const target = loaders[Math.min(i, loaders.length - 1)][1];
+      const blob = await fetchImageBlob(imageSources[i]);
+      if (!blob) { warnings.push("第 " + (i + 1) + " 张上游图片是本地路径或被 CORS 拦截，无法自动上传"); continue; }
+      const form = new FormData();
+      form.append("image", blob, imageFileName(imageSources[i], i));
+      const resp = await fetch(PROXY_PREFIX + "image?base=" + encodeURIComponent(url), {
+        method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
+      });
+      const text = await resp.text();
+      let payload = null;
+      try { payload = JSON.parse(text); } catch (_) { payload = null; }
+      if (!resp.ok || !payload?.name) {
+        warnings.push("上游图片上传失败：" + (payload?.error || ("HTTP " + resp.status)));
+        continue;
+      }
+      const name = payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
+      if (target.inputs && typeof target.inputs === "object") target.inputs.image = name;
+      else target.inputs = { image: name, upload: "image" };
+    }
+    return warnings;
   }
 
   // ======= 工作流列表（userdata 接口，与设置面板同链路） =======
@@ -1006,7 +1101,9 @@
       const verdict = helper.analyze(raw);
       if (!verdict.ok) throw new Error(blockerText(verdict.blockers));
       const basePrompt = helper.convert(raw);
-      const promptValue = String(promptText || "").trim();
+      // 合并卡片提示词 + 上游连线文本节点（图生图/参考图暂未注入，见 docs 坑）
+      const ups = upstreamInputs(node.id).texts.filter(t => !String(promptText || "").includes(t));
+      const promptValue = [String(promptText || "").trim(), ...ups].filter(Boolean).join("\n\n");
       let finalPrompt = basePrompt;
       if (promptValue) {
         const edits = {};
@@ -1019,6 +1116,10 @@
         }
         finalPrompt = helper.applyEdits(basePrompt, edits);
       }
+
+      const upstream = upstreamInputs(node.id);
+      const imageWarnings = await injectUpstreamImages(profile, url, headers, finalPrompt, upstream.images);
+      if (imageWarnings.length) showToast(imageWarnings.join("；"), "error");
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
         method: "POST", cache: "no-store", headers, body: JSON.stringify({ prompt: finalPrompt }),
@@ -1130,9 +1231,26 @@
   }
 
   // ======= 轮询 + 点击拦截 =======
+  // 旧画布里 comfy 节点可能是 type:"custom"（React Flow 内置 fallback 无 handle 连不上），
+  // 加载后一次性升级为 canvasNode，与新建节点保持一致。
+  let legacyMigrated = false;
+  function migrateLegacyComfyNodes() {
+    if (legacyMigrated) return;
+    const r = getStateReader(); const st = r && r();
+    if (!st || !Array.isArray(st.nodes)) return;
+    const stale = st.nodes.filter(n => n && n.type === "custom" && n.data && n.data.category === COMFY_CATEGORY);
+    if (!stale.length) { legacyMigrated = true; return; }
+    stale.forEach(n => { n.type = "canvasNode"; });
+    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
+    if (typeof measure === "function") stale.forEach(n => { try { measure(n.id); } catch (_) {} });
+    legacyMigrated = true;
+  }
+
   function startTick() {
     if (tickTimer) return;
     tickTimer = setInterval(() => {
+      migrateLegacyComfyNodes();
       const node = getSelectedComfyNode();
       if (node) {
         if (dismissedNodeId === node.id) return;
