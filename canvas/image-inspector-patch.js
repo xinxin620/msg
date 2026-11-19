@@ -865,6 +865,12 @@
   }
 
   function findCanvasStore() {
+    // fiber 里可能同时存在「活快照读取器」（getSnapshot，每次返回最新 state）
+    // 与某个组件 useState 里残留的「冻结 state 对象」。冻结对象不会随
+    // updateNodeData 更新：先返回它的话，新生成的 results 永远读成空，
+    // 表现为「刚生成完导出/预览没结果，刷新页面才好」。因此优先找活读取器，
+    // 冻结对象只在全树都没有活读取器时才用。
+    let fallbackReader = null;
     const rootEl = document.getElementById("root");
     if (!rootEl) return null;
     const containerKey = Object.keys(rootEl).find((key) =>
@@ -917,7 +923,9 @@
             }
             continue;
           }
-          if (isCanvasState(candidate)) return () => candidate;
+          if (isCanvasState(candidate) && !fallbackReader) {
+            fallbackReader = () => candidate;
+          }
         }
         hook = hook.next;
       }
@@ -925,7 +933,7 @@
       if (fiber.child) stack.push(fiber.child);
       if (fiber.sibling) stack.push(fiber.sibling);
     }
-    return null;
+    return fallbackReader;
   }
 
   function readCanvasState() {
@@ -1002,22 +1010,34 @@
     return getDomSelectedNodeElement(activeCategory);
   }
 
-  function getResultInfo() {
-    const state = readCanvasState();
-    const node = getSelectedImageNode(state);
-    if (!node) {
-      return { state: null, node: null, result: null, fileName: "" };
-    }
-
-    const data = node.data || {};
+  function pickResult(data) {
     const results = Array.isArray(data.results) ? data.results : [];
     const index =
       Number.isInteger(data.activeResultIndex) && data.activeResultIndex >= 0
         ? data.activeResultIndex
         : 0;
     const rawResult = results[index] || results[0] || null;
-    const result =
-      typeof rawResult === "string" ? { mediaUrl: rawResult } : rawResult;
+    return typeof rawResult === "string" ? { mediaUrl: rawResult } : rawResult;
+  }
+
+  function getResultInfo() {
+    let state = readCanvasState();
+    let node = getSelectedImageNode(state);
+    // 刚生成完 results 却读成空：多半是缓存的冻结快照滞后，丢缓存重扫一次
+    if (node && !pickResult(node.data || {})) {
+      const fresh = refreshCanvasState();
+      const freshNode = getSelectedImageNode(fresh);
+      if (freshNode && pickResult(freshNode.data || {})) {
+        state = fresh;
+        node = freshNode;
+      }
+    }
+    if (!node) {
+      return { state: null, node: null, result: null, fileName: "" };
+    }
+
+    const data = node.data || {};
+    const result = pickResult(data);
     const fileName =
       (result && result.fileName) || data.fileName || `${node.id}.png`;
     return { state, node, result, fileName };
@@ -1561,22 +1581,36 @@
     }, 0);
   }
 
+  function textResultText(node) {
+    if (!node || !node.data) return "";
+    const results = Array.isArray(node.data.results) ? node.data.results : [];
+    const index =
+      Number.isInteger(node.data.activeResultIndex) && node.data.activeResultIndex >= 0
+        ? node.data.activeResultIndex
+        : 0;
+    const result = results[index] || results[0] || null;
+    return String((result && (result.textContent || result.htmlContent)) || "").trim();
+  }
+
   function previewTextResult(inspector) {
-    const state = readCanvasState();
-    const node = getSelectedNodeByCategory(state, "text");
+    let state = readCanvasState();
+    let node = getSelectedNodeByCategory(state, "text");
+    // 缓存 reader 可能停在冻结快照：刚推理/手输的 results 读成空。
+    // 与图片 getResultInfo 同一兜底——读到空就丢缓存重扫一次。
+    if (node && !textResultText(node)) {
+      const fresh = refreshCanvasState();
+      const freshNode = getSelectedNodeByCategory(fresh, "text");
+      if (freshNode && textResultText(freshNode)) {
+        state = fresh;
+        node = freshNode;
+      }
+    }
     if (!node) {
       showToast("预览失败：当前没有选中的文本节点。", "error");
       return;
     }
-    const results = Array.isArray(node.data.results) ? node.data.results : [];
-    const index =
-      Number.isInteger(node.data.activeResultIndex) &&
-      node.data.activeResultIndex >= 0
-        ? node.data.activeResultIndex
-        : 0;
-    const result = results[index] || results[0] || null;
-    const text = (result && (result.textContent || result.htmlContent)) || "";
-    if (!String(text).trim()) {
+    const text = textResultText(node);
+    if (!text) {
       showToast("当前文本节点还没有生成结果，请先推理或手动输入内容。", "error");
       return;
     }

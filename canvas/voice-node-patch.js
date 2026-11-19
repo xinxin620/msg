@@ -68,6 +68,11 @@
   }
 
   function findCanvasStore() {
+    // fiber 里可能同时有「活快照读取器」(getSnapshot，每次返回最新 state) 与
+    // 某组件 useState 残留的「冻结 state 对象」。冻结对象不随 updateNodeData 更新，
+    // 先返回它就把新生成的 results 永远读成空（刷新才恢复）。故优先活读取器，
+    // 冻结对象只作全树都没有活读取器时的兜底。
+    let fallbackReader = null;
     const rootEl = document.getElementById("root");
     if (!rootEl) return null;
     const containerKey = Object.keys(rootEl).find(k => k.startsWith("__reactContainer$"));
@@ -100,7 +105,7 @@
             }
             continue;
           }
-          if (isCanvasState(cand)) return () => cand;
+          if (isCanvasState(cand) && !fallbackReader) fallbackReader = () => cand;
         }
         hook = hook.next;
       }
@@ -108,7 +113,7 @@
       if (fiber.child) stack.push(fiber.child);
       if (fiber.sibling) stack.push(fiber.sibling);
     }
-    return null;
+    return fallbackReader;
   }
 
   // ======= 建语音节点 =======

@@ -36,6 +36,9 @@
 
   // ======= 工具函数 =======
   function findCanvasStore() {
+    // 同 video/voice/image-inspector：优先活快照读取器，useState 残留的冻结
+    // state 对象只作兜底，否则 comfy 读上游 results / 自身 results 会拿到旧值。
+    let fallbackReader = null;
     const rootEl = document.getElementById("root");
     if (!rootEl) return null;
     const containerKey = Object.keys(rootEl).find(k => k.startsWith("__reactContainer$"));
@@ -65,14 +68,16 @@
             }
             continue;
           }
-          if (cand && Array.isArray(cand.nodes) && typeof cand.replaceCanvasState === "function") return () => cand;
+          if (cand && Array.isArray(cand.nodes) && typeof cand.replaceCanvasState === "function" && !fallbackReader) {
+            fallbackReader = () => cand;
+          }
         }
         hook = hook.next;
       }
       if (fiber.child) stack.push(fiber.child);
       if (fiber.sibling) stack.push(fiber.sibling);
     }
-    return null;
+    return fallbackReader;
   }
 
   function getStateReader() { return findCanvasStore(); }
