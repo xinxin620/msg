@@ -515,6 +515,34 @@
         font: inherit; font-size: 12px; cursor: pointer;
       }
       .ms-comfy-viewer__close:hover { background: #ffffff33; }
+      .ms-comfy-viewer__text {
+        width: 100%; max-height: 70vh; overflow: auto; margin: 0; padding: 18px 20px;
+        color: #f2f0ec; background: #17181bf2; border-radius: 10px;
+        font: 13px/1.7 "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        white-space: pre-wrap; text-align: left; box-shadow: 0 20px 40px #00000080;
+      }
+      /* 节点框内结果媒体层 */
+      .canvas-node--comfy .canvas-node__body { position: relative; }
+      .canvas-node--comfy:has(.ms-comfy-media) .canvas-node__other-placeholder { display: none; }
+      .canvas-node--comfy:has(.ms-comfy-media) { min-height: 180px; }
+      .ms-comfy-media {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        overflow: hidden; background: var(--preview-bg, #0f1013);
+      }
+      .ms-comfy-media img, .ms-comfy-media video {
+        width: 100%; height: 100%; object-fit: contain; background: #000; display: block;
+      }
+      .ms-comfy-media__text {
+        position: absolute; inset: 0; padding: 10px 12px; overflow: auto;
+        color: var(--text-primary); font-size: 12px; line-height: 1.6; white-space: pre-wrap;
+        text-align: left; -webkit-user-select: text; user-select: text;
+      }
+      .ms-comfy-media__hint { color: var(--text-tertiary); font-size: 12px; padding: 0 12px; text-align: center; }
+      .ms-comfy-media__hint.is-error { color: #d15a4a; }
+      .ms-comfy-media__badge {
+        position: absolute; right: 8px; top: 8px; padding: 2px 8px; border-radius: 999px;
+        color: #fff; background: #000000b3; font-size: 11px; pointer-events: none;
+      }
       /* Toast（对齐视频卡片） */
       #ms-comfy-toast {
         position: fixed; left: 50%; bottom: 24px; z-index: 999999;
@@ -556,7 +584,7 @@
     const parts = [];
     if (stats.images) parts.push("图片 " + stats.images + " 张");
     if (stats.texts) parts.push("文本 " + stats.texts + " 段");
-    if (stats.audios) parts.push("音频 " + stats.audios + " 条（文稿并入提示词）");
+    if (stats.audios) parts.push("音频 " + stats.audios + " 条（文稿进提示词 · 文件进 LoadAudio）");
     return "已引用：" + parts.join(" · ");
   }
 
@@ -576,31 +604,38 @@
     return out;
   }
 
-  // 读取直接连入本节点的上游：文本数组 + 图片源数组（口径与 bundle qv/Nv 一致：localPath 优先）
+  // 读取直接连入本节点的上游：文本数组 + 图片/音频源数组（口径与 bundle qv/Nv 一致：localPath 优先）
   function upstreamInputs(nodeId) {
     const r = getStateReader(); const st = r && r();
-    const texts = []; const images = [];
-    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return { texts, images };
+    const texts = []; const images = []; const audios = [];
+    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return { texts, images, audios };
     st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
       const src = st.nodes.find(n => n && n.id === edge.source);
       if (!src || !src.data) return;
       const c = src.data.category;
       if (c === "text" || c === "audio") {
-        // 音频取配音文稿 promptText（bundle 音频分支请求体 text 同源字段）
+        // 音频文稿取 promptText（bundle 音频分支请求体 text 同源字段）
         const script = c === "audio" ? String(src.data.promptText || "").trim() : "";
         if (script) texts.push(script);
         else nodeTextOf(src).forEach(t => texts.push(t));
+        if (c === "audio") {
+          // 音频二进制：bundle 音频卡片同口径 results[].mediaUrl，运行时注入 LoadAudio
+          const list = Array.isArray(src.data.results) ? src.data.results : [];
+          const res = list[src.data.activeResultIndex || 0] || list[0] || null;
+          const source = (res && (res.localPath || res.mediaUrl)) || src.data.mediaUrl || "";
+          if (source) audios.push(String(source));
+        }
       } else if (c === "image" || (c === "upload" && src.data.assetType === "image")) {
         const res = Array.isArray(src.data.results) ? src.data.results[src.data.activeResultIndex || 0] : null;
         const source = (res && (res.localPath || res.mediaUrl)) || (c === "image" ? src.data.referenceImage : "");
         if (source) images.push(String(source));
       }
     });
-    return { texts, images };
+    return { texts, images, audios };
   }
 
-  // data:/http(s) 图片可取回；file:// 或盘符路径浏览器读不到
-  async function fetchImageBlob(src) {
+  // data:/http(s) 媒体可取回；file:// 或盘符路径浏览器读不到
+  async function fetchMediaBlob(src) {
     try {
       if (/^data:/i.test(src)) {
         const resp = await fetch(src);
@@ -632,7 +667,7 @@
     if (!loaders.length) { warnings.push("工作流里没有 LoadImage 节点，上游图片未注入"); return warnings; }
     for (let i = 0; i < imageSources.length; i++) {
       const target = loaders[Math.min(i, loaders.length - 1)][1];
-      const blob = await fetchImageBlob(imageSources[i]);
+      const blob = await fetchMediaBlob(imageSources[i]);
       if (!blob) { warnings.push("第 " + (i + 1) + " 张上游图片是本地路径或被 CORS 拦截，无法自动上传"); continue; }
       const form = new FormData();
       form.append("image", blob, imageFileName(imageSources[i], i));
@@ -652,6 +687,95 @@
     }
     return warnings;
   }
+
+  function audioFileName(src, index) {
+    const mimeMatch = /^data:([^;,]+)/i.exec(src);
+    const extFromMime = mimeMatch ? String((mimeMatch[1].split("/")[1] || "mp3").split(";")[0]) : "mp3";
+    const clean = String(src).split("?")[0].split("#")[0];
+    const tail = clean.slice(clean.lastIndexOf("/") + 1);
+    const named = /^[\w.-]+\.(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i.test(tail) ? tail : "canvas-audio-" + Date.now() + "-" + index + "." + extFromMime;
+    return named;
+  }
+
+  // 上传上游音频到 ComfyUI 并写进工作流 LoadAudio 节点；返回告警文案数组
+  async function injectUpstreamAudios(profile, url, promptObj, audioSources) {
+    const warnings = [];
+    if (!audioSources.length) return warnings;
+    const loaders = Object.entries(promptObj).filter(([, node]) => node && node.class_type === "LoadAudio");
+    if (!loaders.length) { warnings.push("工作流里没有 LoadAudio 节点，上游音频未注入"); return warnings; }
+    for (let i = 0; i < audioSources.length; i++) {
+      const target = loaders[Math.min(i, loaders.length - 1)][1];
+      const blob = await fetchMediaBlob(audioSources[i]);
+      if (!blob) { warnings.push("第 " + (i + 1) + " 条上游音频是本地路径或被 CORS 拦截，无法自动上传"); continue; }
+      const form = new FormData();
+      form.append("audio", blob, audioFileName(audioSources[i], i));
+      const resp = await fetch(PROXY_PREFIX + "upload/audio?base=" + encodeURIComponent(url), {
+        method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
+      });
+      const text = await resp.text();
+      let payload = null;
+      try { payload = JSON.parse(text); } catch (_) { payload = null; }
+      if (!resp.ok || !payload?.name) {
+        warnings.push("上游音频上传失败：" + (payload?.error || ("HTTP " + resp.status)));
+        continue;
+      }
+      const name = payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
+      if (target.inputs && typeof target.inputs === "object") target.inputs.audio = name;
+      else target.inputs = { audio: name, upload: "audio" };
+    }
+    return warnings;
+  }
+
+  // ======= 提示词字段类型判定（防 combo「Value not in list」） =======
+  const objectInfoCache = new Map(); // baseUrl -> {types, fetchedAt}
+
+  async function ensureObjectInfo(url, profile) {
+    const cached = objectInfoCache.get(url);
+    if (cached && Date.now() - cached.fetchedAt < 5 * 60 * 1000) return cached.types;
+    let types = null;
+    try {
+      const resp = await fetch(`${PROXY_PREFIX}object_info?base=${encodeURIComponent(url)}`, {
+        method: "GET", cache: "no-store", headers: comfyHeaders(profile || {}),
+      });
+      if (resp.ok) {
+        const payload = JSON.parse(await resp.text());
+        if (payload && typeof payload === "object") types = payload;
+      }
+    } catch (_) { /* 取不到退回启发式 */ }
+    objectInfoCache.set(url, { types, fetchedAt: Date.now() });
+    return types;
+  }
+
+  // object_info 的 input.required/optional 有「对象」与「数组」两种写法，统一取 [类型, 选项]
+  function fieldSpec(def, key) {
+    for (const bag of [def?.input?.required, def?.input?.optional]) {
+      if (!bag) continue;
+      if (Array.isArray(bag)) {
+        const pair = bag.find(item => Array.isArray(item) && item[0] === key);
+        if (pair) return pair[1];
+      } else if (Array.isArray(bag[key])) {
+        return bag[key];
+      }
+    }
+    return null;
+  }
+
+  // "free"＝自由文本可写；"combo"＝下拉/枚举，写自由文本必报 Value not in list；"skip"＝不碰
+  function promptFieldKind(types, classType, key) {
+    if (/^(image|audio|video|mask|seed|steps|width|height)$/i.test(key)) return "skip";
+    if (!types) return key === "text" || /prompt/i.test(key) ? "free" : "skip"; // 拿不到定义时保守：只写启发式字段
+    const spec = fieldSpec(types[classType] || null, key);
+    if (!spec) return key === "text" || /prompt/i.test(key) ? "free" : "skip";
+    const first = spec[0];
+    const opts = spec[1];
+    if (Array.isArray(first)) return "combo";
+    if (opts && Array.isArray(opts.options)) return "combo";
+    if (typeof first === "string" && first !== "STRING") return "combo";
+    return "free";
+  }
+
+  const POSITIVE_RE = /(^|[^a-z])(text|prompt|positive)|prompt$/i;
+  const NEGATIVE_RE = /negative|nagative|bad|unwant/i;
 
   // ======= 工作流列表（userdata 接口，与设置面板同链路） =======
   async function loadWorkflowList(baseUrl, apiKey) {
@@ -1112,20 +1236,31 @@
       const promptValue = [String(promptText || "").trim(), ...ups].filter(Boolean).join("\n\n");
       let finalPrompt = basePrompt;
       if (promptValue) {
-        const edits = {};
+        const types = await ensureObjectInfo(url, profile);
+        const edits = {}; let writable = 0; let comboHits = 0;
         for (const field of helper.editableFields(basePrompt)) {
           if (typeof field.value !== "string") continue;
-          if (field.key === "text" || /prompt/i.test(field.key)) {
-            if (!edits[field.nodeId]) edits[field.nodeId] = {};
-            edits[field.nodeId][field.key] = promptValue;
-          }
+          if (NEGATIVE_RE.test(field.key)) continue; // 反向提示词绝不覆盖
+          if (!POSITIVE_RE.test(field.key)) continue;
+          const kind = promptFieldKind(types, field.classType, field.key);
+          if (kind === "combo") { comboHits += 1; continue; }
+          if (kind !== "free") continue;
+          if (!edits[field.nodeId]) edits[field.nodeId] = {};
+          edits[field.nodeId][field.key] = promptValue;
+          writable += 1;
+        }
+        if (!writable) {
+          showToast(comboHits
+            ? "工作流里的提示词字段是下拉选项（写入会报 Value not in list），已按工作流原样生成；提示词请改用工作流自带的输入。"
+            : "工作流里没有可写入的文本提示词字段，已按工作流原样生成。", "error");
         }
         finalPrompt = helper.applyEdits(basePrompt, edits);
       }
 
       const upstream = upstreamInputs(node.id);
-      const imageWarnings = await injectUpstreamImages(profile, url, headers, finalPrompt, upstream.images);
-      if (imageWarnings.length) showToast(imageWarnings.join("；"), "error");
+      const warnings = await injectUpstreamImages(profile, url, headers, finalPrompt, upstream.images);
+      warnings.push(...await injectUpstreamAudios(profile, url, finalPrompt, upstream.audios));
+      if (warnings.length) showToast(warnings.join("；"), "error");
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
         method: "POST", cache: "no-store", headers, body: JSON.stringify({ prompt: finalPrompt }),
@@ -1135,7 +1270,8 @@
       try { submitPayload = JSON.parse(submitText); } catch (_) { submitPayload = null; }
       if (!submitResp.ok) {
         const detail = submitPayload?.error?.message || submitPayload?.error?.details || submitPayload?.error?.type;
-        const nodeError = Object.values(submitPayload?.node_errors || {})[0]?.errors?.[0]?.message;
+        const err = Object.values(submitPayload?.node_errors || {})[0]?.errors?.[0];
+        const nodeError = err ? [err.message, err.details?.custom_type ? "[" + err.details.custom_type + "]" : ""].filter(Boolean).join(" ") : "";
         throw new Error([detail, nodeError].filter(Boolean).join(" · ") || `HTTP ${submitResp.status}`);
       }
       const promptId = submitPayload?.prompt_id;
@@ -1169,9 +1305,10 @@
           const results = [
             ...(outputs.images || []).slice(0, 8).map(item => ({ kind: "image", fileName: item.filename, subfolder: item.subfolder, type: item.type, viewUrl: viewUrl(url, item) })),
             ...(outputs.videos || []).slice(0, 4).map(item => ({ kind: "video", fileName: item.filename, subfolder: item.subfolder, type: item.type, viewUrl: viewUrl(url, item) })),
+            ...(outputs.texts || []).slice(0, 4).map(text => ({ kind: "text", textContent: text })),
           ];
           patchNodeData(node.id, { status: "success", results, activeResultIndex: 0 });
-          showToast(`生成完成：${outputs.images.length} 张图片${outputs.videos.length ? `、${outputs.videos.length} 个视频` : ""}`, "success");
+          showToast(`生成完成：${outputs.images.length} 张图片${outputs.videos.length ? `、${outputs.videos.length} 个视频` : ""}${(outputs.texts || []).length ? `、${outputs.texts.length} 段文本` : ""}`, "success");
           break;
         }
         if (Date.now() - startedAt > RUN_MAX_WAIT_MS) throw new Error("等待超过 30 分钟，已停止轮询。可在 ComfyUI 界面查看结果。");
@@ -1198,6 +1335,8 @@
       '<div class="ms-comfy-viewer__bg" data-ms-comfy-close></div>' +
       '<div class="ms-comfy-viewer__wrap">' +
         '<img class="ms-comfy-viewer__media" alt="" />' +
+        '<video class="ms-comfy-viewer__media" controls playsinline style="display:none"></video>' +
+        '<pre class="ms-comfy-viewer__text" style="display:none"></pre>' +
         '<div class="ms-comfy-viewer__bar">' +
           '<span class="ms-comfy-viewer__name"></span>' +
           '<button type="button" class="ms-comfy-viewer__close" data-ms-comfy-close>关闭</button>' +
@@ -1217,6 +1356,8 @@
     if (!viewer) return;
     const img = viewer.querySelector("img");
     if (img) img.removeAttribute("src");
+    const video = viewer.querySelector("video");
+    if (video) { try { video.pause(); } catch (_) {} video.removeAttribute("src"); }
     viewer.classList.remove("is-open");
   }
 
@@ -1225,15 +1366,86 @@
     if (!results.length) { showToast("当前节点还没有生成结果，先点「生成」。", "error"); return; }
     const index = Number.isInteger(node.data.activeResultIndex) ? node.data.activeResultIndex : 0;
     const item = results[index] || results[0];
-    if (item.kind === "video") {
-      window.open(item.viewUrl, "_blank", "noopener");
-      showToast("视频结果已在新标签页打开");
-      return;
-    }
     const viewer = ensureViewer();
-    viewer.querySelector("img").src = item.viewUrl;
-    viewer.querySelector(".ms-comfy-viewer__name").textContent = item.fileName || "comfy 输出";
+    const img = viewer.querySelector("img");
+    const video = viewer.querySelector("video");
+    const text = viewer.querySelector(".ms-comfy-viewer__text");
+    img.style.display = "none"; video.style.display = "none"; text.style.display = "none";
+    try { video.pause(); } catch (_) {}
+    if (item.kind === "video") {
+      video.src = item.viewUrl; video.style.display = "block"; video.play().catch(() => {});
+    } else if (item.kind === "text") {
+      text.textContent = String(item.textContent || ""); text.style.display = "block";
+    } else {
+      img.src = item.viewUrl; img.style.display = "block";
+    }
+    viewer.querySelector(".ms-comfy-viewer__name").textContent = item.fileName || (item.kind === "text" ? "反推文本" : "comfy 输出");
     viewer.classList.add("is-open");
+  }
+
+  // ======= 节点框内结果渲染 =======
+  // bundle 对 comfy 类别只渲染「即将支持」占位，媒体层由本补丁按 results 现算注入；
+  // React 重渲染会清掉注入 DOM，靠 150ms tick 按签名重建（签名没变不动 DOM）。
+  function syncNodeMedia() {
+    const r = getStateReader(); const st = r && r();
+    if (!st || !Array.isArray(st.nodes)) return;
+    st.nodes.filter(n => n && n.data && n.data.category === COMFY_CATEGORY).forEach(node => {
+      const body = document.querySelector('.react-flow__node[data-id="' + node.id + '"] .canvas-node__body');
+      if (!body) return;
+      const d = node.data;
+      const results = Array.isArray(d.results) ? d.results : [];
+      const idx = results.length ? Math.min(results.length - 1, Math.max(0, Number(d.activeResultIndex) || 0)) : 0;
+      const item = results.length ? results[idx] : null;
+      const running = runningNodes.has(node.id) || d.status === "running";
+      let sig = "";
+      if (running) sig = "running";
+      else if (d.status === "error") sig = "error|" + String(d.errorMessage || "执行失败");
+      else if (item) sig = [item.kind, item.viewUrl || "", String(item.textContent || "").slice(0, 60), results.length, idx].join("|");
+      const old = body.querySelector(".ms-comfy-media");
+      if (old && old.dataset.sig === sig) return;
+      if (old) old.remove();
+      if (!sig) return;
+      const box = document.createElement("div");
+      box.className = "ms-comfy-media";
+      box.dataset.sig = sig;
+      if (running) {
+        box.innerHTML = '<div class="ms-comfy-media__hint">生成中…</div>';
+      } else if (item && item.kind === "image") {
+        const img = document.createElement("img");
+        img.src = item.viewUrl; img.alt = ""; img.draggable = false;
+        img.addEventListener("click", ev => { ev.stopPropagation(); doPreview(getNodeById(node.id) || node); });
+        box.appendChild(img);
+      } else if (item && item.kind === "video") {
+        box.classList.add("nodrag");
+        const video = document.createElement("video");
+        video.src = item.viewUrl; video.controls = true; video.muted = true;
+        video.playsInline = true; video.preload = "metadata"; video.draggable = false;
+        box.appendChild(video);
+      } else if (item && item.kind === "text") {
+        const pre = document.createElement("div");
+        pre.className = "ms-comfy-media__text";
+        pre.textContent = String(item.textContent || "");
+        box.appendChild(pre);
+      } else {
+        const hint = document.createElement("div");
+        hint.className = "ms-comfy-media__hint" + (sig.startsWith("error|") ? " is-error" : "");
+        hint.textContent = sig.startsWith("error|") ? sig.slice(6) : "无结果";
+        box.appendChild(hint);
+      }
+      if (item && results.length > 1 && !running) {
+        const badge = document.createElement("span");
+        badge.className = "ms-comfy-media__badge";
+        badge.textContent = (idx + 1) + "/" + results.length;
+        box.appendChild(badge);
+      }
+      body.appendChild(box);
+    });
+  }
+
+  function getNodeById(nodeId) {
+    const r = getStateReader(); const st = r && r();
+    if (!st || !Array.isArray(st.nodes)) return null;
+    return st.nodes.find(n => n && n.id === nodeId) || null;
   }
 
   // ======= 轮询 + 点击拦截 =======
@@ -1257,6 +1469,7 @@
     if (tickTimer) return;
     tickTimer = setInterval(() => {
       migrateLegacyComfyNodes();
+      syncNodeMedia();
       const node = getSelectedComfyNode();
       if (node) {
         if (dismissedNodeId === node.id) return;

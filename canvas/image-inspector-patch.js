@@ -959,10 +959,24 @@
     return element;
   }
 
+  // React Flow 自己维护的 selected 标记：只有一个选中节点时才可信
+  function getDomSelectedNodeId() {
+    const selected = Array.from(
+      document.querySelectorAll(".react-flow__node.selected")
+    );
+    if (selected.length !== 1) return null;
+    return selected[0].dataset?.id || null;
+  }
+
   function getSelectedNodeByCategory(state, category) {
     if (!state || !category) return null;
-    const selectedId =
+    const storeId =
       state.selectedNodeId || (state.selectedNodeIds || [])[0] || null;
+    // fiber 快照可能停在旧 state：旧兜底只在「类别不符」时重扫，两个同类别
+    // 节点之间切换（图片→图片）永远不触发，卡片就会粘在上一个节点。
+    // DOM 的 selected 与 store 不一致时以 DOM 为准。
+    const domId = getDomSelectedNodeId();
+    const selectedId = domId && domId !== storeId ? domId : storeId;
     if (!selectedId) return null;
     const node = (state.nodes || []).find((item) => item.id === selectedId);
     if (!node || !node.data || node.data.category !== category) return null;

@@ -593,10 +593,17 @@
       if (!selectedModels.length) {
         throw new Error("当前第三方 API 配置未勾选模型，请先到「图片API来源设置」拉取并勾选。");
       }
+      // 触发标签显示的是 lastPicked（patchTrigger 全局改写），但新建节点的
+      // data.model 仍是 bundle 默认（banana 家族）：只按请求家族取 choice 会
+      // 把用户没选过的默认家族旧模型（如 nano-banana-fast）发出去，与标签不符。
+      // 一律优先 lastPicked，保证「显示什么就发什么」。
       const familyChoice = state.choice[family];
-      const chosen = selectedModels.includes(familyChoice)
-        ? familyChoice
-        : selectedModels.find((model) => familyOf(model) === family) || selectedModels[0];
+      const chosen =
+        [state.lastPicked, familyChoice, state.choice.gpt, state.choice.banana].find(
+          (model) => model && selectedModels.includes(model),
+        ) ||
+        selectedModels.find((model) => familyOf(model) === family) ||
+        selectedModels[0];
       if (!chosen) {
         throw new Error("当前第三方 API 配置没有可用模型。");
       }
