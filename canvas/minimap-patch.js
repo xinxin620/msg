@@ -34,8 +34,11 @@
     document.head.appendChild(style);
   }
 
-  // viewBox 宽高随节点分布变，SVG 又被 `.custom-minimap` 钉成固定尺寸，
-  // 且 preserveAspectRatio 默认 xMidYMid meet，所以真实缩放取两轴较小值。
+  // viewBox 宽高随节点分布变，svg 自身尺寸来自 width/height 属性（bundle 默认
+  // 200×150），且 preserveAspectRatio 默认 xMidYMid meet，所以真实缩放取两轴较小值。
+  // 用 getBoundingClientRect 而不是 CSS width：`.custom-minimap` 是 border-box
+  // 206×136 带 6px padding，内容框只有 194×124，svg 会被 overflow:hidden 裁掉
+  // 右 6px/下 26px，但 rect 仍是 svg 自己的完整布局盒，比例算得对。
   function pxPerUnit(svg) {
     const box = svg.viewBox && svg.viewBox.baseVal;
     const rect = svg.getBoundingClientRect();
