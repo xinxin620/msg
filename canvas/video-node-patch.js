@@ -769,6 +769,14 @@
     rescueNodes: () => rescueNodes(),
     ensureHealthyView: () => ensureHealthyView(),
     scrollNodeIntoView: nodeId => scrollNodeIntoView(nodeId),
+    // 小地图点击定位用：把画布中心移到某个 flow 坐标，保持当前缩放。
+    // fiber/store 访问集中在这里，minimap-patch 不自己遍历。
+    centerViewport: (x, y) => {
+      const g = findReactFlowStore();
+      const rf = g ? g() : null;
+      if (!rf || typeof rf.setCenter !== "function") return false;
+      try { rf.setCenter(x, y, { zoom: rf.transform ? rf.transform[2] : undefined, duration: 220 }); return true; } catch (_) { return false; }
+    },
     diagnoseDrag: () => {
       const g = findReactFlowStore();
       const rf = g ? g() : null;
