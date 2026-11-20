@@ -596,6 +596,11 @@
       "#ms-video-toast{position:fixed;z-index:99995;left:50%;bottom:34px;transform:translate(-50%,12px);max-width:70vw;padding:9px 18px;border-radius:10px;border:1px solid rgba(0,0,0,.1);background:rgba(31,31,31,.92);color:#f2f0ec;font-family:\"Noto Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:12.5px;line-height:1.5;text-align:center;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}",
       "#ms-video-toast.is-visible{opacity:1;transform:translate(-50%,0)}",
       "#ms-video-toast.is-error{background:rgba(180,35,24,.94);color:#fff}",
+      // bundle 子菜单 left:calc(100%+4px)：父菜单与子菜单间有 4px 悬空缝隙，
+      // 鼠标慢速横穿时采样落进缝隙 → 包裹 div 触发 mouseleave → 子菜单消失；
+      // 快速划过采样跳过缝隙则没事（表现为「时好时坏」）。给子菜单补一条
+      // 不可见 hover 桥盖住缝隙：伪元素属于子菜单，指针压上仍算在其内。
+      ".canvas-context-menu__submenu::before{content:\"\";position:absolute;top:0;bottom:0;left:-12px;width:12px}",
     ].join("");
     document.head.appendChild(style);
   }
