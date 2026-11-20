@@ -1733,23 +1733,30 @@
     const top = payload?.error?.message || payload?.error?.details || payload?.error?.type || "";
     const nodeErrors = payload?.node_errors || {};
     const parts = [];
+    const fmt = x => (typeof x === "string" ? `"${x}"` : JSON.stringify(x));
+    const listValid = vv => (Array.isArray(vv) && vv.length
+      ? `；可选：${vv.slice(0, 10).map(fmt).join(", ")}${vv.length > 10 ? `…（共 ${vv.length} 项）` : ""}`
+      : "");
     for (const [nodeId, info] of Object.entries(nodeErrors)) {
       const errors = Array.isArray(info?.errors) ? info.errors : [];
+      const who = `节点 ${nodeId}${info?.class_type ? `（${info.class_type}）` : ""}`;
       for (const e of errors) {
         const msg = e?.message || "";
-        const d = e?.details || {};
+        const d = e?.details && typeof e?.details === "object" ? e.details : {};
+        const x = e?.extra_info && typeof e?.extra_info === "object" ? e.extra_info : {};
         const customType = d.custom_type ? ` [${d.custom_type}]` : "";
+        // 下拉(combo)值非法：字段名/当前值/合法列表在 input_name、input_value、valid_values
+        const inputName = d.input_name || x.input_name || "";
+        const hasValue = "input_value" in d || "input_value" in x;
+        if (inputName && hasValue) {
+          parts.push(`${who} 字段「${inputName}」的值 ${fmt(d.input_value ?? x.input_value)} 不在合法列表${listValid(d.valid_values ?? x.valid_values)}`);
+          continue;
+        }
         if (Array.isArray(d.inputs) && d.inputs.length) {
-          const bad = d.inputs.map(x => typeof x === "string" ? `"${x}"` : JSON.stringify(x)).join(", ");
-          let line = `节点 ${nodeId}${customType} 字段值非法：${bad}`;
-          const vv = d.valid_values;
-          if (Array.isArray(vv) && vv.length) {
-            const sample = vv.slice(0, 8).map(x => typeof x === "string" ? `"${x}"` : String(x)).join(", ");
-            line += `；可选：${sample}${vv.length > 8 ? `…（共 ${vv.length} 项）` : ""}`;
-          }
-          parts.push(line);
+          const bad = d.inputs.map(fmt).join(", ");
+          parts.push(`${who}${customType} 字段值非法：${bad}${listValid(d.valid_values)}`);
         } else if (msg) {
-          parts.push(`节点 ${nodeId}${customType}：${msg}`);
+          parts.push(`${who}${customType}：${msg}`);
         }
       }
     }
