@@ -771,11 +771,15 @@
     scrollNodeIntoView: nodeId => scrollNodeIntoView(nodeId),
     // 小地图点击定位用：把画布中心移到某个 flow 坐标，保持当前缩放。
     // fiber/store 访问集中在这里，minimap-patch 不自己遍历。
+    // zoom 缺失时 bundle 的 setCenter 会回落到 maxZoom（点一下就放大到最大），
+    // 所以缩放非有限数直接不跳，不假装成功。
     centerViewport: (x, y) => {
       const g = findReactFlowStore();
       const rf = g ? g() : null;
       if (!rf || typeof rf.setCenter !== "function") return false;
-      try { rf.setCenter(x, y, { zoom: rf.transform ? rf.transform[2] : undefined, duration: 220 }); return true; } catch (_) { return false; }
+      const zoom = rf.transform && rf.transform[2];
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(zoom)) return false;
+      try { rf.setCenter(x, y, { zoom, duration: 220 }); return true; } catch (_) { return false; }
     },
     diagnoseDrag: () => {
       const g = findReactFlowStore();
