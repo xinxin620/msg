@@ -28,6 +28,14 @@
   const SEED_RE = /^seed$/i;
   const DENOISE_RE = /^denoise$/i;
   const VIDEO_LEN_RE = /^(length|duration|num_frames|frame_count|fps|frame_rate)$/i;
+  // 下拉选项是否像分辨率/比例预设：16:9、1:1 (Square)、1024x1024、1024×1536 等
+  const RES_OPT_RE = /^\s*\d+\s*[:x×]\s*\d+/i;
+  function looksLikeResolutionOptions(options) {
+    if (!Array.isArray(options) || options.length < 2) return false;
+    let hits = 0;
+    for (const opt of options) if (typeof opt === "string" && RES_OPT_RE.test(opt)) hits += 1;
+    return hits >= 2 && hits >= Math.ceil(options.length * 0.5);
+  }
 
   let seq = 0;
   let lastPointer = null;
@@ -1178,6 +1186,17 @@
       g.items.push(item);
       return item;
     };
+    // 取一个 field 在 object_info 里的 combo 选项（无则 null）
+    const optionsOf = field => {
+      const spec = (types && fieldSpec(types[field.classType] || null, field.key)) || null;
+      return spec && Array.isArray(spec[1]) ? spec[1].options : null;
+    };
+
+    // 分辨率选择器：某 combo 选项像比例/分辨率预设 → 其所在节点视为尺寸来源
+    let resSelectorNodeId = "";
+    for (const f of fields) {
+      if (f.type === "string" && looksLikeResolutionOptions(optionsOf(f))) { resSelectorNodeId = f.nodeId; break; }
+    }
 
     const widthFields = [], heightFields = [];
     for (const f of fields) {
@@ -1187,19 +1206,30 @@
       if (SEED_RE.test(f.key)) { push("seed", "种子", f, { kind: "number" }); continue; }
       if (DENOISE_RE.test(f.key)) { push("denoise", "降噪", f); continue; }
       if (VIDEO_LEN_RE.test(f.key)) { push("video", "视频", f); continue; }
+      // 选择器节点：画面比例 combo + 同节点数字（百万像素/倍数等）都提到「分辨率」组
+      if (resSelectorNodeId && f.nodeId === resSelectorNodeId) {
+        const isAspectCombo = f.type === "string" && looksLikeResolutionOptions(optionsOf(f));
+        push("resolution", "分辨率", f, isAspectCombo ? { label: "画面比例" } : null);
+        continue;
+      }
       if (/^width$/i.test(f.key)) { widthFields.push(f); continue; }
       if (/^height$/i.test(f.key)) { heightFields.push(f); continue; }
       others.push(f);
     }
-    // 分辨率：成对的 width/height 合成一个节点控件（多对取第一对，其余进全部参数）
-    const resPair = widthFields.length && heightFields.length
-      ? widthFields.find(w => heightFields.some(h => h.nodeId === w.nodeId)) : null;
-    if (resPair) {
-      const resH = heightFields.find(h => h.nodeId === resPair.nodeId);
-      const wItem = push("resolution", "分辨率", resPair, { kind: "number", label: "宽", groupRole: "w" });
-      const hItem = push("resolution", "分辨率", resH, { kind: "number", label: "高", groupRole: "h" });
-      widthFields.filter(f => f !== resPair).forEach(f => others.push(f));
-      heightFields.filter(f => f !== resH).forEach(f => others.push(f));
+    // 分辨率（无选择器时）：成对的 width/height 合成一个节点控件（多对取第一对，其余进全部参数）
+    if (!resSelectorNodeId) {
+      const resPair = widthFields.length && heightFields.length
+        ? widthFields.find(w => heightFields.some(h => h.nodeId === w.nodeId)) : null;
+      if (resPair) {
+        const resH = heightFields.find(h => h.nodeId === resPair.nodeId);
+        push("resolution", "分辨率", resPair, { kind: "number", label: "宽", groupRole: "w" });
+        push("resolution", "分辨率", resH, { kind: "number", label: "高", groupRole: "h" });
+        widthFields.filter(f => f !== resPair).forEach(f => others.push(f));
+        heightFields.filter(f => f !== resH).forEach(f => others.push(f));
+      } else {
+        widthFields.forEach(f => others.push(f));
+        heightFields.forEach(f => others.push(f));
+      }
     } else {
       widthFields.forEach(f => others.push(f));
       heightFields.forEach(f => others.push(f));
@@ -1285,7 +1315,8 @@
       const row = document.createElement("div"); row.className = CARD_CLASS + "__prow";
       g.items.forEach(item => row.appendChild(buildParamControl(item, g)));
       grp.append(lab, row);
-      if (g.id === "resolution") {
+      // 横竖屏对调只在「分辨率」组真有可编辑 width/height 对时才出现（选择器工作流靠画面比例下拉，不显示）
+      if (g.id === "resolution" && g.items.some(i => i.groupRole === "w") && g.items.some(i => i.groupRole === "h")) {
         const seg = document.createElement("div"); seg.className = CARD_CLASS + "__seg " + CARD_CLASS + "__orient-seg";
         [["横屏", true], ["竖屏", false]].forEach(([name, landscape]) => {
           const b = document.createElement("button"); b.type = "button"; b.dataset.orient = landscape ? "land" : "port"; b.textContent = name;
