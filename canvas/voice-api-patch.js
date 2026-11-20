@@ -81,6 +81,7 @@
       baseUrl: "",
       applyUrl: "",
       voiceModel: "",
+      voiceName: "",
       builtin: false,
       modelCatalog: [],
       selectedModels: [],
@@ -98,6 +99,7 @@
       baseUrl: "",
       applyUrl: BUILTIN_APPLY_URL,
       voiceModel: "",
+      voiceName: "",
       builtin: true,
       modelCatalog: [],
       selectedModels: [],
@@ -138,6 +140,7 @@
       baseUrl: typeof source.baseUrl === "string" ? source.baseUrl : "",
       applyUrl: typeof source.applyUrl === "string" ? source.applyUrl : "",
       voiceModel: typeof source.voiceModel === "string" ? source.voiceModel.trim() : "",
+      voiceName: typeof source.voiceName === "string" ? source.voiceName.trim() : "",
       builtin,
       modelCatalog: [...new Set(catalog)],
       selectedModels: uniqueStringList(source.selectedModels).filter((model) => catalog.includes(model)),
@@ -533,6 +536,10 @@
           <label class="ms-voice-api-card__field">
             <span class="ms-voice-api-card__label">模型名（请求中 model 字段的实际值）</span>
             <input class="ms-voice-api__input" data-ms-voice-field="voiceModel" value="${escapeHtml(profile.voiceModel)}" placeholder="${profile.builtin ? "留空则沿用画布云雾语音模型" : "例如 speech-2.8-hd / tts-1"}" />
+          </label>
+          <label class="ms-voice-api-card__field">
+            <span class="ms-voice-api-card__label">音色 voice（可选，留空用默认；elevenlabs 等需填有效 voice id）</span>
+            <input class="ms-voice-api__input" data-ms-voice-field="voiceName" value="${escapeHtml(profile.voiceName || "")}" placeholder="例如 elevenlabs 的 voice_id / OpenAI 的 alloy" />
           </label>
           <p class="ms-voice-api-card__hint">${escapeHtml(modelHintText(profile))}</p>
           <p class="ms-voice-api__result" hidden></p>
@@ -1034,13 +1041,156 @@
     }
     return null;
   }
+  // Gemini 返回 200+JSON 却没有 inlineData 时，把响应里的诊断字段抽出来，
+  // 否则只剩「没有返回音频数据」看不出是安全拦截 / 额度 / 模型不是 TTS / 空补全。
+  function geminiNoAudioHint(payload) {
+    const bits = [];
+    if (!payload || typeof payload !== "object") return "（响应不是 JSON 对象）";
+    bits.push("顶层字段=[" + Object.keys(payload).join(",") + "]");
+    const candidate = payload?.candidates?.[0];
+    if (candidate?.finishReason) bits.push("finishReason=" + candidate.finishReason);
+    const block = payload?.promptFeedback?.blockReason;
+    if (block) bits.push("blockReason=" + block);
+    const err = payload?.error?.message || payload?.error || payload?.message;
+    if (err) bits.push("error=" + String(typeof err === "object" ? JSON.stringify(err) : err).slice(0, 160));
+    // Gemini 原生：candidates[0].content.parts[]
+    const parts = candidate?.content?.parts;
+    if (Array.isArray(parts)) {
+      const shapes = parts.map(p => Object.keys(p || {}).join("/")).join(" , ");
+      bits.push("parts结构=[" + shapes.slice(0, 160) + "]");
+      const text = parts.map(p => (typeof p?.text === "string" ? p.text : "")).join("").trim();
+      if (text) bits.push("仅文本=" + text.slice(0, 60));
+    }
+    // OpenAI chat/completions 信封：choices[0].message.audio.data（base64）
+    const choice = payload?.choices?.[0];
+    if (choice) {
+      const audio = choice?.message?.audio;
+      if (audio && typeof audio.data === "string" && audio.data.length) {
+        bits.push("★choices[0].message.audio 有 base64 音频(" + audio.data.length + " 字符, fmt=" + (audio.format || "?") + ")，本补丁按 Gemini 结构解析所以漏读");
+      } else {
+        bits.push("choices[0].message keys=[" + Object.keys(choice?.message || {}).join(",") + "]");
+      }
+    }
+    // 钻到 data 内部（openlux images 风格信封）
+    const dv = payload?.data;
+    if (typeof dv === "string") bits.push("data=base64串(" + dv.length + " 字符)");
+    else if (Array.isArray(dv)) bits.push("data[]长度=" + dv.length + " 首项键=[" + Object.keys(dv[0] || {}).join(",") + "]");
+    else if (dv && typeof dv === "object") bits.push("data对象键=[" + Object.keys(dv).join(",") + "]");
+    if (payload?.output?.length) bits.push("有 output 数组(Responses 风格)");
+    return "（" + bits.join(" · ") + "）";
+  }
+
+  // openlux 等网关会把 gemini tts 输出包成 OpenAI images 风格 {created, data:[{b64_json|url}]}，
+  // 而非官方 candidates。这里兼容多种字段名，返回 {base64} 或 {url}，取不到返回 null。
+  function head(v) { return String(v == null ? "" : v).slice(0, 48); }
+  function geminiRawShape(payload) {
+    const info = { topKeys: Object.keys(payload || {}) };
+    const dv = payload?.data;
+    if (Array.isArray(dv)) {
+      info.dataLen = dv.length;
+      info.data0 = dv[0] && typeof dv[0] === "object"
+        ? Object.fromEntries(Object.entries(dv[0]).map(([k, v]) => [k, typeof v === "string" ? head(v) + `…(${v.length})` : v]))
+        : head(dv[0]);
+    } else if (dv && typeof dv === "object") {
+      info.dataKeys = Object.keys(dv);
+      info.dataSample = Object.fromEntries(Object.entries(dv).map(([k, v]) => [k, typeof v === "string" ? head(v) + `…(${v.length})` : v]));
+    } else {
+      info.dataType = typeof dv;
+      info.dataHead = head(dv);
+    }
+    const ch = payload?.choices?.[0]?.message;
+    if (ch) info.messageKeys = Object.keys(ch);
+    if (payload?.error) info.error = payload.error;
+    return info;
+  }
+
+  function pickAudioFromEnvelope(payload) {
+    const raw = payload?.data;
+    const items = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? [raw] : (typeof raw === "string" ? [raw] : []));
+    for (const item of items) {
+      if (typeof item === "string") {
+        if (/^https?:/i.test(item)) return { url: item };
+        if (item.length > 64) return { base64: item };
+        continue;
+      }
+      if (!item || typeof item !== "object") continue;
+      const b64 = item.b64_json || item.audio_base64 || item.audio || item.data;
+      if (typeof b64 === "string" && b64.length > 64) return { base64: b64, mime: item.mime_type || item.mimeType };
+      const url = item.url || item.audio_url || item.signed_url;
+      if (typeof url === "string" && /^https?:/i.test(url)) return { url, mime: item.mime_type || item.mimeType };
+    }
+    return null;
+  }
+
+  // OpenAI chat/completions 信封：choices[0].message.audio.data(base64) 或 .url
+  function pickAudioFromChoices(payload) {
+    const audio = payload?.choices?.[0]?.message?.audio;
+    if (!audio || typeof audio !== "object") return null;
+    if (typeof audio.data === "string" && audio.data.length > 64) return { base64: audio.data, mime: audio.mime_type };
+    if (typeof audio.url === "string" && /^https?:/i.test(audio.url)) return { url: audio.url };
+    return null;
+  }
+
+  // 按文件头识别真实容器；识别不了当作裸 PCM（Gemini 原生输出），补 WAV 头。
+  function sniffAudioFormat(bytes) {
+    const head = [...bytes.slice(0, 12)].map(b => b.toString(16).padStart(2, "0")).join(" ");
+    const ascii = String.fromCharCode(...bytes.slice(0, 4));
+    const tag = { len: bytes.length, head, ascii };
+    if (ascii === "RIFF") return { format: "wav", tag };
+    if (ascii === "OggS") return { format: "ogg", tag };
+    if (ascii === "fLaC") return { format: "flac", tag };
+    if (ascii === "ID3" || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return { format: "mp3", tag };
+    // 图片：网关把 TTS 请求路由到出图渠道时会返回这些
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) return { format: "image", kind: "png", tag };
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) return { format: "image", kind: "jpg", tag };
+    if (ascii === "GIF8") return { format: "image", kind: "gif", tag };
+    if (ascii === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") return { format: "image", kind: "webp", tag };
+    return { format: null, tag }; // 无容器头：裸 PCM
+  }
+
+  function wrapPcmToWav(pcm, sampleRate, channels) {
+    const rate = sampleRate || 24000, ch = channels || 1;
+    const out = new Uint8Array(44 + pcm.length);
+    const dv = new DataView(out.buffer);
+    const ascii = (off, s) => { for (let i = 0; i < s.length; i++) out[off + i] = s.charCodeAt(i); };
+    ascii(0, "RIFF"); dv.setUint32(4, 36 + pcm.length, true); ascii(8, "WAVE");
+    ascii(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, ch, true);
+    dv.setUint32(24, rate, true); dv.setUint32(28, rate * ch * 2, true); dv.setUint16(32, ch * 2, true); dv.setUint16(34, 16, true);
+    ascii(36, "data"); dv.setUint32(40, pcm.length, true);
+    out.set(pcm, 44);
+    return out;
+  }
+
+  // data 里可能是远端音频 URL，取回成字节并按真实格式返回。
+  async function fetchAudioBytes(url, key) {
+    const resp = await requestUpstream(url, { method: "GET", headers: key ? { Authorization: "Bearer " + key } : {}, credentials: "omit" });
+    if (!resp.ok) throw new Error("音频下载失败 HTTP " + resp.status);
+    const type = resp.headers.get("Content-Type") || "";
+    const buf = await resp.arrayBuffer();
+    if (!buf.byteLength) throw new Error("音频下载为空");
+    const bytes = new Uint8Array(buf);
+    const sniff = sniffAudioFormat(bytes);
+    if (sniff.format === "image") {
+      throw new Error("网关返回的是图片(" + (sniff.kind || type || "image") + ")，不是音频——该模型在此渠道被当成出图处理，没有走语音输出，请换其它 TTS 模型或稍后重试");
+    }
+    // HTML/JSON 错误页：前 4 字节是 "<" 或 "{"，明确报错而不是存成坏文件
+    const ascii4 = sniff.tag.ascii;
+    if (ascii4.startsWith("<") || ascii4.startsWith("{")) {
+      throw new Error("音频 URL 返回的不是音频（疑似错误页/JSON）：" + String.fromCharCode(...bytes.slice(0, 80)));
+    }
+    if (sniff.format) return { bytes, format: sniff.format };
+    // 裸 PCM：按 Gemini 原生 24k 单声道补 WAV 头
+    return { bytes: wrapPcmToWav(bytes, 24000, 1), format: "wav" };
+  }
+
   // 协议二：Gemini 原生 generateContent。云雾的 gemini-*-tts 只认这条，
   // 返回 candidates[0].content.parts[].inlineData(base64 + mimeType)。
   async function tryGeminiVoice(ctx) {
     const origin = voiceOrigin(ctx.root);
     const model = String(ctx.model || "").replace(/^models\//i, "");
     if (!origin || !model) return { ok: false, error: "缺少 Gemini 端点或模型名。" };
-    const voice = geminiVoiceName(ctx.payload?.voice_setting?.voice_id);
+    const customVoice = String(ctx.profile?.voiceName || "").trim();
+    const voice = customVoice || geminiVoiceName(ctx.payload?.voice_setting?.voice_id);
     const text = voiceText(ctx.payload);
     const url = origin + "/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
     const attempts = [false, true];
@@ -1064,11 +1214,27 @@
         continue;
       }
       const audio = geminiInlineAudio(data);
-      if (!audio) {
-        lastError = "Gemini 没有返回音频数据。";
-        continue;
+      if (audio) {
+        return { ok: true, bytes: base64ToBytes(audio.data), format: mimeToFormat(audio.mime) };
       }
-      return { ok: true, bytes: base64ToBytes(audio.data), format: mimeToFormat(audio.mime) };
+      // 官方结构没有 → 试网关常见信封（{created,data} images 风格 / choices[].message.audio）
+      const env = pickAudioFromEnvelope(data) || pickAudioFromChoices(data);
+      if (env) {
+        try {
+          if (env.base64) {
+            const b = base64ToBytes(env.base64);
+            const s = sniffAudioFormat(b);
+            if (s.format === "image") throw new Error("网关返回的是图片(" + (s.kind || "image") + ")，不是音频，该模型未走语音输出");
+            return { ok: true, bytes: s.format ? b : wrapPcmToWav(b, 24000, 1), format: s.format || "wav" };
+          }
+          const fetched = await fetchAudioBytes(env.url, ctx.key);
+          return { ok: true, bytes: fetched.bytes, format: fetched.format };
+        } catch (e) {
+          lastError = "Gemini 信封里有音频但取回失败：" + ((e && e.message) || e);
+          continue;
+        }
+      }
+      lastError = "Gemini 没有返回音频数据" + geminiNoAudioHint(data) + "。";
     }
     return { ok: false, error: lastError || "Gemini 生成失败。" };
   }
@@ -1076,7 +1242,8 @@
   async function tryOpenAiSpeechVoice(ctx) {
     const base = voiceApiRoot(effectiveVoiceBase(ctx.profile));
     if (!base) return { ok: false, error: "缺少接口地址。" };
-    const voice = openaiVoiceName(ctx.payload?.voice_setting?.voice_id);
+    const customVoice = String(ctx.profile?.voiceName || "").trim();
+    const voice = customVoice || openaiVoiceName(ctx.payload?.voice_setting?.voice_id);
     const body = { model: ctx.model, input: voiceText(ctx.payload), voice };
     const response = await requestUpstream(base + "/audio/speech", {
       method: "POST",
@@ -1094,7 +1261,8 @@
   function voiceProtocolOrder(ctx) {
     const model = String(ctx.model || "").toLowerCase();
     if (model.includes("gemini")) return ["gemini", "minimax", "openai"];
-    if (model.includes("minimax") || model.includes("speech-")) return ["minimax", "gemini", "openai"];
+    if (model.includes("eleven")) return ["openai", "minimax", "gemini"];
+    if (model.includes("minimax") || model.includes("speech-") || model.includes("hailuo")) return ["minimax", "openai"];
     return ["minimax", "gemini", "openai"];
   }
 
@@ -1114,7 +1282,7 @@
         errors.push(`${name}：${error?.message || String(error)}`);
       }
     }
-    throw new Error(`语音生成失败。${errors.join("；")}`);
+    throw new Error(`语音生成失败（模型「${ctx.model || "未选定"}」）。${errors.join("；")}`);
   }
   // 回灌成节点认识的 MiniMax 响应结构，节点自己会把 hex 还原成 Blob。
   function voiceResponseFromAudio(result) {
@@ -1191,16 +1359,34 @@
     return `HTTP ${response.status}：${String(text || "").slice(0, 200)}`;
   }
 
+  function minimaxEndpointCandidates(ctx) {
+    const urls = [];
+    try {
+      const origin = new URL(ctx.root).origin;
+      // openlux 网关按厂商前缀路由 MiniMax：https://api.openlux.ai/minimax/v1/t2a_v2
+      if (/openlux\.ai/i.test(origin)) urls.push(origin + "/minimax/v1/t2a_v2");
+    } catch (_) { /* 非标准 root 就只走兜底 */ }
+    urls.push(ctx.root + "/t2a_v2");
+    return [...new Set(urls)];
+  }
+
   // 协议一：MiniMax /t2a_v2，节点原生格式，命中真实 MiniMax 或兼容网关时直接可用。
   async function tryMiniMaxVoice(ctx) {
     const body = { ...ctx.payload, output_format: "hex" };
     if (ctx.model) body.model = ctx.model;
-    const response = await requestUpstream(ctx.root + "/t2a_v2", {
-      method: "POST",
-      headers: voiceJsonHeaders(ctx.key),
-      body: JSON.stringify(body),
-      credentials: "omit",
-    });
+    let response = null;
+    let lastError = "";
+    for (const endpoint of minimaxEndpointCandidates(ctx)) {
+      response = await requestUpstream(endpoint, {
+        method: "POST",
+        headers: voiceJsonHeaders(ctx.key),
+        body: JSON.stringify(body),
+        credentials: "omit",
+      });
+      // 404 Invalid URL = 网关没这个路径，换下一个候选端点再试
+      if (response.status === 404) { lastError = "MiniMax " + (await voiceFailureText(response)); continue; }
+      break;
+    }
     if (!response.ok) return { ok: false, error: "MiniMax " + (await voiceFailureText(response)) };
     let data = null;
     try {
@@ -1331,7 +1517,7 @@
     const found = cardFor(field);
     if (!found) return;
     const key = field.dataset.msVoiceField;
-    if (!["name", "apiKey", "baseUrl", "applyUrl", "voiceModel"].includes(key)) return;
+    if (!["name", "apiKey", "baseUrl", "applyUrl", "voiceModel", "voiceName"].includes(key)) return;
     found.profile[key] = field.value;
     if (key === "name") {
       const label = found.card.querySelector(".ms-voice-api-card__name");
@@ -1409,6 +1595,89 @@
       return ctx
         ? { ok: true, model: ctx.model, root: ctx.root, keyPresent: Boolean(ctx.key) }
         : { ok: false };
+    },
+    // 控制台探针：await __MS_VOICE_API_PATCH__.probe("模型名")
+    // 用当前启用配置的 Key 实打 OpenAI speech / MiniMax t2a / Gemini 原生三种协议，
+    // 原样返回各家 HTTP 状态 + Content-Type + 响应体（文本截断/二进制标注），
+    // 据此判断网关到底走哪条协议、返回什么结构，而不是靠猜。
+    probe: async (model) => {
+      const profile = activeVoiceProfile();
+      if (!profile) return { ok: false, error: "没有启用的语音配置" };
+      const root = voiceApiRoot(effectiveVoiceBase(profile));
+      const key = nativeVoiceKey(profile);
+      const target = String(model || pickVoiceModel(profile, "") || "").trim();
+      const out = { ok: true, model: target, root, keyPresent: Boolean(key), calls: {} };
+      if (!target) { out.error = "没传模型名，且当前配置没有已勾选模型"; return out; }
+      const safe = async (name, url, init) => {
+        try {
+          const resp = await requestUpstream(url, init);
+          const type = resp.headers.get("Content-Type") || "";
+          let body = "";
+          if (/json|text|html/i.test(type)) body = (await resp.text()).slice(0, 700);
+          else { const buf = await resp.arrayBuffer(); body = "<binary " + buf.byteLength + " bytes>"; }
+          out.calls[name] = { status: resp.status, contentType: type, body };
+        } catch (e) {
+          out.calls[name] = { error: String((e && e.message) || e) };
+        }
+      };
+      await safe("openai_speech", root + "/audio/speech", {
+        method: "POST", headers: voiceJsonHeaders(key, "audio/*"), credentials: "omit",
+        body: JSON.stringify({ model: target, input: "你好", voice: "alloy" }),
+      });
+      await safe("minimax_t2a", minimaxEndpointCandidates({ root })[0], {
+        method: "POST", headers: voiceJsonHeaders(key), credentials: "omit",
+        body: JSON.stringify({
+          model: target, text: "你好", stream: false,
+          voice_setting: { voice_id: "Chinese (Mandarin)_Lin_Xiao_Xia", speed: 1, vol: 1, pitch: 0 },
+          audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 2 },
+        }),
+      });
+      try {
+        const origin = new URL(root).origin;
+        await safe("gemini_native", origin + "/v1beta/models/" + encodeURIComponent(target) + ":generateContent", {
+          method: "POST", headers: voiceJsonHeaders(key), credentials: "omit",
+          body: JSON.stringify(geminiVoiceBody("你好", "Kore", true)),
+        });
+      } catch (e) { out.calls.gemini_native = { error: String((e && e.message) || e) }; }
+      return out;
+    },
+    // 控制台：__MS_VOICE_API_PATCH__.voices().then(console.log)
+    // 试各厂商前缀的「列音色」端点，找到能用的就把 voice id + 名字列出来，
+    // 用户不用再凭空猜 voice_id。
+    voices: async () => {
+      const profile = activeVoiceProfile();
+      if (!profile) return { ok: false, error: "没有启用的语音配置" };
+      const root = voiceApiRoot(effectiveVoiceBase(profile));
+      const key = nativeVoiceKey(profile);
+      if (!root || !key) return { ok: false, error: "缺少 Base URL 或 Key" };
+      const origin = voiceOrigin(root);
+      const candidates = [
+        root + "/voices",
+        origin + "/elevenlabs/v1/voices",
+        origin + "/v1/elevenlabs/voices",
+        origin + "/eleven/v1/voices",
+      ];
+      const out = { ok: true, tried: [] };
+      for (const url of candidates) {
+        const entry = { url };
+        try {
+          const resp = await requestUpstream(url, { method: "GET", headers: { Accept: "application/json", Authorization: "Bearer " + key }, credentials: "omit" });
+          const text = (await resp.text()).slice(0, 3000);
+          entry.status = resp.status;
+          if (resp.ok) {
+            try {
+              const parsed = JSON.parse(text);
+              const list = Array.isArray(parsed) ? parsed : (parsed?.voices || parsed?.data || []);
+              entry.voices = (Array.isArray(list) ? list : []).slice(0, 60).map(v =>
+                typeof v === "string" ? v : { id: v.voice_id || v.id || v.name, name: v.name });
+            } catch { entry.body = text.slice(0, 300); }
+          } else {
+            entry.body = text.slice(0, 200);
+          }
+        } catch (e) { entry.error = String((e && e.message) || e); }
+        out.tried.push(entry);
+      }
+      return out;
     },
   };
 

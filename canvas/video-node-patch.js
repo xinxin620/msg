@@ -215,12 +215,15 @@
     }
 
     seq += 1;
+    // 新建默认模型：跟随当前启用卡勾选的第一个模型，不再写死 veo3fast。
+    const av = window.__MS_VIDEO_API__;
+    const defaultModel = (av && ((av.videoModels && av.videoModels[0]) || av.model)) || DEFAULT_VIDEO_DATA.videoModelId;
     const position = useFlowPosition ? flowPositionFromPointer() : null;
     const node = {
       id: "msvideo_" + Date.now().toString(36) + "_" + seq,
       type: "canvasNode",
       position: position || randomPosition(),
-      data: Object.assign({}, DEFAULT_VIDEO_DATA),
+      data: Object.assign({}, DEFAULT_VIDEO_DATA, { videoModelId: defaultModel }),
     };
 
     try {

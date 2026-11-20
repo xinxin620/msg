@@ -488,7 +488,7 @@
     modelRow.setAttribute("aria-expanded", "false");
     const modelLabel = document.createElement("span"); modelLabel.className = CARD_CLASS + "__model-label"; modelLabel.textContent = "视频 API";
     const modelValue = document.createElement("span"); modelValue.className = CARD_CLASS + "__model-value";
-    modelValue.textContent = node.data.videoModelId || "veo3fast";
+    modelValue.textContent = node.data.videoModelId || "未选择模型";
     const modelChevron = document.createElement("span"); modelChevron.className = CARD_CLASS + "__model-chevron"; modelChevron.textContent = "▾";
     modelRow.append(modelLabel, modelValue, modelChevron);
     modelRow.addEventListener("click", ev => {
@@ -510,7 +510,7 @@
 
     // Model line
     const ml = document.createElement("div"); ml.className = CARD_CLASS + "__model-line";
-    ml.innerHTML = '<strong>模型:</strong> ' + escHtml(node.data.videoModelId || "veo3fast");
+    ml.innerHTML = '<strong>模型:</strong> ' + escHtml(node.data.videoModelId || "未选择模型");
     c.appendChild(ml);
 
     // Action buttons
@@ -739,6 +739,7 @@
           }
           try {
             st.updateNodeData(node.id, { videoModelId: model });
+            localStorage.setItem("ms_video_model", model);
             closeModelMenu();
             refreshCard();
           } catch (err) {
@@ -824,9 +825,9 @@
     syncRefRow(card);
     const modelValue = card.querySelector("." + CARD_CLASS + "__model-value");
     const n = getSelectedVideoNode();
-    if (modelValue && n) modelValue.textContent = n.data.videoModelId || "veo3fast";
+    if (modelValue && n) modelValue.textContent = n.data.videoModelId || "未选择模型";
     const ml = card.querySelector("." + CARD_CLASS + "__model-line");
-    if (ml && n) ml.innerHTML = '<strong>模型:</strong> ' + escHtml(n.data.videoModelId || "veo3fast");
+    if (ml && n) ml.innerHTML = '<strong>模型:</strong> ' + escHtml(n.data.videoModelId || "未选择模型");
     syncParamSheet();
     syncModelMenu();
   }
@@ -875,8 +876,10 @@
     try {
       const r = getStateReader(); const st = r && r();
       if (!st || !st.executeNode) { showToast("executeNode not available", "error"); return; }
+      // bundle 会把认不出的模型劫持成 veo3fast；把节点真实选择交给拦截器顶回去
+      localStorage.setItem("ms_video_model", (node && node.data && node.data.videoModelId) || "");
       await st.executeNode(node.id, { trigger: "manual" });
-      console.log("[ms] video submitted"); refreshCard();
+      refreshCard();
     } catch (err) { console.error("[ms] generate failed:", err); showToast("生成失败：" + ((err && err.message) || "未知错误"), "error"); }
   }
   // ======= 视频预览层 =======

@@ -198,6 +198,7 @@
       baseUrl: active ? normalizeBaseUrl(active.baseUrl) : "",
       apiKey: active?.apiKey || "",
       model: active?.videoModel || "",
+      videoModels: active ? selectedVideoModels(active) : [],
       builtin: Boolean(active?.builtin),
       updatedAt: Date.now(),
     };
@@ -690,6 +691,45 @@
     return response;
   }
 
+  // 与 comfy/voice 同模板的 store-reader（fallbackReader 绕过冻结 snapshot）。
+  // Bundle 内部在 executeNode 构造请求前就把 model 劫持成 ve3fast（查不到就回退）。
+  // 我们无法等请求发出再改——必须在 bundle 拿节点数据之前把 videoModelId 塞进去。
+  // 方法：包装 canvasStore.updateNodeData（或 setState），每次写入 videoModelId 时
+  // 存一份到 __MS_VIDEO_NODE_MODEL__，供后续 fetch 拦截器使用。
+  // 面板点模型菜单和点生成时均已写全局（video-inspector-patch.js），此处再加一层保险。
+  // 同时保留 findCanvasStore 用于轮询路径等其它场景。
+  function findCanvasStore() {
+    try {
+      const rootEl = document.getElementById("root");
+      if (!rootEl) return null;
+      let fallbackReader = null;
+      const comps = Array.from(rootEl.children).map(el => el["_reactRootContainer"] || el["_react-fiber-container"]);
+      for (const c of comps) {
+        if (c && c.current && c.current.child) {
+          let child = c.current.child;
+          while (child) {
+            const cand = child.stateNode;
+            if (cand && cand !== rootEl && cand !== rootEl.parentElement) {
+              try {
+                if (typeof cand.getSnapshot === "function") {
+                  const reader = () => cand.getSnapshot();
+                  if (reader() && Array.isArray(reader().nodes) && typeof reader().updateNodeData === "function") return reader;
+                  if (!fallbackReader) fallbackReader = reader;
+                }
+              } catch (_) {}
+            }
+            child = child.sibling;
+          }
+        } else if (c && c.stateNode) {
+          const reader = () => c.stateNode._threadID ? (() => { try { return c.stateNode.getState(); } catch (_) { return null; } })() : null;
+          if (!fallbackReader && reader()) fallbackReader = reader;
+        }
+      }
+      return fallbackReader;
+    } catch { return null; }
+  }
+  function getStateReader() { return findCanvasStore(); }
+
   function effectiveBase(profile) {
     return normalizeBaseUrl(profile.baseUrl) || (profile.builtin ? normalizeBaseUrl(DEFAULT_BASE_URL) : "");
   }
@@ -880,6 +920,9 @@
     const selected = selectedVideoModels(profile);
     const typed = profile.videoModel.trim();
     const want = String(requested || "");
+    // 内置云雾：节点选了什么就发什么，「模型名」只在节点没给模型时兜底，
+    // 不再静默把豆包改成 muse-video（云雾账单被扣错模型的根源）。
+    if (profile.builtin && want) return want;
     let next = "";
     if (selected.length) {
       if (selected.includes(want)) next = want;
@@ -909,10 +952,71 @@
     if (!rawUrl) return null;
     const proxied = rawUrl.startsWith(PROXY_PREFIX) || rawUrl.includes(`${PROXY_PREFIX}proxy`);
     if (proxied) return null;
+    // 云雾视频网关是 openlux（DEFAULT_BASE_URL）；rrrsai 没有视频路由，
+    // 故空接口地址必须回退 openlux，不能回退画布原生 rawUrl。
     const base = effectiveBase(profile);
     const parsed = await readRequestBody(input, init);
-    const payload = parsed.kind === "json" ? parsed.value || {} : null;
+    let payload = parsed.kind === "json" ? parsed.value || {} : null;
     const endpoint = endpointSuffix(rawUrl);
+    // Patch model using localStorage (more reliable than store reader)
+    if (payload && typeof payload.model === "string") {
+      const savedModel = typeof localStorage !== "undefined"
+        ? localStorage.getItem("ms_video_model") || ""
+        : "";
+      if (savedModel) payload.model = savedModel;
+    }
+    const openAiVideo = profile.builtin || /openlux/i.test(base);
+    let videoSuffix = endpoint;
+    // 豆包/seedance：云雾文档标明走火山原生 /api/v3/contents/generations/tasks，
+    // body 为 content[] 结构（text + first/last_frame 图），不是 OpenAI /v1/videos。
+    const volcModel = Boolean(payload && /seedance|doubao/i.test(String(payload.model || "")));
+    const volcMethod = String(init?.method || (input instanceof Request ? input.method : "POST")).toUpperCase();
+    let volcSubmit = false;
+    if (volcModel && volcMethod === "POST" && /^\/(?:v2\/videos\/generations|v1\/videos)(?:\/|$|\?)/i.test(endpoint)) {
+      const content = [];
+      const text = String(payload.prompt || "");
+      if (text) content.push({ type: "text", text });
+      const imgs = Array.isArray(payload.images)
+        ? payload.images.filter((x) => typeof x === "string" && x)
+        : typeof payload.image === "string" && payload.image ? [payload.image]
+        : typeof payload.image?.url === "string" && payload.image.url ? [payload.image.url]
+        : [];
+      const roles = ["first_frame", "last_frame"];
+      imgs.slice(0, 2).forEach((u, i) => content.push({ type: "image_url", image_url: { url: u }, role: roles[i] }));
+      const sizeKey = String(payload.size || "").toLowerCase();
+      const dur = Math.round(Number(payload.duration));
+      const next = {
+        model: payload.model,
+        content,
+        resolution: sizeKey === "1920x1080" || sizeKey === "1080x1920" ? "1080p"
+          : sizeKey === "1280x720" || sizeKey === "720x1280" ? "720p" : "480p",
+      };
+      if (payload.aspect_ratio) next.ratio = payload.aspect_ratio;
+      if (Number.isFinite(dur) && dur > 0) next.duration = dur;
+      payload = next;
+      videoSuffix = "/api/v3/contents/generations/tasks";
+      volcSubmit = true;
+    }
+    if (openAiVideo && !volcSubmit && !/\/api\/v3\//.test(videoSuffix) && /^\/v2\/videos\/generations(?=\/|$|\?)/i.test(endpoint)) {
+      videoSuffix = endpoint.replace(/^\/v2\/videos\/generations/i, "/v1/videos");
+      if (payload && payload.seconds == null && payload.duration != null) {
+        const dur = Number(payload.duration);
+        payload.seconds = Number.isFinite(dur) ? Math.round(dur) : payload.duration;
+        delete payload.duration;
+      }
+      // OpenAI 视频格式参考图字段是 input_reference
+      if (payload && payload.input_reference == null) {
+        const ref = typeof payload.image?.url === "string" ? payload.image.url
+          : typeof payload.image === "string" ? payload.image
+          : Array.isArray(payload.images) ? payload.images[0] : null;
+        if (ref) payload.input_reference = ref;
+      }
+      // bundle 的 image 是 {url} 对象；OpenAI 视频格式该位置是字符串，
+      // 网关 JSON 校验会报 invalid JSON value type。摊平成 data URL 字符串。
+      if (payload && payload.image && typeof payload.image === "object") {
+        payload.image = typeof payload.image.url === "string" ? payload.image.url : String(payload.image.url ?? "");
+      }
+    }
 
     if (endpoint) {
       // 生成、查询和内容下载都可能带同一前缀，整段 suffix 原样接到新 Base URL 后。
@@ -929,8 +1033,9 @@
           : parsed.kind === "form" || parsed.kind === "params" || parsed.kind === "text"
             ? parsed.value
             : init?.body;
+      const outUrl = `${base}${videoSuffix}`;
       return {
-        url: `${base}${endpoint}`,
+        url: outUrl,
         init: withAuth(
           {
             ...init,
@@ -968,6 +1073,81 @@
     };
   }
 
+
+  // openlux 火山提交同时返回 id（task_xxx，openlux 单号）与 task_id（cgt-xxx，上游号）。
+  // 实测 /v1/videos 与 /api/v3 查 cgt-xxx 都 400；openlux 文档查询口径是自家单号，
+  // 故抹掉 task_id，bundle 取 id 轮询 GET /v1/videos/task_xxx。
+  async function patchVolcSubmitResponse(response) {
+    try {
+      const j = await response.clone().json();
+      if (j && j.id && j.task_id && j.id !== j.task_id) {
+        const copy = { ...j };
+        delete copy.task_id;
+        return new Response(JSON.stringify(copy), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    } catch {}
+    return response;
+  }
+
+  // 火山查询把视频放在 content.video_url，bundle 只认 url/video_url/data.* 等位置，补一份。
+  async function patchVolcQueryResponse(response) {
+    try {
+      const j = await response.clone().json();
+      const u = j?.content?.video_url || j?.data?.content?.video_url;
+      if (u && !j.url && !j.video_url) {
+        return new Response(JSON.stringify({ ...j, url: u, video_url: u }), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    } catch {}
+    return response;
+  }
+
+
+
+  // 网关 400 常见句式「<model> does not accept duration, use seconds (integer 4-30)」。
+  // 命中就按它说的改字段（必要时转整数）、删旧字段，自动重试一次。
+  async function retryOnSchemaError(response, url, init, depth = 0) {
+    if (response.status !== 400 || typeof init?.body !== "string" || depth >= 3) return response;
+    const text = await response.clone().text().catch(() => "");
+    const m = /does not accept ([a-zA-Z_]+), use ([a-zA-Z_]+)/.exec(text);
+    if (!m) return response;
+    let payload;
+    try { payload = JSON.parse(init.body); } catch { return response; }
+    const bad = m[1], good = m[2];
+    if (payload[bad] == null) return response;
+    const wantInt = /integer/i.test(text);
+    const num = Number(payload[bad]);
+    payload[good] = wantInt && Number.isFinite(num) ? Math.round(num) : payload[bad];
+    delete payload[bad];
+    const next = { ...init, body: JSON.stringify(payload) };
+    const retried = await guardVideoHtmlResponse(await requestUpstream(url, next), url);
+    return await retryOnSchemaError(retried, url, next, depth + 1);
+  }
+
+  // 网关对错误端点/失效 Key 常回 200 + HTML 首页，而非 JSON 错误。
+  // 识别到 HTML 就翻成 502 JSON，杜绝「请求已返回」假成功。
+  async function guardVideoHtmlResponse(response, url) {
+    if (response.status >= 400) return response;
+    const type = (response.headers.get("Content-Type") || "").toLowerCase();
+    // 明确是 JSON 的直接放行，不读体（视频轮询频繁，避免每次 clone+text）
+    if (type.includes("application/json")) return response;
+    // 只有可能是 HTML（text/html 或空 Content-Type）才读体探测
+    const text = await response.clone().text().catch(() => "");
+    const head = text.slice(0, 240).toLowerCase();
+    if (!head.includes("<!doctype html") && !head.includes("<html")) return response;
+    return new Response(
+      JSON.stringify({ error: { message: "视频接口返回的是网页而不是 JSON（端点路径、模型名或密钥可能不被该视频 API 接受）。请核对「视频API来源设置」里的 Base URL / 模型名 / Key。目标：" + String(url).split("?")[0] } }),
+      { status: 502, statusText: "Bad Gateway", headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   window.fetch = async function patchedVideoApiFetch(input, init) {
     let rewrite = null;
     try {
@@ -977,7 +1157,15 @@
     }
     if (!rewrite) return innerFetch(input, init);
     try {
-      return await requestUpstream(rewrite.url, rewrite.init);
+      const rawResponse = await requestUpstream(rewrite.url, rewrite.init);
+      let response = rawResponse;
+      if (/\/contents\/generations\/tasks\//.test(rewrite.url)) {
+        response = await patchVolcQueryResponse(rawResponse);
+      } else if (/\/contents\/generations\/tasks/.test(rewrite.url)) {
+        response = await patchVolcSubmitResponse(rawResponse);
+      }
+      const guarded = await guardVideoHtmlResponse(response, rewrite.url);
+      return await retryOnSchemaError(guarded, rewrite.url, rewrite.init);
     } catch (error) {
       return new Response(
         JSON.stringify({ error: { message: error?.message || String(error) } }),
