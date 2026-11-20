@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  // 小地图两处改动，配色一律不动（保持 bundle 原样式）：
+  // 小地图四处改动，面板底色与节点色一律不动（保持 bundle 原样式）：
   // ① 节点最小尺寸：MiniMap 把所有节点塞进固定 200×150 视框，viewBox 随节点
   //    分布变（`ee B V H`），节点铺得越散，每个 rect 的 width/height 越小，
   //    缩到最小就只剩几个像素点。这里按「1 用户单位实际等于多少 CSS px」把每个
@@ -13,6 +13,9 @@
   //    反算出点击处的 flow 坐标，再调 video-node-patch 暴露的 centerViewport
   //    把画布中心移过去（保持当前缩放）。监听挂在外层 div，所以被
   //    `.custom-minimap{overflow:hidden}` 裁掉的右/下边缘一样能点（CTM 外推）。
+  // ③ 视口遮罩描边、④ 面板外边框：bundle 边框 `2px solid var(--node-border)`
+  //    （浅底 #e0deda）与画布底色 #eeecea 几乎同色，边框糊住；只压深边框色，
+  //    底色/圆角/阴影不动。
   // React 重渲染会连 style 一起重写，靠 MutationObserver + 定时 sync 纠正；
   // 期望值记在 data-* 上比对，避免自己触发的属性变更把观察器点成死循环。
 
@@ -28,7 +31,9 @@
     const style = document.createElement("style");
     style.id = "ms-minimap-styles";
     style.textContent = [
-      `${MINIMAP_SEL}{cursor:pointer}`,
+      // 面板外边框：bundle 用 border:2px solid var(--node-border)（浅底 #e0deda，
+      // 与画布底色 #eeecea 几乎同色）；#b9b4ad 一档用户仍嫌淡，加深到中灰棕
+      `${MINIMAP_SEL}{cursor:pointer;border-color:#8f8880!important}`,
       `${MINIMAP_SEL} ${NODE_SEL}{transform-box:fill-box!important;transform-origin:center!important;vector-effect:non-scaling-stroke!important}`,
       // 视口框：bundle 遮罩 stroke 是浅底不可见，改成深色描边即可突出边框
       `${MINIMAP_SEL} .react-flow__minimap-mask{stroke:#4a4540cc!important;stroke-width:2px!important}`,
