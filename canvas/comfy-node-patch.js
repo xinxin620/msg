@@ -1728,6 +1728,35 @@
     return `${reason}${names.length ? ` 涉及节点：${names.join("、")}。` : ""}`;
   }
 
+  // 把 ComfyUI /prompt 校验失败（尤其 Value not in list）的 node_errors 翻成人话：哪个节点、哪个字段、非法值 vs 合法列表
+  function describeSubmitError(payload, status) {
+    const top = payload?.error?.message || payload?.error?.details || payload?.error?.type || "";
+    const nodeErrors = payload?.node_errors || {};
+    const parts = [];
+    for (const [nodeId, info] of Object.entries(nodeErrors)) {
+      const errors = Array.isArray(info?.errors) ? info.errors : [];
+      for (const e of errors) {
+        const msg = e?.message || "";
+        const d = e?.details || {};
+        const customType = d.custom_type ? ` [${d.custom_type}]` : "";
+        if (Array.isArray(d.inputs) && d.inputs.length) {
+          const bad = d.inputs.map(x => typeof x === "string" ? `"${x}"` : JSON.stringify(x)).join(", ");
+          let line = `节点 ${nodeId}${customType} 字段值非法：${bad}`;
+          const vv = d.valid_values;
+          if (Array.isArray(vv) && vv.length) {
+            const sample = vv.slice(0, 8).map(x => typeof x === "string" ? `"${x}"` : String(x)).join(", ");
+            line += `；可选：${sample}${vv.length > 8 ? `…（共 ${vv.length} 项）` : ""}`;
+          }
+          parts.push(line);
+        } else if (msg) {
+          parts.push(`节点 ${nodeId}${customType}：${msg}`);
+        }
+      }
+    }
+    if (!parts.length) return [top, `HTTP ${status}`].filter(Boolean).join(" · ");
+    return [top, ...parts].filter(Boolean).join(" · ");
+  }
+
   async function ensureWorkflowRaw(profile, path) {
     const url = normalizeComfyUrl(profile.baseUrl);
     const key = `${url}::${path}`;
@@ -1815,10 +1844,7 @@
       let submitPayload = null;
       try { submitPayload = JSON.parse(submitText); } catch (_) { submitPayload = null; }
       if (!submitResp.ok) {
-        const detail = submitPayload?.error?.message || submitPayload?.error?.details || submitPayload?.error?.type;
-        const err = Object.values(submitPayload?.node_errors || {})[0]?.errors?.[0];
-        const nodeError = err ? [err.message, err.details?.custom_type ? "[" + err.details.custom_type + "]" : ""].filter(Boolean).join(" ") : "";
-        throw new Error([detail, nodeError].filter(Boolean).join(" · ") || `HTTP ${submitResp.status}`);
+        throw new Error(describeSubmitError(submitPayload, submitResp.status));
       }
       const promptId = submitPayload?.prompt_id;
       if (!promptId) throw new Error("ComfyUI 没有返回任务编号，无法跟踪结果。");
