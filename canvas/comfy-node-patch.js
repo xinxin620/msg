@@ -1742,7 +1742,8 @@
       const who = `节点 ${nodeId}${info?.class_type ? `（${info.class_type}）` : ""}`;
       for (const e of errors) {
         const msg = e?.message || "";
-        const d = e?.details && typeof e?.details === "object" ? e.details : {};
+        const dRaw = e?.details;
+        const d = dRaw && typeof dRaw === "object" ? dRaw : {};
         const x = e?.extra_info && typeof e?.extra_info === "object" ? e.extra_info : {};
         const customType = d.custom_type ? ` [${d.custom_type}]` : "";
         // 下拉(combo)值非法：字段名/当前值/合法列表在 input_name、input_value、valid_values
@@ -1755,9 +1756,11 @@
         if (Array.isArray(d.inputs) && d.inputs.length) {
           const bad = d.inputs.map(fmt).join(", ");
           parts.push(`${who}${customType} 字段值非法：${bad}${listValid(d.valid_values)}`);
-        } else if (msg) {
-          parts.push(`${who}${customType}：${msg}`);
+          continue;
         }
+        // 老结构：details 是字符串 "input_name: x\ninput_value: y\nvalid_values: [...]"
+        const detailText = typeof dRaw === "string" ? dRaw.replace(/\s*\n\s*/g, "，").trim() : "";
+        if (msg || detailText) parts.push(`${who}${customType}：${msg}${detailText ? `（${detailText}）` : ""}`);
       }
     }
     if (!parts.length) return [top, `HTTP ${status}`].filter(Boolean).join(" · ");
