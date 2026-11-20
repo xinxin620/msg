@@ -970,6 +970,31 @@
   const POSITIVE_RE = /(^|[^a-z])(text|prompt|positive)|prompt$/i;
   const NEGATIVE_RE = /negative|nagative|bad|unwant/i;
 
+  // combo 自愈：工作流在别人机器上存的模型路径可能带子目录（qwen_image/x.safetensors），
+  // 本机却放在根目录（x.safetensors）。值不在合法列表、但去掉目录前缀后唯一匹配时自动改写。
+  function sanitizeComboValues(types, prompt) {
+    if (!types) return [];
+    const fixes = [];
+    const base = v => String(v).split(/[\\/]/).pop();
+    for (const node of Object.values(prompt || {})) {
+      const def = types[node?.class_type];
+      if (!def) continue;
+      for (const [key, value] of Object.entries(node.inputs || {})) {
+        if (typeof value !== "string") continue;
+        const spec = fieldSpec(def, key);
+        const options = Array.isArray(spec?.[0]) ? spec[0]
+          : Array.isArray(spec?.[1]?.options) ? spec[1].options : null;
+        if (!options?.length || options.includes(value)) continue;
+        const matches = options.filter(o => base(o) === base(value));
+        if (matches.length === 1) {
+          node.inputs[key] = matches[0];
+          fixes.push(`${node.class_type}·${key}：${value} → ${matches[0]}`);
+        }
+      }
+    }
+    return fixes;
+  }
+
   // ======= 工作流列表（userdata 接口，与设置面板同链路） =======
   async function loadWorkflowList(baseUrl, apiKey) {
     const existing = workflowLists.get(baseUrl);
@@ -1841,6 +1866,11 @@
       }
       const hasEdits = Object.keys(edits).length > 0;
       const finalPrompt = hasEdits ? helper.applyEdits(basePrompt, edits) : basePrompt;
+
+      // 提交前按本机 object_info 纠正「带子目录的模型路径」等 combo 值，避免 Value not in list
+      const comboTypes = await ensureObjectInfo(url, profile);
+      const comboFixes = sanitizeComboValues(comboTypes, finalPrompt);
+      if (comboFixes.length) showToast(`已自动匹配本机模型：${comboFixes.join("；")}`, "info");
 
       const upstream = upstreamInputs(node.id);
       const warnings = await injectUpstreamImages(profile, url, headers, finalPrompt, upstream.images);
