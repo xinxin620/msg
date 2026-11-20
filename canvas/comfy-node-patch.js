@@ -1804,7 +1804,7 @@
     let payload = null;
     try { payload = JSON.parse(text); } catch (_) { payload = null; }
     if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
-    if (!payload || !Array.isArray(payload.nodes)) throw new Error("这个文件不是可执行的 ComfyUI 工作流（缺少 nodes 数组）");
+    if (!payload || (!Array.isArray(payload.nodes) && !window.__MS_COMFY_WORKFLOW__?.isApiFormat(payload))) throw new Error("这个文件不是可执行的 ComfyUI 工作流（既无 nodes 数组，也不是 API 格式）");
     workflowRaw.set(key, payload);
     return payload;
   }

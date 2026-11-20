@@ -26,6 +26,18 @@
 
   const isSubgraph = (type) => SUBGRAPH_RE.test(String(type || ""));
 
+  // 「导出 (API)」格式：顶层直接是 {节点id: {class_type, inputs}}，没有 nodes 数组。
+  // LibLib 等第三方站点给的就是这种；判定规则：所有顶层值都是带 class_type 字符串的对象。
+  function isApiFormat(obj) {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+    const keys = Object.keys(obj);
+    if (!keys.length) return false;
+    return keys.every(k => {
+      const v = obj[k];
+      return !!v && typeof v === "object" && !Array.isArray(v) && typeof v.class_type === "string";
+    });
+  }
+
   function scalarValue(value) {
     if (Array.isArray(value)) return value.map(scalarValue);
     if (value && typeof value === "object") {
@@ -40,6 +52,8 @@
   }
 
   function analyze(workflow) {
+    // API 格式没有前端节点概念，天然可运行
+    if (isApiFormat(workflow)) return { ok: true, blockers: [], nodeCount: Object.keys(workflow).length };
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const blockers = [];
     for (const node of nodes) {
@@ -60,6 +74,8 @@
   }
 
   function convert(workflow) {
+    // API 格式已是提交格式，深拷贝一份返回（避免后续 combo 自愈改到缓存原文）
+    if (isApiFormat(workflow)) return scalarValue(workflow);
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const links = Array.isArray(workflow?.links) ? workflow.links : [];
     const byId = new Map();
@@ -178,7 +194,7 @@
     return { images, videos, audios, texts };
   }
 
-  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph };
+  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat };
   if (typeof window !== "undefined") window.__MS_COMFY_WORKFLOW__ = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();
