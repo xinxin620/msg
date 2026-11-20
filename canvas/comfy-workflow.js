@@ -152,6 +152,7 @@
   function collectOutputs(historyEntry) {
     const images = [];
     const videos = [];
+    const audios = [];
     const texts = [];
     const pushText = value => {
       const text = typeof value === "string" ? value.trim() : "";
@@ -164,13 +165,17 @@
       for (const video of nodeOutput?.videos || []) {
         if (video?.filename) videos.push({ ...video, __kind: "video" });
       }
+      // SaveAudio 等音频节点把结果放在 outputs.audio（标准键，部分自定义节点用 audios）
+      for (const audio of nodeOutput?.audio || nodeOutput?.audios || []) {
+        if (audio?.filename) audios.push({ ...audio, __kind: "audio" });
+      }
       // 提示词反推类节点（ShowText/PreviewString 等）把结果放在 outputs.text / outputs.strings
       const rawText = nodeOutput?.text;
       if (Array.isArray(rawText)) rawText.forEach(pushText); else pushText(rawText);
       const rawStrings = nodeOutput?.strings;
       if (Array.isArray(rawStrings)) rawStrings.forEach(pushText); else pushText(rawStrings);
     }
-    return { images, videos, texts };
+    return { images, videos, audios, texts };
   }
 
   const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph };

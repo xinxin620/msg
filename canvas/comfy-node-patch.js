@@ -15,13 +15,19 @@
   const RUN_POLL_MS = 1500;
   const RUN_MAX_WAIT_MS = 30 * 60 * 1000;
 
-  const COMFY_MODES = [
-    { id: "txt2img", name: "文生图" },
-    { id: "img2img", name: "图生图" },
-    { id: "captioning", name: "提示词反推" },
-    { id: "txt2video", name: "文生视频" },
-    { id: "img2video", name: "图生视频" },
-  ];
+  // 工作流参数：友好控件识别（按 key/classType 归类，归不进的一律进「全部参数」原始列表兜底）
+  const PARAM_LABELS = {
+    steps: "步数", cfg: "CFG", cfg_scale: "CFG", guidance_scale: "CFG",
+    seed: "种子", denoise: "降噪", scheduler: "调度器", sampler_name: "采样器",
+    width: "宽", height: "高", length: "时长/帧数", duration: "时长",
+    fps: "帧率", frame_rate: "帧率", num_frames: "帧数", frame_count: "帧数",
+    batch_size: "批量", shift: "shift",
+  };
+  const STEPS_RE = /^steps$/i;
+  const CFG_RE = /^(cfg|cfg_scale|guidance_scale)$/i;
+  const SEED_RE = /^seed$/i;
+  const DENOISE_RE = /^denoise$/i;
+  const VIDEO_LEN_RE = /^(length|duration|num_frames|frame_count|fps|frame_rate)$/i;
 
   let seq = 0;
   let lastPointer = null;
@@ -30,6 +36,7 @@
   let tickTimer = null;
   let card = null, lastNodeId = null, dismissedNodeId = null;
   let modeSheetOpen = false;
+  let paramsModel = null; // { nodeId, workflowPath, groups, others } 当前已渲染的工作流参数
   let menu = null, menuAnchor = null;
   const workflowLists = new Map(); // baseUrl -> {items, loading, error, loadedAt}
   const workflowRaw = new Map();   // baseUrl::path -> payload
@@ -287,9 +294,9 @@
       data: {
         label: "ComfyUI",
         category: COMFY_CATEGORY,
-        comfyMode: "txt2img",
         comfyPrompt: "",
         comfyWorkflowPath: "",
+        comfyParams: {},
         status: "idle",
         results: [],
       },
@@ -550,6 +557,46 @@
         color: var(--canvas-bg); background: var(--accent);
         border-color: var(--accent); font-weight: 650;
       }
+      /* 工作流参数控件 */
+      .${CARD_CLASS}__prow { display: flex; flex-wrap: wrap; gap: 8px; }
+      .${CARD_CLASS}__pctl {
+        flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
+        color: var(--text-secondary); font-size: 11px;
+      }
+      .${CARD_CLASS}__pctl-cap { color: var(--text-tertiary); }
+      .${CARD_CLASS}__pnum, .${CARD_CLASS}__psel, .${CARD_CLASS}__ptext {
+        width: 100%; height: 30px; padding: 0 8px; box-sizing: border-box;
+        color: var(--text-primary); background: var(--panel-bg-strong);
+        border: 1px solid var(--panel-border-strong); border-radius: 7px;
+        font-family: inherit; font-size: 12px;
+      }
+      .${CARD_CLASS}__pnum:focus-visible, .${CARD_CLASS}__psel:focus-visible, .${CARD_CLASS}__ptext:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .${CARD_CLASS}__prange { display: flex; align-items: center; gap: 6px; }
+      .${CARD_CLASS}__prng { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+      .${CARD_CLASS}__prange .${CARD_CLASS}__pnum { flex: 0 0 64px; width: 64px; }
+      .${CARD_CLASS}__pbool { width: 18px; height: 18px; accent-color: var(--accent); }
+      .${CARD_CLASS}__prand {
+        flex: none; height: 30px; padding: 0 10px; color: var(--text-primary);
+        background: var(--panel-bg-strong); border: 1px solid var(--panel-border-strong);
+        border-radius: 7px; font-family: inherit; font-size: 12px; cursor: pointer;
+      }
+      .${CARD_CLASS}__prand:hover { background: var(--soft-hover); }
+      .${CARD_CLASS}__orient-seg { margin-top: 2px; }
+      .${CARD_CLASS}__pall { display: flex; flex-direction: column; gap: 6px; }
+      .${CARD_CLASS}__pall summary {
+        color: var(--text-secondary); font-size: 11px; cursor: pointer; list-style: none;
+      }
+      .${CARD_CLASS}__pall summary::-webkit-details-marker { display: none; }
+      .${CARD_CLASS}__pall summary::before { content: "▸ "; }
+      .${CARD_CLASS}__pall[open] summary::before { content: "▾ "; }
+      .${CARD_CLASS}__pall-body { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+      .${CARD_CLASS}__pbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+      .${CARD_CLASS}__pbar button {
+        height: 28px; padding: 0 12px; color: var(--text-primary);
+        background: var(--panel-bg-strong); border: 1px solid var(--panel-border-strong);
+        border-radius: 7px; font-family: inherit; font-size: 12px; cursor: pointer;
+      }
+      .${CARD_CLASS}__pbar button:hover { background: var(--soft-hover); }
       .${CARD_CLASS}__sheet-note { color: var(--text-tertiary); font-size: 11px; line-height: 1.6; }
       .${CARD_CLASS}__model-line {
         flex: 0 0 auto; margin: 2px 2px 0; overflow: hidden;
@@ -636,6 +683,10 @@
         width: 100%; max-height: 78vh; background: #000; border-radius: 10px;
         box-shadow: 0 20px 40px #00000080; object-fit: contain;
       }
+      .ms-comfy-viewer__audio {
+        width: 100%; padding: 18px 20px; background: #17181bf2; border-radius: 10px;
+        box-shadow: 0 20px 40px #00000080;
+      }
       .ms-comfy-viewer__bar {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
         color: #fff; font-size: 12px;
@@ -664,6 +715,8 @@
       .ms-comfy-media img, .ms-comfy-media video {
         width: 100%; height: 100%; object-fit: contain; background: #000; display: block;
       }
+      .ms-comfy-media--audio { padding: 0 10px; background: var(--preview-bg, #0f1013); }
+      .ms-comfy-media--audio audio { width: 100%; height: auto; }
       .ms-comfy-media__text {
         position: absolute; inset: 0; padding: 10px 12px; overflow: auto;
         color: var(--text-primary); font-size: 12px; line-height: 1.6; white-space: pre-wrap;
@@ -1003,9 +1056,9 @@
     }, true);
     const paramsBtn = document.createElement("button");
     paramsBtn.type = "button"; paramsBtn.className = CARD_CLASS + "__params";
-    paramsBtn.textContent = "模式设置";
+    paramsBtn.textContent = "工作流参数";
     paramsBtn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
-    paramsBtn.addEventListener("click", ev => { ev.preventDefault(); ev.stopPropagation(); toggleModeSheet(); }, true);
+    paramsBtn.addEventListener("click", ev => { ev.preventDefault(); ev.stopPropagation(); toggleParamSheet(); }, true);
     const ctrlRow = document.createElement("div"); ctrlRow.className = CARD_CLASS + "__model-flex";
     ctrlRow.style.marginBottom = "0";
     ctrlRow.append(workflowRow, reloadBtn, paramsBtn); c.appendChild(ctrlRow);
@@ -1029,33 +1082,11 @@
     c.appendChild(acts);
 
     const sheet = document.createElement("div"); sheet.className = CARD_CLASS + "__sheet";
-    const group = document.createElement("div"); group.className = CARD_CLASS + "__group";
-    const groupLabel = document.createElement("div"); groupLabel.className = CARD_CLASS + "__group-label";
-    groupLabel.textContent = "工作模式";
-    const seg = document.createElement("div"); seg.className = CARD_CLASS + "__seg";
-    COMFY_MODES.forEach(mode => {
-      const b = document.createElement("button");
-      b.type = "button"; b.textContent = mode.name; b.dataset.msComfyMode = mode.id;
-      b.addEventListener("click", ev => {
-        ev.preventDefault(); ev.stopPropagation();
-        const n = getSelectedComfyNode(); if (!n) { showToast("请先选中一个 ComfyUI 节点。", "error"); return; }
-        if (patchNodeData(n.id, { comfyMode: mode.id })) {
-          syncModeSheet();
-          showToast("已切换工作模式：" + mode.name);
-          refreshModelLine();
-        } else showToast("模式保存失败：画布状态不可用", "error");
-      }, true);
-      seg.appendChild(b);
-    });
-    group.append(groupLabel, seg); sheet.appendChild(group);
-    const note = document.createElement("div"); note.className = CARD_CLASS + "__sheet-note";
-    note.textContent = "模式仅作画布侧标注与链路选择提示；实际执行以所选 ComfyUI 工作流为准。";
-    sheet.appendChild(note);
     c.appendChild(sheet);
 
     if (modeSheetOpen) c.classList.add("is-params-open");
-    syncModeSheet();
     syncCardValues(c, node);
+    if (modeSheetOpen) renderParamSheet(node);
     return c;
   }
 
@@ -1072,29 +1103,336 @@
     const node = getSelectedComfyNode(); if (!node) return;
     const ml = card.querySelector("." + CARD_CLASS + "__model-line");
     if (!ml) return;
-    const mode = COMFY_MODES.find(m => m.id === (node.data.comfyMode || "txt2img"));
     const results = Array.isArray(node.data.results) ? node.data.results.length : 0;
-    ml.innerHTML = '<strong>模式:</strong> ' + escapeHtml(mode ? mode.name : node.data.comfyMode)
-      + ' · <strong>工作流:</strong> ' + escapeHtml(node.data.comfyWorkflowPath || "未选择")
+    const edited = node.data.comfyParams ? Object.keys(node.data.comfyParams).length : 0;
+    ml.innerHTML = '<strong>工作流:</strong> ' + escapeHtml(node.data.comfyWorkflowPath || "未选择")
+      + (edited ? ` · <strong>参数:</strong> ${edited} 节点已改` : "")
       + (results ? ` · <strong>结果:</strong> ${results} 个` : "");
   }
 
-  function toggleModeSheet() {
+  function toggleParamSheet() {
     if (!card) return;
     modeSheetOpen = !modeSheetOpen;
     card.classList.toggle("is-params-open", modeSheetOpen);
     const btn = card.querySelector("." + CARD_CLASS + "__params");
     if (btn) btn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
-    if (modeSheetOpen) syncModeSheet();
+    if (modeSheetOpen) {
+      const node = getSelectedComfyNode();
+      if (node) renderParamSheet(node);
+    }
   }
 
-  function syncModeSheet() {
+  // 取当前工作流的标量参数并归类成友好控件（异步：要拉工作流原文 + object_info）
+  async function ensureParamModel(node) {
+    const helper = window.__MS_COMFY_WORKFLOW__;
+    const profile = activeComfyProfile();
+    const path = node.data.comfyWorkflowPath || "";
+    if (!helper || !profile || !normalizeComfyUrl(profile.baseUrl)) return { error: "请先配置 ComfyUI 服务地址并选择工作流。" };
+    if (!path) return { error: "请先在上方选择一个 ComfyUI 工作流。" };
+    let basePrompt = null;
+    try {
+      const raw = await ensureWorkflowRaw(profile, path);
+      const verdict = helper.analyze(raw);
+      if (!verdict.ok) return { error: "该工作流不可直接编辑：" + blockerText(verdict.blockers) };
+      basePrompt = helper.convert(raw);
+    } catch (error) {
+      return { error: "读取工作流失败：" + ((error && error.message) || "未知错误") };
+    }
+    const url = normalizeComfyUrl(profile.baseUrl);
+    const types = await ensureObjectInfo(url, profile);
+    const fields = helper.editableFields(basePrompt);
+    const saved = node.data.comfyParams || {};
+
+    const groups = [];
+    const others = [];
+    const groupOf = id => groups.find(g => g.id === id);
+    // 由 field + object_info 规格算出控件元数据（kind：combo/range/bool/text/number）
+    const fieldMeta = (field, label) => {
+      const spec = (types && fieldSpec(types[field.classType] || null, field.key)) || null;
+      const opts = spec && Array.isArray(spec[1]) ? spec[1].options : null;
+      const hasRange = spec && typeof spec[1] === "object" && spec[1] && (spec[1].min != null || spec[1].max != null);
+      let kind;
+      if (opts) kind = "combo";
+      else if (field.type === "number" && hasRange) kind = "range";
+      else if (field.type === "boolean") kind = "bool";
+      else if (field.type === "string") kind = "text";
+      else kind = "number";
+      const sv = saved[field.nodeId] && saved[field.nodeId][field.key];
+      return {
+        nodeId: field.nodeId, key: field.key, classType: field.classType,
+        baseValue: field.value, type: field.type,
+        label: label != null ? label : (PARAM_LABELS[field.key] || field.key),
+        kind,
+        min: spec && spec[1] ? spec[1].min : undefined,
+        max: spec && spec[1] ? spec[1].max : undefined,
+        step: spec && spec[1] ? spec[1].step : undefined,
+        options: opts || undefined,
+        value: sv !== undefined ? sv : field.value,
+      };
+    };
+    const push = (id, label, field, override) => {
+      let g = groupOf(id);
+      if (!g) { g = { id, label, items: [] }; groups.push(g); }
+      const item = fieldMeta(field, null);
+      if (override) Object.assign(item, override);
+      g.items.push(item);
+      return item;
+    };
+
+    const widthFields = [], heightFields = [];
+    for (const f of fields) {
+      if (typeof f.value === "string" && POSITIVE_RE.test(f.key) && !NEGATIVE_RE.test(f.key)) continue; // 提示词归卡片顶部，不进参数
+      if (STEPS_RE.test(f.key)) { push("steps", "步数", f); continue; }
+      if (CFG_RE.test(f.key)) { push("cfg", "CFG", f); continue; }
+      if (SEED_RE.test(f.key)) { push("seed", "种子", f, { kind: "number" }); continue; }
+      if (DENOISE_RE.test(f.key)) { push("denoise", "降噪", f); continue; }
+      if (VIDEO_LEN_RE.test(f.key)) { push("video", "视频", f); continue; }
+      if (/^width$/i.test(f.key)) { widthFields.push(f); continue; }
+      if (/^height$/i.test(f.key)) { heightFields.push(f); continue; }
+      others.push(f);
+    }
+    // 分辨率：成对的 width/height 合成一个节点控件（多对取第一对，其余进全部参数）
+    const resPair = widthFields.length && heightFields.length
+      ? widthFields.find(w => heightFields.some(h => h.nodeId === w.nodeId)) : null;
+    if (resPair) {
+      const resH = heightFields.find(h => h.nodeId === resPair.nodeId);
+      const wItem = push("resolution", "分辨率", resPair, { kind: "number", label: "宽", groupRole: "w" });
+      const hItem = push("resolution", "分辨率", resH, { kind: "number", label: "高", groupRole: "h" });
+      widthFields.filter(f => f !== resPair).forEach(f => others.push(f));
+      heightFields.filter(f => f !== resH).forEach(f => others.push(f));
+    } else {
+      widthFields.forEach(f => others.push(f));
+      heightFields.forEach(f => others.push(f));
+    }
+
+    const otherItems = others.map(f => fieldMeta(f, f.key));
+
+    return { groups: groups.filter(g => g.items.length), others: otherItems };
+  }
+
+  function paramSheetKey(node) {
+    return node.id + "::" + (node.data.comfyWorkflowPath || "");
+  }
+
+  function renderParamSheet(node) {
     if (!card || !modeSheetOpen) return;
-    const node = getSelectedComfyNode();
-    const active = node ? (node.data.comfyMode || "txt2img") : "txt2img";
-    card.querySelectorAll("." + CARD_CLASS + "__seg button").forEach(btn => {
-      btn.classList.toggle("is-active", btn.dataset.msComfyMode === active);
+    const sheet = card.querySelector("." + CARD_CLASS + "__sheet");
+    if (!sheet) return;
+    const key = paramSheetKey(node);
+    if (!node.data.comfyWorkflowPath) {
+      sheet.innerHTML = "";
+      sheet.appendChild(paramNote("请先在上方选择一个 ComfyUI 工作流，参数会按工作流自动读取。"));
+      paramsModel = null;
+      return;
+    }
+    // 同工作流已加载过结构：直接重画（控件值实时读 live comfyParams，不重拉）
+    if (paramsModel && paramsModel.key === key && !paramsModel.loading && !paramsModel.error) {
+      paintParamSheet(sheet, paramsModel);
+      return;
+    }
+    if (paramsModel && paramsModel.key === key && paramsModel.loading) return; // 同工作流加载中，不重复拉
+    sheet.innerHTML = "";
+    paramsModel = { key, loading: true };
+    sheet.appendChild(paramNote("正在读取工作流参数…"));
+    ensureParamModel(node).then(model => {
+      if (!card || !modeSheetOpen || paramSheetKey(getSelectedComfyNode() || node) !== key) return;
+      paramsModel = Object.assign({ key, loading: false }, model);
+      if (paramsModel.error) {
+        const s = card.querySelector("." + CARD_CLASS + "__sheet");
+        if (s) { s.innerHTML = ""; s.appendChild(paramNote(paramsModel.error)); }
+        return;
+      }
+      const s = card.querySelector("." + CARD_CLASS + "__sheet");
+      if (s) paintParamSheet(s, paramsModel);
+    }).catch(error => {
+      paramsModel = null;
+      const s = card && card.querySelector("." + CARD_CLASS + "__sheet");
+      if (s) { s.innerHTML = ""; s.appendChild(paramNote("参数读取失败：" + ((error && error.message) || "未知错误"))); }
     });
+  }
+
+  // 提交一个参数值后只重画（结构不变，避免重新拉取闪一下）
+  function repaintParams() {
+    if (!card || !modeSheetOpen || !paramsModel || paramsModel.loading || paramsModel.error) return;
+    const sheet = card.querySelector("." + CARD_CLASS + "__sheet");
+    if (sheet) paintParamSheet(sheet, paramsModel);
+  }
+
+  function paramNote(text) {
+    const n = document.createElement("div"); n.className = CARD_CLASS + "__sheet-note";
+    n.textContent = text; return n;
+  }
+
+  // 实时值：live comfyParams 覆盖，否则回退工作流基准值
+  function currentParamValue(item) {
+    const n = getSelectedComfyNode();
+    const params = (n && n.data.comfyParams) || {};
+    const v = (params[item.nodeId] || {})[item.key];
+    return v !== undefined ? v : item.baseValue;
+  }
+
+  function paintParamSheet(sheet, model) {
+    sheet.innerHTML = "";
+    const groups = model.groups || [];
+    const others = model.others || [];
+    groups.forEach(g => g.items.forEach(it => { it.value = currentParamValue(it); }));
+    others.forEach(it => { it.value = currentParamValue(it); });
+    if (!groups.length && !others.length) { sheet.appendChild(paramNote("该工作流没有可编辑的标量参数。")); return; }
+
+    groups.forEach(g => {
+      const grp = document.createElement("div"); grp.className = CARD_CLASS + "__group";
+      const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = g.label;
+      const row = document.createElement("div"); row.className = CARD_CLASS + "__prow";
+      g.items.forEach(item => row.appendChild(buildParamControl(item, g)));
+      grp.append(lab, row);
+      if (g.id === "resolution") {
+        const seg = document.createElement("div"); seg.className = CARD_CLASS + "__seg " + CARD_CLASS + "__orient-seg";
+        [["横屏", true], ["竖屏", false]].forEach(([name, landscape]) => {
+          const b = document.createElement("button"); b.type = "button"; b.dataset.orient = landscape ? "land" : "port"; b.textContent = name;
+          b.addEventListener("click", ev => {
+            ev.preventDefault(); ev.stopPropagation();
+            const n = getSelectedComfyNode(); if (!n) return;
+            setOrientation(n, landscape);
+          }, true);
+          seg.appendChild(b);
+        });
+        grp.appendChild(seg);
+      }
+      sheet.appendChild(grp);
+    });
+    syncResolutionButtons();
+
+    if (others.length) {
+      const det = document.createElement("details"); det.className = CARD_CLASS + "__pall";
+      const sum = document.createElement("summary"); sum.textContent = `全部参数（${others.length}）`;
+      const body = document.createElement("div"); body.className = CARD_CLASS + "__pall-body";
+      others.forEach(item => body.appendChild(buildParamControl(item, null)));
+      det.append(sum, body); sheet.appendChild(det);
+    }
+
+    const bar = document.createElement("div"); bar.className = CARD_CLASS + "__pbar";
+    const reset = document.createElement("button"); reset.type = "button"; reset.textContent = "恢复工作流默认";
+    reset.addEventListener("click", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const n = getSelectedComfyNode(); if (!n) return;
+      if (patchNodeData(n.id, { comfyParams: {} })) { repaintParams(); refreshModelLine(); showToast("已恢复工作流默认参数"); }
+    }, true);
+    const hint = document.createElement("span"); hint.className = CARD_CLASS + "__sheet-note";
+    hint.textContent = "参数随节点保存，生成时写回工作流。";
+    bar.append(reset, hint); sheet.appendChild(bar);
+  }
+
+  function buildParamControl(item, group) {
+    const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
+    const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
+    cap.textContent = group && group.id === "resolution" ? (item.groupRole === "w" ? "宽" : "高") : item.label;
+    wrap.appendChild(cap);
+
+    const commit = value => {
+      const n = getSelectedComfyNode(); if (!n) return;
+      const params = JSON.parse(JSON.stringify(n.data.comfyParams || {}));
+      if (!params[item.nodeId]) params[item.nodeId] = {};
+      params[item.nodeId][item.key] = value;
+      patchNodeData(n.id, { comfyParams: params });
+      repaintParams();
+      refreshModelLine();
+    };
+
+    if (item.kind === "combo" && item.options) {
+      const sel = document.createElement("select"); sel.className = CARD_CLASS + "__psel";
+      item.options.forEach(opt => {
+        const o = document.createElement("option"); o.value = String(opt); o.textContent = String(opt); sel.appendChild(o);
+      });
+      sel.value = String(item.value);
+      sel.addEventListener("change", () => commit(sel.value));
+      wrap.appendChild(sel);
+    } else if (item.kind === "bool") {
+      const chk = document.createElement("input"); chk.type = "checkbox"; chk.className = CARD_CLASS + "__pbool";
+      chk.checked = !!item.value;
+      chk.addEventListener("change", () => commit(chk.checked));
+      wrap.appendChild(chk);
+    } else if (item.kind === "range") {
+      const box = document.createElement("div"); box.className = CARD_CLASS + "__prange";
+      const num = document.createElement("input"); num.type = "number"; num.className = CARD_CLASS + "__pnum";
+      if (item.min != null) num.min = String(item.min);
+      if (item.max != null) num.max = String(item.max);
+      if (item.step != null) num.step = String(item.step);
+      const rng = document.createElement("input"); rng.type = "range"; rng.className = CARD_CLASS + "__prng";
+      if (item.min != null) rng.min = String(item.min);
+      if (item.max != null) rng.max = String(item.max);
+      if (item.step != null) rng.step = String(item.step);
+      rng.value = String(item.value); num.value = String(item.value);
+      rng.addEventListener("input", () => { num.value = rng.value; });
+      rng.addEventListener("change", () => commit(Number(rng.value)));
+      num.addEventListener("change", () => { const v = Number(num.value); rng.value = String(v); commit(v); });
+      box.append(rng, num); wrap.appendChild(box);
+    } else if (item.kind === "text") {
+      const inp = document.createElement("input"); inp.type = "text"; inp.className = CARD_CLASS + "__ptext";
+      inp.value = String(item.value == null ? "" : item.value);
+      inp.addEventListener("change", () => commit(inp.value));
+      wrap.appendChild(inp);
+    } else {
+      const num = document.createElement("input"); num.type = "number"; num.className = CARD_CLASS + "__pnum";
+      if (typeof item.value === "number") num.step = item.type === "number" && !Number.isInteger(item.value) ? "0.01" : "1";
+      num.value = String(item.value);
+      if (item.kind === "number" && /^seed$/i.test(item.key)) {
+        const rnd = document.createElement("button"); rnd.type = "button"; rnd.className = CARD_CLASS + "__prand"; rnd.textContent = "随机";
+        rnd.addEventListener("click", ev => {
+          ev.preventDefault(); ev.stopPropagation();
+          const v = Math.floor(Math.random() * 2 ** 31); num.value = String(v); commit(v);
+        }, true);
+        num.addEventListener("change", () => commit(num.value === "" ? item.baseValue : Number(num.value)));
+        wrap.append(num, rnd);
+      } else {
+        num.addEventListener("change", () => commit(num.value === "" ? item.baseValue : Number(num.value)));
+        wrap.appendChild(num);
+      }
+    }
+    return wrap;
+  }
+
+  function resolutionPair() {
+    const grp = paramsModel && paramsModel.groups && paramsModel.groups.find(g => g.id === "resolution");
+    if (!grp) return null;
+    const w = grp.items.find(i => i.groupRole === "w"), h = grp.items.find(i => i.groupRole === "h");
+    return w && h ? { w, h } : null;
+  }
+
+  function resolutionValues() {
+    const pair = resolutionPair(); if (!pair) return null;
+    const live = getSelectedComfyNode(); if (!live) return null;
+    const params = live.data.comfyParams || {};
+    const wv = (params[pair.w.nodeId] || {})[pair.w.key];
+    const hv = (params[pair.h.nodeId] || {})[pair.h.key];
+    return {
+      w: wv !== undefined ? Number(wv) : Number(pair.w.baseValue),
+      h: hv !== undefined ? Number(hv) : Number(pair.h.baseValue),
+    };
+  }
+
+  function syncResolutionButtons() {
+    if (!card) return;
+    const vals = resolutionValues();
+    const btns = card.querySelectorAll("." + CARD_CLASS + "__orient-seg button[data-orient]");
+    if (!btns.length) return;
+    if (!vals) { btns.forEach(b => b.classList.remove("is-active")); return; }
+    const landscape = vals.w >= vals.h;
+    btns.forEach(b => b.classList.toggle("is-active", (b.dataset.orient === "land") === landscape));
+  }
+
+  // 横竖屏：把宽/高对调成目标朝向后写回 comfyParams（已是目标朝向则不动）
+  function setOrientation(node, wantLandscape) {
+    const pair = resolutionPair();
+    if (!pair) { showToast("该工作流没有可识别的宽高参数。", "error"); return; }
+    const vals = resolutionValues(); if (!vals) return;
+    const isLandscape = vals.w >= vals.h;
+    if (isLandscape === wantLandscape) return; // 已符合，不重复写
+    const params = JSON.parse(JSON.stringify(node.data.comfyParams || {}));
+    if (!params[pair.w.nodeId]) params[pair.w.nodeId] = {};
+    if (!params[pair.h.nodeId]) params[pair.h.nodeId] = {};
+    params[pair.w.nodeId][pair.w.key] = vals.h;
+    params[pair.h.nodeId][pair.h.key] = vals.w;
+    if (patchNodeData(node.id, { comfyParams: params })) { repaintParams(); showToast(wantLandscape ? "已切换为横屏" : "已切换为竖屏"); }
   }
 
   // ======= 下拉菜单（工作流） =======
@@ -1174,8 +1512,11 @@
       }
       btn.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
-        patchNodeData(node.id, { comfyWorkflowPath: item.path });
+        // 切工作流：旧 comfyParams 的 nodeId 多半对不上，清空避免脏参数
+        patchNodeData(node.id, { comfyWorkflowPath: item.path, comfyParams: {} });
+        paramsModel = null;
         closeMenu(); refreshCard();
+        if (modeSheetOpen) { const n = getSelectedComfyNode(); if (n) renderParamSheet(n); }
         showToast("已选择工作流：" + item.name, "success");
       }, true);
       menu.appendChild(btn);
@@ -1322,7 +1663,7 @@
     if (ph && ta) ph.style.display = ta.value.trim() ? "none" : "block";
     syncCardValues(card, node);
     refreshModelLine();
-    syncModeSheet();
+    if (modeSheetOpen) syncResolutionButtons();
     syncMenu();
   }
 
@@ -1393,13 +1734,24 @@
       const verdict = helper.analyze(raw);
       if (!verdict.ok) throw new Error(blockerText(verdict.blockers));
       const basePrompt = helper.convert(raw);
-      // 合并卡片提示词 + 上游连线文本节点（图生图/参考图暂未注入，见 docs 坑）
+      // 1) 工作流参数：节点上存过的标量覆盖（applyEdits 自动跳过工作流里不存在的 nodeId/key）
+      const edits = {};
+      const savedParams = data.comfyParams && typeof data.comfyParams === "object" ? data.comfyParams : {};
+      for (const [nodeId, values] of Object.entries(savedParams)) {
+        if (!values || typeof values !== "object") continue;
+        const clean = {}; let any = false;
+        for (const [key, value] of Object.entries(values)) {
+          if (value === undefined || value === null) continue;
+          clean[key] = value; any = true;
+        }
+        if (any) edits[nodeId] = clean;
+      }
+      // 2) 卡片提示词 + 上游连线文本（与参数键互斥：参数面板不暴露正向提示词字段）
       const ups = upstreamInputs(node.id).texts.filter(t => !String(promptText || "").includes(t));
       const promptValue = [String(promptText || "").trim(), ...ups].filter(Boolean).join("\n\n");
-      let finalPrompt = basePrompt;
       if (promptValue) {
         const types = await ensureObjectInfo(url, profile);
-        const edits = {}; let writable = 0; let comboHits = 0;
+        let writable = 0; let comboHits = 0;
         for (const field of helper.editableFields(basePrompt)) {
           if (typeof field.value !== "string") continue;
           if (NEGATIVE_RE.test(field.key)) continue; // 反向提示词绝不覆盖
@@ -1416,8 +1768,9 @@
             ? "工作流里的提示词字段是下拉选项（写入会报 Value not in list），已按工作流原样生成；提示词请改用工作流自带的输入。"
             : "工作流里没有可写入的文本提示词字段，已按工作流原样生成。", "error");
         }
-        finalPrompt = helper.applyEdits(basePrompt, edits);
       }
+      const hasEdits = Object.keys(edits).length > 0;
+      const finalPrompt = hasEdits ? helper.applyEdits(basePrompt, edits) : basePrompt;
 
       const upstream = upstreamInputs(node.id);
       const warnings = await injectUpstreamImages(profile, url, headers, finalPrompt, upstream.images);
@@ -1467,10 +1820,11 @@
           const results = [
             ...(outputs.images || []).slice(0, 8).map(item => ({ kind: "image", fileName: item.filename, subfolder: item.subfolder, type: item.type, viewUrl: viewUrl(url, item) })),
             ...(outputs.videos || []).slice(0, 4).map(item => ({ kind: "video", fileName: item.filename, subfolder: item.subfolder, type: item.type, viewUrl: viewUrl(url, item) })),
+            ...(outputs.audios || []).slice(0, 4).map(item => ({ kind: "audio", fileName: item.filename, subfolder: item.subfolder, type: item.type, viewUrl: viewUrl(url, item) })),
             ...(outputs.texts || []).slice(0, 4).map(text => ({ kind: "text", textContent: text })),
           ];
           patchNodeData(node.id, { status: "success", results, activeResultIndex: 0 });
-          showToast(`生成完成：${outputs.images.length} 张图片${outputs.videos.length ? `、${outputs.videos.length} 个视频` : ""}${(outputs.texts || []).length ? `、${outputs.texts.length} 段文本` : ""}`, "success");
+          showToast(`生成完成：${outputs.images.length} 张图片${outputs.videos.length ? `、${outputs.videos.length} 个视频` : ""}${(outputs.audios || []).length ? `、${outputs.audios.length} 段音频` : ""}${(outputs.texts || []).length ? `、${outputs.texts.length} 段文本` : ""}`, "success");
           break;
         }
         if (Date.now() - startedAt > RUN_MAX_WAIT_MS) throw new Error("等待超过 30 分钟，已停止轮询。可在 ComfyUI 界面查看结果。");
@@ -1498,6 +1852,7 @@
       '<div class="ms-comfy-viewer__wrap">' +
         '<img class="ms-comfy-viewer__media" alt="" />' +
         '<video class="ms-comfy-viewer__media" controls playsinline style="display:none"></video>' +
+        '<audio class="ms-comfy-viewer__audio" controls style="display:none"></audio>' +
         '<pre class="ms-comfy-viewer__text" style="display:none"></pre>' +
         '<div class="ms-comfy-viewer__bar">' +
           '<span class="ms-comfy-viewer__name"></span>' +
@@ -1520,6 +1875,8 @@
     if (img) img.removeAttribute("src");
     const video = viewer.querySelector("video");
     if (video) { try { video.pause(); } catch (_) {} video.removeAttribute("src"); }
+    const audio = viewer.querySelector("audio");
+    if (audio) { try { audio.pause(); } catch (_) {} audio.removeAttribute("src"); }
     viewer.classList.remove("is-open");
   }
 
@@ -1531,11 +1888,15 @@
     const viewer = ensureViewer();
     const img = viewer.querySelector("img");
     const video = viewer.querySelector("video");
+    const audio = viewer.querySelector(".ms-comfy-viewer__audio");
     const text = viewer.querySelector(".ms-comfy-viewer__text");
-    img.style.display = "none"; video.style.display = "none"; text.style.display = "none";
+    img.style.display = "none"; video.style.display = "none"; audio.style.display = "none"; text.style.display = "none";
     try { video.pause(); } catch (_) {}
+    try { audio.pause(); } catch (_) {}
     if (item.kind === "video") {
       video.src = item.viewUrl; video.style.display = "block"; video.play().catch(() => {});
+    } else if (item.kind === "audio") {
+      audio.src = item.viewUrl; audio.style.display = "block"; audio.play().catch(() => {});
     } else if (item.kind === "text") {
       text.textContent = String(item.textContent || ""); text.style.display = "block";
     } else {
@@ -1583,6 +1944,12 @@
         video.src = item.viewUrl; video.controls = true; video.muted = true;
         video.playsInline = true; video.preload = "metadata"; video.draggable = false;
         box.appendChild(video);
+      } else if (item && item.kind === "audio") {
+        box.classList.add("nodrag", "ms-comfy-media--audio");
+        const audio = document.createElement("audio");
+        audio.src = item.viewUrl; audio.controls = true;
+        audio.preload = "metadata";
+        box.appendChild(audio);
       } else if (item && item.kind === "text") {
         const pre = document.createElement("div");
         pre.className = "ms-comfy-media__text";
