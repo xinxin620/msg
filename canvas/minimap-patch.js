@@ -30,11 +30,8 @@
     style.textContent = [
       `${MINIMAP_SEL}{cursor:pointer}`,
       `${MINIMAP_SEL} ${NODE_SEL}{transform-box:fill-box!important;transform-origin:center!important;vector-effect:non-scaling-stroke!important}`,
-      // 视口框：bundle 遮罩是 evenodd 路径（整块减去视口矩形），fill 落在视口**外**、
-      // stroke 就是视口边框。原色 fill:#f5efe71f / stroke:#fff6ebc7 是按深底设计的，
-      // 在浅底上等于看不见 → 分不清当前视口在哪。只改这一条：外圈压暗一点、边框描深，
-      // 面板底色与节点色仍保持 bundle 原样。
-      `${MINIMAP_SEL} .react-flow__minimap-mask{fill:#00000017!important;stroke:#1a1a1acc!important;stroke-width:1.5px!important}`,
+      // 视口框：bundle 遮罩 stroke 是浅底不可见，改成深色描边即可突出边框
+      `${MINIMAP_SEL} .react-flow__minimap-mask{stroke:#4a4540cc!important;stroke-width:2px!important}`,
     ].join("");
     document.head.appendChild(style);
   }
