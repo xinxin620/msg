@@ -16,11 +16,13 @@
   // ③ 视口遮罩描边、④ 面板外边框：bundle 边框 `2px solid var(--node-border)`
   //    （浅底 #e0deda）与画布底色 #eeecea 几乎同色，边框糊住；只压深边框色，
   //    底色/圆角/阴影不动。
-  // ⑤ 固定尺寸导航框：面板内叠一个 88×44 的 HTML div（不是 svg rect，所以
-  //    不跟着 viewBox/缩放变大小），中心钉在当前画布视口中心（flow 坐标经
-  //    getScreenCTM 投影，并 clamp 在面板内）。按住它拖 = 把视口中心拖到哪，
-  //    走 centerViewport(x,y,0) 跟手；拖完位置由 sync 从 viewportCenter 校准。
-  //    pointerdown 上 stopPropagation，避开 bundle 在 svg 上的 d3 pannable。
+  // ⑤ 固定尺寸导航框：面板内叠一个 HTML div（不是 svg rect，所以不跟着
+  //    viewBox/缩放变大小），宽、高各为面板的 1/3，中心钉在当前画布视口中心
+  //    （flow 坐标经 getScreenCTM 投影，并 clamp 在面板内；视口算不出时兜底
+  //    钉面板中央）。按住它拖 = 把视口中心拖到哪，走 centerViewport(x,y,0)
+  //    跟手；拖完位置由 sync 从 viewportCenter 校准。pointerdown 上
+  //    stopPropagation，避开 bundle 在 svg 上的 d3 pannable。
+  //    bundle 视口遮罩同时整条隐藏（它按 flow 坐标画、缩放必变，与导航框重复）。
   // React 重渲染会连 style 一起重写，靠 MutationObserver + 定时 sync 纠正；
   // 期望值记在 data-* 上比对，避免自己触发的属性变更把观察器点成死循环。
 
@@ -31,8 +33,9 @@
   const SCALE_ATTR = "msMinimapScale";
   const DRAG_GUARD_PX = 4;
   const NAV_CLS = "ms-minimap-nav";
-  const NAV_W = 88;
-  const NAV_H = 44;
+  const NAV_RATIO = 1 / 3; // 用户定：导航框宽、高各为外层面板的 1/3
+  const NAV_FALLBACK_W = 68; // 面板量不到尺寸时兜底（≈206/3）
+  const NAV_FALLBACK_H = 45;
   const NAV_PAD = 6; // .custom-minimap 的 padding，导航框不许压到面板圆角外
 
   function injectStyles() {
@@ -44,12 +47,16 @@
       // 与画布底色 #eeecea 几乎同色）；#b9b4ad 一档用户仍嫌淡，加深到中灰棕
       `${MINIMAP_SEL}{cursor:pointer;border-color:#8f8880!important}`,
       `${MINIMAP_SEL} ${NODE_SEL}{transform-box:fill-box!important;transform-origin:center!important;vector-effect:non-scaling-stroke!important}`,
-      // 视口框：bundle 遮罩 stroke 是浅底不可见，改成深色描边即可突出边框
-      `${MINIMAP_SEL} .react-flow__minimap-mask{stroke:#4a4540cc!important;stroke-width:2px!important}`,
-      // 固定导航框：HTML div 叠在 svg 上，尺寸写死 CSS px，不随 viewBox 变
-      `.${NAV_CLS}{position:absolute;box-sizing:border-box;width:${NAV_W}px;height:${NAV_H}px;`
-        + `border:2px solid #3b9eff;border-radius:6px;background:#3b9eff14;cursor:move;`
-        + `z-index:2;touch-action:none}`,
+      // 视口遮罩：bundle 遮罩按 flow 坐标画视口，缩放时必然跟着变大变小，与
+      // 固定导航框功能重复且让用户误以为「导航框会缩小」——整条隐藏，
+      // 小地图里只留导航框一个视口指示。fill 是视口外淡米色压暗、stroke 是
+      // 视口边框，两者都清掉。
+      `${MINIMAP_SEL} .react-flow__minimap-mask{fill:none!important;stroke:none!important}`,
+      // 固定导航框：HTML div 叠在 svg 上，尺寸按面板 1/3 由 JS 写死 CSS px，
+      // 不随 viewBox/画布缩放变（border 用 currentColor，颜色只在这一处定义）
+      `.${NAV_CLS}{position:absolute;box-sizing:border-box;`
+        + `border:3px solid currentColor;border-radius:6px;background:#2f8ef71f;cursor:move;`
+        + `color:#2f8ef7;z-index:2;touch-action:none}`,
     ].join("");
     document.head.appendChild(style);
   }
@@ -147,30 +154,40 @@
     return navEl;
   }
 
-  function clampNavLeft(minimap, cx) {
-    const w = minimap.clientWidth || 206;
-    return Math.min(Math.max(cx, NAV_PAD + NAV_W / 2), w - NAV_PAD - NAV_W / 2);
+  // 导航框尺寸 = 面板 content 区（clientWidth/Height，已去边框）的 1/3。
+  // 面板 CSS 尺寸固定（206×136），所以它不会随画布缩放变。
+  function navSize(minimap) {
+    const w = (minimap.clientWidth || NAV_FALLBACK_W + 2 * NAV_PAD) * NAV_RATIO;
+    const h = (minimap.clientHeight || NAV_FALLBACK_H + 2 * NAV_PAD) * NAV_RATIO;
+    return { w: Math.round(w), h: Math.round(h) };
   }
-  function clampNavTop(minimap, cy) {
-    const h = minimap.clientHeight || 136;
-    return Math.min(Math.max(cy, NAV_PAD + NAV_H / 2), h - NAV_PAD - NAV_H / 2);
+
+  function clampNav(minimap, cx, cy, s) {
+    const W = minimap.clientWidth || NAV_FALLBACK_W + 2 * NAV_PAD;
+    const H = minimap.clientHeight || NAV_FALLBACK_H + 2 * NAV_PAD;
+    // minX > maxX（框比可用区大）时 Math.min/max 退化为贴左上，次序仍安全
+    const minX = NAV_PAD + s.w / 2, maxX = W - NAV_PAD - s.w / 2;
+    const minY = NAV_PAD + s.h / 2, maxY = H - NAV_PAD - s.h / 2;
+    return { x: Math.min(Math.max(cx, minX), maxX), y: Math.min(Math.max(cy, minY), maxY) };
   }
 
   function placeNav(minimap, cx, cy) {
-    cx = clampNavLeft(minimap, cx);
-    cy = clampNavTop(minimap, cy);
-    navEl.style.left = `${(cx - NAV_W / 2).toFixed(1)}px`;
-    navEl.style.top = `${(cy - NAV_H / 2).toFixed(1)}px`;
+    const s = navSize(minimap);
+    const p = clampNav(minimap, cx, cy, s);
+    navEl.style.width = `${s.w}px`;
+    navEl.style.height = `${s.h}px`;
+    navEl.style.left = `${(p.x - s.w / 2).toFixed(1)}px`;
+    navEl.style.top = `${(p.y - s.h / 2).toFixed(1)}px`;
+    return p; // 钳位后的中心（padding-box 坐标），拖动时反算 flow 用
   }
 
   function syncNav(minimap) {
     const api = window.__MS_VIDEO_NODE_PATCH__;
-    if (!api || typeof api.viewportCenter !== "function") return;
-    const c = api.viewportCenter();
-    if (!c) return;
-    const p = flowToPanel(minimap, c.x, c.y);
-    if (!p) return;
-    placeNav(minimap, p.x, p.y);
+    const c = api && typeof api.viewportCenter === "function" ? api.viewportCenter() : null;
+    const p = c ? flowToPanel(minimap, c.x, c.y) : null;
+    // 视口中心算不出（store 未就绪/transform 异常）时兜底钉面板中央，
+    // 保证导航框永远可见可拖
+    placeNav(minimap, p ? p.x : minimap.clientWidth / 2, p ? p.y : minimap.clientHeight / 2);
   }
 
   function bindNavDrag(el) {
@@ -188,12 +205,10 @@
       if (!minimap) return;
       if (start && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > DRAG_GUARD_PX) start.moved = true;
       const rect = minimap.getBoundingClientRect();
-      const cx = clampNavLeft(minimap, ev.clientX - rect.left - minimap.clientLeft);
-      const cy = clampNavTop(minimap, ev.clientY - rect.top - minimap.clientTop);
-      placeNav(minimap, cx, cy);
+      const p = placeNav(minimap, ev.clientX - rect.left - minimap.clientLeft, ev.clientY - rect.top - minimap.clientTop);
       if (start && start.moved) {
         // 导航框（钳位后的）中心 → flow 坐标 → 视口跟过去（duration 0 跟手）
-        const f = panelToFlow(minimap, cx, cy);
+        const f = panelToFlow(minimap, p.x, p.y);
         const api = window.__MS_VIDEO_NODE_PATCH__;
         if (f && api && typeof api.centerViewport === "function") api.centerViewport(f.x, f.y, 0);
       }
