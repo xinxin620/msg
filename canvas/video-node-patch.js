@@ -385,7 +385,7 @@
       if (items.some(btn => trimText(btn) === LABEL)) continue;
       appendVideoItem(dropdown, () => {
         closeSidebarDropdown();
-        addVideoNode(false);
+        addVideoNode(true);
       }, { className: "sidebar__dropdown-item", pushUpload: true });
     }
   }

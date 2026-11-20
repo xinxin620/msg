@@ -311,7 +311,7 @@
       if (items.some(btn => trimText(btn) === LABEL)) continue;
       appendVoiceItem(dropdown, () => {
         closeSidebarDropdown();
-        addVoiceNode(false);
+        addVoiceNode(true);
       }, { className: "sidebar__dropdown-item", pushUpload: true });
     }
   }
