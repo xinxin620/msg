@@ -336,9 +336,11 @@
     if (dropdown.querySelector("[data-ms-comfy-item]")) return;
 
     const btn = document.createElement("button");
-    btn.className = "sidebar__dropdown-btn";
+    btn.type = "button";
+    // bundle CSS 只有 .sidebar__dropdown-item，写成 -btn 会掉回浏览器默认按钮外观（看着像选中）
+    btn.className = "sidebar__dropdown-item";
     btn.setAttribute("data-ms-comfy-item", "1");
-    btn.innerHTML = `<span class="sidebar__dropdown-icon">⚡</span><span class="sidebar__dropdown-label">${LABEL}</span>`;
+    btn.innerHTML = `<span>⚡</span><span>${LABEL}</span>`;
     btn.addEventListener("click", e => {
       e.stopPropagation();
       const r = findCanvasStore();
