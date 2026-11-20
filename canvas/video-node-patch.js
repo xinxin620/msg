@@ -772,14 +772,34 @@
     // 小地图点击定位用：把画布中心移到某个 flow 坐标，保持当前缩放。
     // fiber/store 访问集中在这里，minimap-patch 不自己遍历。
     // zoom 缺失时 bundle 的 setCenter 会回落到 maxZoom（点一下就放大到最大），
-    // 所以缩放非有限数直接不跳，不假装成功。
-    centerViewport: (x, y) => {
+    // 所以缩放非有限数直接不跳，不假装成功。duration 可传 0（拖动导航框跟手）。
+    centerViewport: (x, y, duration = 220) => {
       const g = findReactFlowStore();
       const rf = g ? g() : null;
       if (!rf || typeof rf.setCenter !== "function") return false;
       const zoom = rf.transform && rf.transform[2];
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(zoom)) return false;
-      try { rf.setCenter(x, y, { zoom, duration: 220 }); return true; } catch (_) { return false; }
+      try { rf.setCenter(x, y, { zoom, duration }); return true; } catch (_) { return false; }
+    },
+    // 当前画布视口中心的 flow 坐标：小地图固定导航框初始/跟随位置用。
+    // transform=[tx,ty,zoom]，中心 = ((w/2-tx)/zoom, (h/2-ty)/zoom)。
+    viewportCenter: () => {
+      const g = findReactFlowStore();
+      const rf = g ? g() : null;
+      if (!rf) return null;
+      const t = rf.transform;
+      const zoom = t && t[2];
+      if (!t || !Number.isFinite(zoom) || zoom <= 0) return null;
+      let w = Number(rf.width), h = Number(rf.height);
+      if (!(w > 0) || !(h > 0)) {
+        const box = rf.domNode && rf.domNode.getBoundingClientRect ? rf.domNode.getBoundingClientRect() : null;
+        w = box ? box.width : 0;
+        h = box ? box.height : 0;
+      }
+      if (!(w > 0) || !(h > 0)) return null;
+      const x = (w / 2 - t[0]) / zoom;
+      const y = (h / 2 - t[1]) / zoom;
+      return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
     },
     diagnoseDrag: () => {
       const g = findReactFlowStore();

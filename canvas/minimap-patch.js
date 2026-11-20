@@ -16,6 +16,11 @@
   // ③ 视口遮罩描边、④ 面板外边框：bundle 边框 `2px solid var(--node-border)`
   //    （浅底 #e0deda）与画布底色 #eeecea 几乎同色，边框糊住；只压深边框色，
   //    底色/圆角/阴影不动。
+  // ⑤ 固定尺寸导航框：面板内叠一个 88×44 的 HTML div（不是 svg rect，所以
+  //    不跟着 viewBox/缩放变大小），中心钉在当前画布视口中心（flow 坐标经
+  //    getScreenCTM 投影，并 clamp 在面板内）。按住它拖 = 把视口中心拖到哪，
+  //    走 centerViewport(x,y,0) 跟手；拖完位置由 sync 从 viewportCenter 校准。
+  //    pointerdown 上 stopPropagation，避开 bundle 在 svg 上的 d3 pannable。
   // React 重渲染会连 style 一起重写，靠 MutationObserver + 定时 sync 纠正；
   // 期望值记在 data-* 上比对，避免自己触发的属性变更把观察器点成死循环。
 
@@ -25,6 +30,10 @@
   const MAX_SCALE = 10;
   const SCALE_ATTR = "msMinimapScale";
   const DRAG_GUARD_PX = 4;
+  const NAV_CLS = "ms-minimap-nav";
+  const NAV_W = 88;
+  const NAV_H = 44;
+  const NAV_PAD = 6; // .custom-minimap 的 padding，导航框不许压到面板圆角外
 
   function injectStyles() {
     if (document.getElementById("ms-minimap-styles")) return;
@@ -37,6 +46,10 @@
       `${MINIMAP_SEL} ${NODE_SEL}{transform-box:fill-box!important;transform-origin:center!important;vector-effect:non-scaling-stroke!important}`,
       // 视口框：bundle 遮罩 stroke 是浅底不可见，改成深色描边即可突出边框
       `${MINIMAP_SEL} .react-flow__minimap-mask{stroke:#4a4540cc!important;stroke-width:2px!important}`,
+      // 固定导航框：HTML div 叠在 svg 上，尺寸写死 CSS px，不随 viewBox 变
+      `.${NAV_CLS}{position:absolute;box-sizing:border-box;width:${NAV_W}px;height:${NAV_H}px;`
+        + `border:2px solid #3b9eff;border-radius:6px;background:#3b9eff14;cursor:move;`
+        + `z-index:2;touch-action:none}`,
     ].join("");
     document.head.appendChild(style);
   }
@@ -54,7 +67,8 @@
   }
 
   function sync() {
-    const svg = document.querySelector(`${MINIMAP_SEL} svg`);
+    const minimap = document.querySelector(MINIMAP_SEL);
+    const svg = minimap ? minimap.querySelector("svg") : null;
     if (!svg) return;
     const k = pxPerUnit(svg);
     for (const node of svg.querySelectorAll(NODE_SEL)) {
@@ -70,6 +84,8 @@
       node.dataset[SCALE_ATTR] = want;
       node.style.transform = want;
     }
+    // 导航框：拖拽中不动它（用户正拿着），其余每次 sync 跟随真实视口中心
+    if (!navDragging && ensureNav(minimap)) syncNav(minimap);
   }
 
   // 点击 → flow 坐标 → 画布中心移过去
@@ -90,6 +106,111 @@
     api.centerViewport(flow.x, flow.y);
   }
 
+  // ======= 固定尺寸导航框 =======
+  // flow 坐标 → 面板内 CSS 坐标（svg 的 screen CTM 投影后减去面板 rect 偏移）。
+  // 导航框 absolute 定位原点在 padding box（rect 是 border box），要再扣掉
+  // clientLeft/clientTop（bundle 给面板 2px 边框）。
+  function flowToPanel(minimap, x, y) {
+    const svg = minimap.querySelector("svg");
+    if (!svg || !svg.getScreenCTM) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(x, y).matrixTransform(ctm);
+    const rect = minimap.getBoundingClientRect();
+    return { x: p.x - rect.left - minimap.clientLeft, y: p.y - rect.top - minimap.clientTop };
+  }
+
+  function panelToFlow(minimap, px, py) {
+    const svg = minimap.querySelector("svg");
+    if (!svg || !svg.getScreenCTM) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const rect = minimap.getBoundingClientRect();
+    const f = new DOMPoint(rect.left + minimap.clientLeft + px, rect.top + minimap.clientTop + py)
+      .matrixTransform(ctm.inverse());
+    return Number.isFinite(f.x) && Number.isFinite(f.y) ? f : null;
+  }
+
+  let navEl = null;
+  let navDragging = false;
+
+  function ensureNav(minimap) {
+    if (navEl && navEl.isConnected && navEl.parentElement === minimap) return navEl;
+    navEl = minimap.querySelector(`.${NAV_CLS}`);
+    if (!navEl) {
+      navEl = document.createElement("div");
+      navEl.className = NAV_CLS;
+      navEl.title = "拖动导航框定位画布";
+      minimap.appendChild(navEl);
+      bindNavDrag(navEl);
+    }
+    return navEl;
+  }
+
+  function clampNavLeft(minimap, cx) {
+    const w = minimap.clientWidth || 206;
+    return Math.min(Math.max(cx, NAV_PAD + NAV_W / 2), w - NAV_PAD - NAV_W / 2);
+  }
+  function clampNavTop(minimap, cy) {
+    const h = minimap.clientHeight || 136;
+    return Math.min(Math.max(cy, NAV_PAD + NAV_H / 2), h - NAV_PAD - NAV_H / 2);
+  }
+
+  function placeNav(minimap, cx, cy) {
+    cx = clampNavLeft(minimap, cx);
+    cy = clampNavTop(minimap, cy);
+    navEl.style.left = `${(cx - NAV_W / 2).toFixed(1)}px`;
+    navEl.style.top = `${(cy - NAV_H / 2).toFixed(1)}px`;
+  }
+
+  function syncNav(minimap) {
+    const api = window.__MS_VIDEO_NODE_PATCH__;
+    if (!api || typeof api.viewportCenter !== "function") return;
+    const c = api.viewportCenter();
+    if (!c) return;
+    const p = flowToPanel(minimap, c.x, c.y);
+    if (!p) return;
+    placeNav(minimap, p.x, p.y);
+  }
+
+  function bindNavDrag(el) {
+    let start = null;
+    el.addEventListener("pointerdown", ev => {
+      if (ev.button !== 0) return;
+      ev.stopPropagation(); // 不落到 svg 上，避开 bundle d3 pannable
+      navDragging = true;
+      el.setPointerCapture(ev.pointerId);
+      start = { x: ev.clientX, y: ev.clientY, moved: false };
+    });
+    el.addEventListener("pointermove", ev => {
+      if (!navDragging || !el.isConnected) return;
+      const minimap = el.parentElement;
+      if (!minimap) return;
+      if (start && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > DRAG_GUARD_PX) start.moved = true;
+      const rect = minimap.getBoundingClientRect();
+      const cx = clampNavLeft(minimap, ev.clientX - rect.left - minimap.clientLeft);
+      const cy = clampNavTop(minimap, ev.clientY - rect.top - minimap.clientTop);
+      placeNav(minimap, cx, cy);
+      if (start && start.moved) {
+        // 导航框（钳位后的）中心 → flow 坐标 → 视口跟过去（duration 0 跟手）
+        const f = panelToFlow(minimap, cx, cy);
+        const api = window.__MS_VIDEO_NODE_PATCH__;
+        if (f && api && typeof api.centerViewport === "function") api.centerViewport(f.x, f.y, 0);
+      }
+    });
+    const end = ev => {
+      if (!navDragging) return;
+      navDragging = false;
+      try { el.releasePointerCapture(ev.pointerId); } catch (_) {}
+      const wasMoved = !!(start && start.moved);
+      start = null;
+      if (el.isConnected) syncNav(el.parentElement); // 拖完从真实视口校准一次
+      else navEl = null;
+    };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+  }
+
   let downAt = null;
   let downOn = null;
 
@@ -104,6 +225,12 @@
     }, true);
 
     document.addEventListener("click", ev => {
+      // 点/拖在导航框上的，归导航框自己管：清掉面板点击状态后直接返回
+      if (ev.target && ev.target.closest && ev.target.closest(`.${NAV_CLS}`)) {
+        downOn = null;
+        downAt = null;
+        return;
+      }
       const minimap = ev.target && ev.target.closest ? ev.target.closest(MINIMAP_SEL) : null;
       if (!minimap || minimap !== downOn || !downAt) return;
       // 在小地图里按住拖动是 bundle 的 pannable 平移，别把它当点击再跳一次
