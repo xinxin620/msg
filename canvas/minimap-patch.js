@@ -17,14 +17,16 @@
   //    （浅底 #e0deda）与画布底色 #eeecea 几乎同色，边框糊住；只压深边框色，
   //    底色/圆角/阴影不动。
   // ⑤ 固定尺寸导航框：面板内叠一个 HTML div（不是 svg rect，所以不跟着
-  //    viewBox/缩放变大小），宽、高各为面板的 1/3。它是**纯导航手柄**：
-  //    位置只由用户拖动决定（首次出现摆一次起点：视口中心或面板中央），
-  //    没有任何"跟随视口回弹"逻辑。拖拽 = move 只拖框（跟手预览、不动
-  //    视口），**松手一次性 centerViewport 定位**（默认 220ms 动画"跳"到
-  //    框所在处；框停的位置恰好就是新视口中心，天然一致）。拖拽中每帧
-  //    实时 setViewport 会被高频异步打断、定位漂移且松手不跳。move/up 挂
-  //    window（框只有面板 1/3，指针很容易滑出框外丢事件）；pointerdown 上
-  //    stopPropagation，避开 bundle 在 svg 上的 d3 pannable。
+  //    viewBox/缩放变大小），宽、高各为面板的 1/3。**live-follow 模型**
+  //    （对齐轻语AI）：拖框时 `navPointerMove` 每帧移动框 + `navPanTo` →
+  //    `centerViewport(f,0)` 即时平移视口，画布跟着手走；非拖拽时 `syncNav`
+  //    每帧把框钉回视口中心投影处（拖完框就停在落点，因为视口中心恰在那）。
+  //    踩过的坑：① move/up 必须挂 window（框只有 67px，指针滑出框外就丢事件）；
+  //    ② syncNav 绝不能"每帧强钉面板中央"（viewportCenter 取不到时原地不动，
+  //    仅首次摆中央）；③ 拖框一直"没反应"的真正根因在 video-node-patch：
+  //    zustand store 是**函数**（typeof==="function"），候选过滤只认 object
+  //    把 store 拒了 → centerViewport 永远 false。别再看拖拽模型，先验证
+  //    `__MS_VIDEO_NODE_PATCH__.centerViewport(0,0)` 返回 true。
   //    bundle 视口遮罩同时整条隐藏（它按 flow 坐标画、缩放必变，与固定框重复）。
   // React 重渲染会连 style 一起重写，靠 MutationObserver + 定时 sync 纠正；
   // 期望值记在 data-* 上比对，避免自己触发的属性变更把观察器点成死循环。
@@ -94,56 +96,43 @@
       node.dataset[SCALE_ATTR] = want;
       node.style.transform = want;
     }
-    // 导航框：纯手柄，位置只由拖动决定；这里仅负责创建 + 首次摆一次起点
-    if (ensureNav(minimap)) centerNavOnce(minimap);
+    // 导航框：非拖拽时跟随视口中心（拖拽中由 navFollow 接管，别抢）
+    if (!navDragging && ensureNav(minimap)) syncNav(minimap);
+  }
+
+  // 屏幕坐标 → flow 坐标：与小地图点击定位完全同一条换算路径
+  // （createSVGPoint + getScreenCTM().inverse()，bundle 同款写法）。
+  // 导航框拖拽必须走这条，别再另起 DOMPoint 写法——两条路径行为不一致过。
+  function minimapPointToFlow(minimap, clientX, clientY) {
+    const svg = minimap.querySelector("svg");
+    if (!svg || !svg.getScreenCTM) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = svg.createSVGPoint ? svg.createSVGPoint() : new DOMPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const flow = pt.matrixTransform(ctm.inverse());
+    return Number.isFinite(flow.x) && Number.isFinite(flow.y) ? flow : null;
+  }
+
+  // 框中心的面板坐标 → 屏幕坐标（placeNav 的逆变换）
+  function panelToScreen(minimap, px, py) {
+    const rect = minimap.getBoundingClientRect();
+    return { x: rect.left + minimap.clientLeft + px, y: rect.top + minimap.clientTop + py };
   }
 
   // 点击 → flow 坐标 → 画布中心移过去
   function jumpTo(minimap, clientX, clientY) {
-    const svg = minimap.querySelector("svg");
-    if (!svg || !svg.getScreenCTM) return;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return;
-    const pt = svg.createSVGPoint
-      ? svg.createSVGPoint()
-      : new DOMPoint();
-    pt.x = clientX;
-    pt.y = clientY;
-    const flow = pt.matrixTransform(ctm.inverse());
-    if (!Number.isFinite(flow.x) || !Number.isFinite(flow.y)) return;
+    const flow = minimapPointToFlow(minimap, clientX, clientY);
+    if (!flow) return;
     const api = window.__MS_VIDEO_NODE_PATCH__;
     if (!api || typeof api.centerViewport !== "function") return;
     api.centerViewport(flow.x, flow.y);
   }
 
-  // ======= 固定尺寸导航框 =======
-  // flow 坐标 → 面板内 CSS 坐标（svg 的 screen CTM 投影后减去面板 rect 偏移）。
-  // 导航框 absolute 定位原点在 padding box（rect 是 border box），要再扣掉
-  // clientLeft/clientTop（bundle 给面板 2px 边框）。
-  function flowToPanel(minimap, x, y) {
-    const svg = minimap.querySelector("svg");
-    if (!svg || !svg.getScreenCTM) return null;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return null;
-    const p = new DOMPoint(x, y).matrixTransform(ctm);
-    const rect = minimap.getBoundingClientRect();
-    return { x: p.x - rect.left - minimap.clientLeft, y: p.y - rect.top - minimap.clientTop };
-  }
-
-  function panelToFlow(minimap, px, py) {
-    const svg = minimap.querySelector("svg");
-    if (!svg || !svg.getScreenCTM) return null;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return null;
-    const rect = minimap.getBoundingClientRect();
-    const f = new DOMPoint(rect.left + minimap.clientLeft + px, rect.top + minimap.clientTop + py)
-      .matrixTransform(ctm.inverse());
-    return Number.isFinite(f.x) && Number.isFinite(f.y) ? f : null;
-  }
-
   let navEl = null;
   let navDragging = false;
-  let navPlaced = false; // 自由手柄：只在首次出现摆中央，之后位置全由拖动决定
+  let navPlaced = false; // viewportCenter 还没算出时，框首次只摆一次面板中央
 
   function ensureNav(minimap) {
     if (navEl && navEl.isConnected && navEl.parentElement === minimap) return navEl;
@@ -186,58 +175,89 @@
     return p; // 钳位后的中心（padding-box 坐标），拖动时反算 flow 用
   }
 
-  // 导航框 = 纯导航手柄：**位置只由用户拖动决定**，没有任何"跟随视口回弹"
-  // 的逻辑（那是之前「拖到哪都被弹回中间」的根源，已彻底删除）。
-  // 首次出现摆一次起点（能算出视口就放视口中心，否则面板中央），之后永不自动移动。
-  // 松手时一次性 centerViewport 把画布"跳"到框所在处（与点击定位同一条路径）。
-  function centerNavOnce(minimap) {
-    if (navPlaced) return;
-    navPlaced = true;
+  // 非拖拽时：框跟随真实视口中心（标准 minimap 行为，反映你在画布哪儿）。
+  // viewportCenter() 取不到时**原地不动**（首次摆面板中央），绝不每帧强钉
+  // 中央——之前「钉中间拖不动」就是 viewportCenter 一直返回 null（store 查找
+  // bug）却每帧 fallback 钉中央导致的。
+  function syncNav(minimap) {
     const api = window.__MS_VIDEO_NODE_PATCH__;
     const c = api && typeof api.viewportCenter === "function" ? api.viewportCenter() : null;
-    const p = c ? flowToPanel(minimap, c.x, c.y) : null;
-    placeNav(minimap, p ? p.x : minimap.clientWidth / 2, p ? p.y : minimap.clientHeight / 2);
+    if (!c) {
+      if (!navPlaced) { navPlaced = true; placeNav(minimap, minimap.clientWidth / 2, minimap.clientHeight / 2); }
+      return;
+    }
+    navPlaced = true;
+    const s = panelToScreen(minimap, 0, 0);
+    // flow→panel：视口中心投影到屏幕，再减去面板 padding-box 原点
+    const scr = minimapFlowToScreen(minimap, c.x, c.y);
+    if (!scr) return;
+    placeNav(minimap, scr.x - s.x, scr.y - s.y);
   }
 
-  // 拖拽模型（纯手柄）：move 只移动框（跟手预览），**不改视口、不回弹**；
-  // 松手才一次性 centerViewport 把画布定位过去（带 220ms 动画，"跳"到位）。
-  // 之前「拖拽中每帧实时 setViewport」会被高频异步打断、视口跟不稳定位漂移，
-  // 且松手没有定住动作——这就是「框跟手但松手不跳、定位不准」的根因。
+  // flow 坐标 → 屏幕坐标（getScreenCTM 正向）
+  function minimapFlowToScreen(minimap, x, y) {
+    const svg = minimap.querySelector("svg");
+    if (!svg || !svg.getScreenCTM) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(x, y).matrixTransform(ctm);
+    return Number.isFinite(p.x) && Number.isFinite(p.y) ? { x: p.x, y: p.y } : null;
+  }
+
+  // 拖拽模型（live-follow，对齐轻语AI）：move 里移动框**并实时** centerViewport
+  // 把视口跟过去，画布跟着手走；松手再补一次定位落定。之前「拖框没反应、松手
+  // 不跳」的根因不是模型，是 video-node-patch 的 store 查找把函数型 zustand
+  // store（typeof==="function"）拒了 → centerViewport 永远 false。已修。
   // move/up 挂 window：框只有面板 1/3（约 67px），指针很容易滑出框外，
   // 只挂框上会丢 pointermove；setPointerCapture 失败时同样丢。挂 window 都兜住。
-  let navEndCenter = null; // 松手时框的最终中心（面板坐标）
-
   function bindNavDrag(el) {
     el.addEventListener("pointerdown", ev => {
       if (ev.button !== 0) return;
       ev.stopPropagation(); // 不落到 svg 上，避开 bundle d3 pannable
       ev.preventDefault();  // 防选字/原生拖拽
       navDragging = true;
-      navEndCenter = null;
+      navMoved = false;
+      navDown = { x: ev.clientX, y: ev.clientY };
       try { el.setPointerCapture(ev.pointerId); } catch (_) {}
     });
   }
+
+  // 给定已钳位的框中心 p → 反算 flow → 即时平移视口（duration 0 跟手）
+  function navPanTo(minimap, p) {
+    const s = panelToScreen(minimap, p.x, p.y);
+    const f = minimapPointToFlow(minimap, s.x, s.y);
+    const api = window.__MS_VIDEO_NODE_PATCH__;
+    if (f && api && typeof api.centerViewport === "function") api.centerViewport(f.x, f.y, 0);
+  }
+
+  // 位移超过阈值才跟视口：纯点击导航框不算拖动（否则原地 centerViewport
+  // 会触发一次重居中，看着像乱跳）。框本身从按下就跟着手走。
+  let navDown = null;
+  let navMoved = false;
 
   function navPointerMove(ev) {
     if (!navDragging || !navEl || !navEl.isConnected) return;
     const minimap = navEl.parentElement;
     if (!minimap) return;
+    if (!navMoved && navDown
+      && Math.abs(ev.clientX - navDown.x) + Math.abs(ev.clientY - navDown.y) > DRAG_GUARD_PX) navMoved = true;
     const rect = minimap.getBoundingClientRect();
-    navEndCenter = placeNav(minimap, ev.clientX - rect.left - minimap.clientLeft, ev.clientY - rect.top - minimap.clientTop);
+    const p = placeNav(minimap, ev.clientX - rect.left - minimap.clientLeft, ev.clientY - rect.top - minimap.clientTop);
+    if (navMoved) navPanTo(minimap, p);
   }
 
-  function navPointerEnd() {
+  function navPointerEnd(ev) {
     if (!navDragging) return;
     navDragging = false;
-    const end = navEndCenter;
-    navEndCenter = null;
-    if (!end || !navEl || !navEl.isConnected) return;
+    const moved = navMoved;
+    navMoved = false;
+    navDown = null;
+    if (!moved || !navEl || !navEl.isConnected) return;
     const minimap = navEl.parentElement;
-    if (!minimap) return;
-    // 松手：框最终中心 → flow 坐标 → 一次性定位视口（默认 220ms 动画，"跳"到位）
-    const f = panelToFlow(minimap, end.x, end.y);
-    const api = window.__MS_VIDEO_NODE_PATCH__;
-    if (f && api && typeof api.centerViewport === "function") api.centerViewport(f.x, f.y);
+    if (!minimap || !ev || !Number.isFinite(ev.clientX)) return;
+    const rect = minimap.getBoundingClientRect();
+    const p = placeNav(minimap, ev.clientX - rect.left - minimap.clientLeft, ev.clientY - rect.top - minimap.clientTop);
+    navPanTo(minimap, p);
   }
 
   let downAt = null;

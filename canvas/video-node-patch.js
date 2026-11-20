@@ -130,6 +130,18 @@
     const isRFState = s => !!s && typeof s === "object"
       && s.nodeLookup instanceof Map && typeof s.updateNodeInternals === "function";
 
+    // zustand store 实例（有 getState）：活读取器。
+    // 注意 store 本体是**函数**（create() 返回可调用对象，挂 getState/setState），
+    // typeof 判 "object" 会把它整个拒掉 → 永远找不到 store（centerViewport
+    // 一直返回 false、导航框拖不动画布的真正根因，2026-11-20 浏览器实测）。
+    const asStore = cand => {
+      if (!cand || (typeof cand !== "object" && typeof cand !== "function") || typeof cand.getState !== "function") return null;
+      try {
+        if (!isRFState(cand.getState())) return null;
+        return () => { try { return isRFState(cand.getState()) ? cand.getState() : null; } catch (_) { return null; } };
+      } catch (_) { return null; }
+    };
+
     const stack = [startFiber];
     const seen = new Set();
     let visited = 0;
@@ -139,12 +151,19 @@
       seen.add(fiber);
       visited += 1;
 
+      // ReactFlowProvider 把 store 放在 context 的 memoizedProps.value 上
+      const propVal = fiber.memoizedProps && fiber.memoizedProps.value;
+      const r = asStore(propVal);
+      if (r) return r;
+
       let hook = fiber.memoizedState;
       let guard = 0;
       while (hook && typeof hook === "object" && guard++ < 400) {
         const candidates = [hook.memoizedState, hook.queue && hook.queue.lastRenderedState];
         for (const cand of candidates) {
-          if (!cand || typeof cand !== "object" || Array.isArray(cand)) continue;
+          if (!cand || (typeof cand !== "object" && typeof cand !== "function") || Array.isArray(cand)) continue;
+          const s = asStore(cand);
+          if (s) return s;
           if (typeof cand.getSnapshot === "function") {
             try { if (isRFState(cand.getSnapshot())) return () => { try { return isRFState(cand.getSnapshot()) ? cand.getSnapshot() : null; } catch (_) { return null; } }; } catch (_) {}
             continue;
