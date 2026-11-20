@@ -26,7 +26,9 @@
     const style = document.createElement("style");
     style.id = "ms-minimap-styles";
     style.textContent = [
-      // 0,3,0 权重压过 bundle 的 `.custom-minimap .react-flow__minimap-node`（0,2,0）
+      // `.react-flow__minimap.custom-minimap`（0,2,0）压过 bundle 的
+      // `.react-flow__minimap`（0,1,0，带 !important）；节点/遮罩规则（0,3,0）
+      // 压过 bundle 的 `.custom-minimap .react-flow__minimap-node`（0,2,0）
       `${MINIMAP_SEL}{background:radial-gradient(circle at 0 0,#ffffff21,#0000 46%),linear-gradient(#2a241ff2,#16130ef7)!important;border:1px solid #ffffff2e!important;box-shadow:0 18px 40px #1f1a166b,inset 0 1px 0 #ffffff21!important}`,
       `${MINIMAP_SEL} .react-flow__minimap-background{fill:#0000!important}`,
       `${MINIMAP_SEL} ${NODE_SEL}{fill:#f4e3bd!important;stroke:#100d0ab0!important;stroke-width:.5px!important;vector-effect:non-scaling-stroke!important;transform-box:fill-box!important;transform-origin:center!important}`,
