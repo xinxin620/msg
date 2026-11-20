@@ -39,6 +39,7 @@
   let seq = 0;
   let lastPointer = null;
   let toastTimer = null;
+  let connectSourceId = null;
 
   function trimText(el) {
     return (el && el.innerText ? el.innerText : "").replace(/\s+/g, " ").trim();
@@ -140,7 +141,72 @@
     };
   }
 
-  function addVoiceNode(useFlowPosition) {
+  // 「+」小球建节点后补连线：优先原生 onConnect（进撤销栈、随工作流存盘）；
+  // 被校验静默拒绝时回读 edges，失败再手动塞边兜底，并给可见提示。
+  function connectFromNode(sourceId, targetId) {
+    if (!sourceId || !targetId) return false;
+    const read = findCanvasStore();
+    const hasEdge = () => {
+      const st = read ? read() : null;
+      return !!(st && Array.isArray(st.edges) && st.edges.some(e => e && e.source === sourceId && e.target === targetId));
+    };
+    const st = read ? read() : null;
+    if (st && typeof st.onConnect === "function") {
+      try { st.onConnect({ source: sourceId, sourceHandle: null, target: targetId, targetHandle: null }); }
+      catch (error) { console.warn("[漫书] 自动连线(onConnect)异常", error); }
+      if (hasEdge()) return true;
+    }
+    const st2 = read ? read() : null;
+    if (!st2) { showToast("自动连线失败：画布状态不可用。", "error"); return false; }
+    const edge = {
+      id: "ms-edge-" + sourceId + "-" + targetId + "-" + Date.now().toString(36),
+      source: sourceId, sourceHandle: null, target: targetId, targetHandle: null,
+      type: "default", animated: false, selected: false,
+    };
+    try { st2.replaceCanvasState(st2.nodes, (st2.edges || []).concat(edge), st2.groups || []); }
+    catch (error) { console.warn("[漫书] 自动连线(兜底)异常", error); }
+    if (hasEdge()) {
+      const fresh = read ? read() : null;
+      if (fresh && typeof fresh.setSelectedNode === "function") { try { fresh.setSelectedNode(targetId); } catch (_) {} }
+      return true;
+    }
+    showToast("自动连线未生效：这两个节点类型之间不允许连接。", "error");
+    return false;
+  }
+
+  // 坐标硬保险：{x:NaN} 是真值，|| randomPosition() 兜不住它，必须显式校验有限，
+  // 否则建出 NaN 坐标节点 → onlyRenderVisibleElements 下小地图整块变黑、视口看不见。
+  function safePosition(pos) {
+    if (pos) {
+      const x = Number(pos.x), y = Number(pos.y);
+      if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) < 1e7 && Math.abs(y) < 1e7) {
+        return { x, y };
+      }
+    }
+    return randomPosition();
+  }
+
+  // 把新节点放到源节点右侧：源节点本来就在视野里，紧邻它落点必然可见，
+  // 也正好是你拖出「+」菜单松手的结束位置。store 读不到坐标才退回鼠标→随机。
+  function positionNearSource(sourceId) {
+    if (sourceId) {
+      const read = findCanvasStore();
+      const st = read ? read() : null;
+      const src = st && Array.isArray(st.nodes) ? st.nodes.find(n => n && n.id === sourceId) : null;
+      if (src) {
+        const p = src.positionAbsolute || src.position || {};
+        const px = Number(p.x), py = Number(p.y);
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          const m = src.measured || {};
+          const w = Number.isFinite(Number(m.width)) ? Number(m.width) : Number(src.width) || 260;
+          return { x: px + w + 120, y: py };
+        }
+      }
+    }
+    return safePosition(flowPositionFromPointer());
+  }
+
+  function addVoiceNode(useFlowPosition, connectFromId) {
     const read = findCanvasStore();
     const state = read ? read() : null;
     if (!state) {
@@ -149,18 +215,33 @@
     }
 
     seq += 1;
-    const position = useFlowPosition ? flowPositionFromPointer() : null;
+    const position = connectFromId ? positionNearSource(connectFromId)
+      : (useFlowPosition ? flowPositionFromPointer() : null);
     const node = {
       id: "msvoice_" + Date.now().toString(36) + "_" + seq,
       type: "canvasNode",
-      position: position || randomPosition(),
+      position: safePosition(position),
       data: Object.assign({}, DEFAULT_VOICE_DATA),
     };
+    // connect 菜单建节点 + 连线必须同一次 replaceCanvasState 原子写入，
+    // 否则补边那一步用上一帧快照整体回写会把刚建的节点抹掉。
+    // 音频只接受「文本」上游（ALLOW_INTO_AUDIO），源不是文本就只建节点不连边。
+    let edge = null;
+    if (connectFromId) {
+      const src = (state.nodes || []).find(n => n && n.id === connectFromId);
+      if (src && src.data && src.data.category === "text") {
+        edge = {
+          id: "ms-edge-" + connectFromId + "-" + node.id + "-" + Date.now().toString(36),
+          source: connectFromId, sourceHandle: null, target: node.id, targetHandle: null,
+          type: "default", animated: false, selected: false,
+        };
+      }
+    }
 
     try {
       state.replaceCanvasState(
         state.nodes.concat(node),
-        state.edges,
+        edge ? (state.edges || []).concat(edge) : state.edges,
         state.groups || []
       );
     } catch (error) {
@@ -181,6 +262,8 @@
       }
     });
 
+    const vb = window.__MS_VIDEO_NODE_PATCH__;
+    if (vb && typeof vb.scrollNodeIntoView === "function") { try { vb.scrollNodeIntoView(node.id); } catch (_) {} }
     showToast("已添加语音节点", "success");
     return true;
   }
@@ -241,6 +324,20 @@
       if (items.some(btn => trimText(btn) === LABEL)) continue;
       appendVoiceItem(submenu, () => {
         addVoiceNode(true);
+        closeContextMenu();
+      }, { className: "canvas-context-menu__item", gap: true });
+    }
+  }
+
+  // 「+」小球 connect 菜单：自建语音节点并从源节点补连线（bundle 对 Audio 直接 return）。
+  function patchConnectMenu() {
+    for (const menu of [...document.querySelectorAll(".canvas-context-menu")]) {
+      if (menu.querySelector("[data-ms-voice-item]")) continue;
+      if (menu.querySelector(".canvas-context-menu__submenu")) continue;
+      const direct = [...menu.querySelectorAll(":scope > .canvas-context-menu__item")];
+      if (!direct.some(b => trimText(b) === "图片生成")) continue;
+      appendVoiceItem(menu, () => {
+        addVoiceNode(true, connectSourceId);
         closeContextMenu();
       }, { className: "canvas-context-menu__item", gap: true });
     }
@@ -310,6 +407,7 @@
   function sync() {
     patchSidebarDropdown();
     patchContextSubmenu();
+    patchConnectMenu();
   }
 
   function scheduleSync() {
@@ -323,9 +421,25 @@
     document.addEventListener("contextmenu", event => {
       lastPointer = { x: event.clientX, y: event.clientY };
     }, true);
+    document.addEventListener("pointermove", ev => { lastPointer = { x: ev.clientX, y: ev.clientY }; }, true);
+    document.addEventListener("pointerdown", ev => {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const n = t.closest(".react-flow__node");
+      if (n && n.dataset && n.dataset.id) connectSourceId = n.dataset.id;
+    }, true);
 
     const host = document.getElementById("root") || document.documentElement;
     new MutationObserver(scheduleSync).observe(host, { childList: true, subtree: true });
+
+  // hover 展开二级菜单后补一次注入：React 重渲染会抹掉追加的按钮
+  document.addEventListener("mouseover", ev => {
+    if (!ev.target || !ev.target.closest || !ev.target.closest(".canvas-context-menu__item.has-submenu, .sidebar__icon-btn")) return;
+    scheduleSync();
+    setTimeout(scheduleSync, 120);
+    setTimeout(scheduleSync, 320);
+  }, true);
+
     sync();
   }
 

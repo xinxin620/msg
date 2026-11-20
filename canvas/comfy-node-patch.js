@@ -25,6 +25,7 @@
 
   let seq = 0;
   let lastPointer = null;
+  let connectSourceId = null;
   let toastTimer = null;
   let tickTimer = null;
   let card = null, lastNodeId = null, dismissedNodeId = null;
@@ -189,21 +190,91 @@
   }
 
   function flowPositionFromPointer() {
-    if (!lastPointer) return randomPosition();
+    if (!lastPointer || !Number.isFinite(lastPointer.x) || !Number.isFinite(lastPointer.y)) return randomPosition();
     try {
-      const pane = document.querySelector(".react-flow__pane");
-      if (!pane) return randomPosition();
-      const r = pane.getBoundingClientRect();
-      const transform = pane.querySelector(".react-flow__viewport")?.style.transform;
-      const match = transform?.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/);
-      if (!match) return randomPosition();
-      const tx = parseFloat(match[1]), ty = parseFloat(match[2]), scale = parseFloat(match[3]);
-      return { x: (lastPointer.clientX - r.left - tx) / scale, y: (lastPointer.clientY - r.top - ty) / scale };
+      const host = document.querySelector(".react-flow__viewport") || document.querySelector(".react-flow");
+      if (!host) return randomPosition();
+      const rect = host.getBoundingClientRect();
+      if (!(rect.width > 0) || !(rect.height > 0)) return randomPosition();
+      const read = findCanvasStore();
+      const st = read ? read() : null;
+      const vp = (st && st.viewport) || {};
+      const zoom = Number.isFinite(Number(vp.zoom)) && Number(vp.zoom) > 0 ? Number(vp.zoom) : 1;
+      const isVp = host.classList.contains("react-flow__viewport");
+      const ox = isVp ? rect.left : rect.left + (Number(vp.x) || 0);
+      const oy = isVp ? rect.top : rect.top + (Number(vp.y) || 0);
+      const x = (lastPointer.x - ox) / zoom, y = (lastPointer.y - oy) / zoom;
+      return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : randomPosition();
     } catch (_) { return randomPosition(); }
   }
 
   // ======= 添加节点 =======
-  function addComfyNode(store, pos) {
+  // 「+」小球建节点后补连线：优先原生 onConnect（进撤销栈、随工作流存盘）；
+  // 被校验静默拒绝时回读 edges，失败再手动塞边兜底，并给可见提示。
+  function connectFromNode(sourceId, targetId) {
+    if (!sourceId || !targetId) return false;
+    const read = findCanvasStore();
+    const hasEdge = () => {
+      const st = read ? read() : null;
+      return !!(st && Array.isArray(st.edges) && st.edges.some(e => e && e.source === sourceId && e.target === targetId));
+    };
+    const st = read ? read() : null;
+    if (st && typeof st.onConnect === "function") {
+      try { st.onConnect({ source: sourceId, sourceHandle: null, target: targetId, targetHandle: null }); }
+      catch (error) { console.warn("[漫书] 自动连线(onConnect)异常", error); }
+      if (hasEdge()) return true;
+    }
+    const st2 = read ? read() : null;
+    if (!st2) { showToast("自动连线失败：画布状态不可用。", "error"); return false; }
+    const edge = {
+      id: "ms-edge-" + sourceId + "-" + targetId + "-" + Date.now().toString(36),
+      source: sourceId, sourceHandle: null, target: targetId, targetHandle: null,
+      type: "default", animated: false, selected: false,
+    };
+    try { st2.replaceCanvasState(st2.nodes, (st2.edges || []).concat(edge), st2.groups || []); }
+    catch (error) { console.warn("[漫书] 自动连线(兜底)异常", error); }
+    if (hasEdge()) {
+      const fresh = read ? read() : null;
+      if (fresh && typeof fresh.setSelectedNode === "function") { try { fresh.setSelectedNode(targetId); } catch (_) {} }
+      return true;
+    }
+    showToast("自动连线未生效：这两个节点类型之间不允许连接。", "error");
+    return false;
+  }
+
+  // 坐标硬保险：{x:NaN} 是真值，|| randomPosition() 兜不住它，必须显式校验有限，
+  // 否则建出 NaN 坐标节点 → onlyRenderVisibleElements 下小地图整块变黑、视口看不见。
+  function safePosition(pos) {
+    if (pos) {
+      const x = Number(pos.x), y = Number(pos.y);
+      if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) < 1e7 && Math.abs(y) < 1e7) {
+        return { x, y };
+      }
+    }
+    return randomPosition();
+  }
+
+  // 把新节点放到源节点右侧：源节点本来就在视野里，紧邻它落点必然可见，
+  // 也正好是你拖出「+」菜单松手的结束位置。store 读不到坐标才退回鼠标→随机。
+  function positionNearSource(sourceId) {
+    if (sourceId) {
+      const read = findCanvasStore();
+      const st = read ? read() : null;
+      const src = st && Array.isArray(st.nodes) ? st.nodes.find(n => n && n.id === sourceId) : null;
+      if (src) {
+        const p = src.positionAbsolute || src.position || {};
+        const px = Number(p.x), py = Number(p.y);
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          const m = src.measured || {};
+          const w = Number.isFinite(Number(m.width)) ? Number(m.width) : Number(src.width) || 260;
+          return { x: px + w + 120, y: py };
+        }
+      }
+    }
+    return safePosition(flowPositionFromPointer());
+  }
+
+  function addComfyNode(store, pos, connectFromId) {
     if (!store) { showToast("无法获取画布状态", "error"); return null; }
     seq += 1;
     const id = `comfy-${Date.now()}-${seq}`;
@@ -212,7 +283,7 @@
       // 必须用 canvasNode：bundle 只给 type==="canvasNode" 渲染连接点 handle，
       // 用 custom 会落到 React Flow 内置无 handle 的 fallback，节点无法连线。
       type: "canvasNode",
-      position: pos || flowPositionFromPointer(),
+      position: safePosition((connectFromId ? positionNearSource(connectFromId) : null) || pos || flowPositionFromPointer()),
       data: {
         label: "ComfyUI",
         category: COMFY_CATEGORY,
@@ -223,13 +294,38 @@
         results: [],
       },
     };
-    store.nodes.push(node);
-    store.replaceCanvasState(store.nodes, store.edges || [], store.groups || []);
-    store.setSelectedNode(id);
+    // connect 菜单建节点 + 连线必须同一次 replaceCanvasState 原子写入，
+    // 否则补边那一步用上一帧快照整体回写会把刚建的节点抹掉。
+    // comfy 接受 文本/图片/音频/图片类上传 上游（ALLOW_INTO_COMFY），其余只建节点。
+    let edge = null;
+    if (connectFromId) {
+      const src = (store.nodes || []).find(n => n && n.id === connectFromId);
+      const cat = src && src.data && src.data.category;
+      const ok = cat === "text" || cat === "image" || cat === "audio"
+        || (cat === "upload" && src.data.assetType === "image");
+      if (ok) {
+        edge = {
+          id: "ms-edge-" + connectFromId + "-" + id + "-" + Date.now().toString(36),
+          source: connectFromId, sourceHandle: null, target: id, targetHandle: null,
+          type: "default", animated: false, selected: false,
+        };
+      }
+    }
+    try {
+      store.replaceCanvasState((store.nodes || []).concat(node), edge ? (store.edges || []).concat(edge) : (store.edges || []), store.groups || []);
+    } catch (error) {
+      console.error("[漫书] ComfyUI 节点创建失败", error);
+      showToast("ComfyUI 节点创建失败：" + ((error && error.message) || "未知错误"), "error");
+      return null;
+    }
+    try { store.setSelectedNode(id); } catch (_) {}
     // replaceCanvasState 建的新节点不会被 React Flow 自动测量 handleBounds，
     // 复用 video-node-patch 的强制测量，否则刷新前拖线找不到连接点。
     const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
     if (typeof measure === "function") { try { measure(id); } catch (_) {} }
+    const cb = window.__MS_VIDEO_NODE_PATCH__;
+    if (cb && typeof cb.scrollNodeIntoView === "function") { try { cb.scrollNodeIntoView(id); } catch (_) {} }
+    showToast("已添加 ComfyUI 节点", "success");
     return node;
   }
 
@@ -253,6 +349,35 @@
   }
 
   // ======= 右键菜单 =======
+  function comfyTrim(el) { return (el && el.innerText ? el.innerText : "").replace(/\s+/g, " ").trim(); }
+  function comfyCloseMenu() {
+    if (!document.querySelector(".canvas-context-menu")) return;
+    document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  }
+  // 「+」小球 connect 菜单：子项直接挂 .canvas-context-menu 上，原生走 addConnectedNode
+  // 但 bundle 对 comfy 不认，故自建节点并从源节点补连线。
+  function patchConnectMenu() {
+    for (const menu of [...document.querySelectorAll(".canvas-context-menu")]) {
+      if (menu.querySelector("[data-ms-comfy-item]")) continue;
+      if (menu.querySelector(".canvas-context-menu__submenu")) continue;
+      const direct = [...menu.querySelectorAll(":scope > .canvas-context-menu__item")];
+      if (!direct.some(b => comfyTrim(b) === "图片生成")) continue;
+      const btn = document.createElement("button");
+      btn.className = "canvas-context-menu__item";
+      btn.setAttribute("data-ms-comfy-item", "1");
+      btn.style.gap = "8px"; btn.style.justifyContent = "flex-start";
+      btn.innerHTML = `<span class="node-type-icon">⚡</span>${LABEL} 节点`;
+      btn.addEventListener("click", e => {
+        e.stopPropagation(); e.preventDefault();
+        const r = findCanvasStore();
+        const store = r ? r() : null;
+        if (store) addComfyNode(store, flowPositionFromPointer(), connectSourceId);
+        comfyCloseMenu();
+      });
+      menu.appendChild(btn);
+    }
+  }
+
   function patchContextSubmenu() {
     const submenu = document.querySelector(SUBMENU_SEL);
     if (!submenu) return;
@@ -266,7 +391,7 @@
       e.stopPropagation();
       const r = findCanvasStore();
       const store = r ? r() : null;
-      if (store) addComfyNode(store, lastPointer ? { x: lastPointer.x, y: lastPointer.y } : null);
+      if (store) addComfyNode(store, flowPositionFromPointer());
     });
     submenu.appendChild(btn);
   }
@@ -1105,12 +1230,42 @@
   }
 
   // ======= 位置 / 显隐 =======
+  function flowRectFromState(state, node) {
+    const host = document.querySelector(".react-flow__viewport") || document.querySelector(".react-flow");
+    if (!host) return null;
+    const hostRect = host.getBoundingClientRect();
+    if (!(hostRect.width > 0) || !(hostRect.height > 0)) return null;
+    const position = node.positionAbsolute || node.position || {};
+    const posX = Number(position.x), posY = Number(position.y);
+    if (!Number.isFinite(posX) || !Number.isFinite(posY)) return null;
+    const vp = state.viewport || {};
+    const zoom = Number.isFinite(Number(vp.zoom)) && Number(vp.zoom) > 0 ? Number(vp.zoom) : 1;
+    const isVpHost = host.classList.contains("react-flow__viewport");
+    const originLeft = isVpHost ? hostRect.left : hostRect.left + (Number(vp.x) || 0);
+    const originTop = isVpHost ? hostRect.top : hostRect.top + (Number(vp.y) || 0);
+    const m = node.measured || {};
+    const fw = Number.isFinite(Number(m.width)) ? Number(m.width) : Number.isFinite(Number(node.width)) ? Number(node.width) : 260;
+    const fh = Number.isFinite(Number(m.height)) ? Number(m.height) : Number.isFinite(Number(node.height)) ? Number(node.height) : 120;
+    const width = fw * zoom, height = fh * zoom;
+    const left = originLeft + posX * zoom, top = originTop + posY * zoom;
+    return { left, top, width, height, right: left + width, bottom: top + height };
+  }
   function getNodeScreenRect(node) {
-    const el = Array.from(document.querySelectorAll(".react-flow__node")).find(e => e.dataset.id === node.id);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    if (!(r.width > 0) || !(r.height > 0)) return null;
-    return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+    const nodeEl = Array.from(document.querySelectorAll(".react-flow__node")).find(el => el.dataset.id === node.id);
+    if (nodeEl) {
+      const r = nodeEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+      }
+    }
+    // 节点滚出视口后被 onlyRenderVisibleElements 卸载：改用 flow 坐标 + viewport 变换
+    // 推算屏幕位置，卡片跟节点一起滑出屏幕（对齐图片/文本面板行为）。
+    const r = getStateReader(); if (!r) return null;
+    try {
+      const st = r(); if (!st || !Array.isArray(st.nodes)) return null;
+      const live = st.nodes.find(n => n && n.id === node.id) || node;
+      return flowRectFromState(st, live);
+    } catch (_) { return null; }
   }
 
   function positionCard(el, rect) {
@@ -1540,11 +1695,21 @@
     const observer = new MutationObserver(() => {
       patchSidebarDropdown();
       patchContextSubmenu();
+      patchConnectMenu();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
+    // 二级菜单 hover 才挂载且 React 重渲染会抹掉注入按钮：hover 后立即 + 延迟各补一次
+    document.addEventListener("mouseover", ev => {
+      if (!ev.target || !ev.target.closest || !ev.target.closest(".canvas-context-menu__item.has-submenu, .sidebar__icon-btn")) return;
+      patchSidebarDropdown(); patchContextSubmenu(); patchConnectMenu();
+      setTimeout(() => { patchSidebarDropdown(); patchContextSubmenu(); patchConnectMenu(); }, 120);
+      setTimeout(() => { patchSidebarDropdown(); patchContextSubmenu(); patchConnectMenu(); }, 320);
+    }, true);
+
     patchSidebarDropdown();
     patchContextSubmenu();
+    patchConnectMenu();
 
     startTick();
     setupClickCapture();
@@ -1554,6 +1719,12 @@
     document.addEventListener("pointermove", e => {
       lastPointer = { x: e.clientX, y: e.clientY };
     });
+    document.addEventListener("pointerdown", ev => {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const n = t.closest(".react-flow__node");
+      if (n && n.dataset && n.dataset.id) connectSourceId = n.dataset.id;
+    }, true);
   }
 
   if (document.readyState === "loading") {

@@ -941,12 +941,42 @@
   }
 
   // ======= Positioning =======
+  function flowRectFromState(state, node) {
+    const host = document.querySelector(".react-flow__viewport") || document.querySelector(".react-flow");
+    if (!host) return null;
+    const hostRect = host.getBoundingClientRect();
+    if (!(hostRect.width > 0) || !(hostRect.height > 0)) return null;
+    const position = node.positionAbsolute || node.position || {};
+    const posX = Number(position.x), posY = Number(position.y);
+    if (!Number.isFinite(posX) || !Number.isFinite(posY)) return null;
+    const vp = state.viewport || {};
+    const zoom = Number.isFinite(Number(vp.zoom)) && Number(vp.zoom) > 0 ? Number(vp.zoom) : 1;
+    const isVpHost = host.classList.contains("react-flow__viewport");
+    const originLeft = isVpHost ? hostRect.left : hostRect.left + (Number(vp.x) || 0);
+    const originTop = isVpHost ? hostRect.top : hostRect.top + (Number(vp.y) || 0);
+    const m = node.measured || {};
+    const fw = Number.isFinite(Number(m.width)) ? Number(m.width) : Number.isFinite(Number(node.width)) ? Number(node.width) : 260;
+    const fh = Number.isFinite(Number(m.height)) ? Number(m.height) : Number.isFinite(Number(node.height)) ? Number(node.height) : 120;
+    const width = fw * zoom, height = fh * zoom;
+    const left = originLeft + posX * zoom, top = originTop + posY * zoom;
+    return { left, top, width, height, right: left + width, bottom: top + height };
+  }
   function getNodeScreenRect(node) {
     const nodeEl = Array.from(document.querySelectorAll(".react-flow__node")).find(el => el.dataset.id === node.id);
-    if (!nodeEl) return null;
-    const r = nodeEl.getBoundingClientRect();
-    if (!(r.width > 0) || !(r.height > 0)) return null;
-    return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+    if (nodeEl) {
+      const r = nodeEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+      }
+    }
+    // 节点滚出视口后被 onlyRenderVisibleElements 卸载：改用 flow 坐标 + viewport 变换
+    // 推算屏幕位置，卡片跟节点一起滑出屏幕（对齐图片/文本面板行为）。
+    const r = getStateReader(); if (!r) return null;
+    try {
+      const st = r(); if (!st || !Array.isArray(st.nodes)) return null;
+      const live = st.nodes.find(n => n && n.id === node.id) || node;
+      return flowRectFromState(st, live);
+    } catch (_) { return null; }
   }
   function positionCard(el, rect) {
     const left = rect.left + rect.width / 2 - el.offsetWidth / 2;

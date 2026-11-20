@@ -36,6 +36,7 @@
   let seq = 0;
   let lastPointer = null;
   let toastTimer = null;
+  let connectSourceId = null;
 
   function trimText(el) {
     return (el && el.innerText ? el.innerText : "").replace(/\s+/g, " ").trim();
@@ -206,7 +207,72 @@
     };
   }
 
-  function addVideoNode(useFlowPosition) {
+  // 「+」小球建节点后补连线：优先原生 onConnect（进撤销栈、随工作流存盘）；
+  // 被校验静默拒绝时回读 edges，失败再手动塞边兜底，并给可见提示。
+  function connectFromNode(sourceId, targetId) {
+    if (!sourceId || !targetId) return false;
+    const read = findCanvasStore();
+    const hasEdge = () => {
+      const st = read ? read() : null;
+      return !!(st && Array.isArray(st.edges) && st.edges.some(e => e && e.source === sourceId && e.target === targetId));
+    };
+    const st = read ? read() : null;
+    if (st && typeof st.onConnect === "function") {
+      try { st.onConnect({ source: sourceId, sourceHandle: null, target: targetId, targetHandle: null }); }
+      catch (error) { console.warn("[漫书] 自动连线(onConnect)异常", error); }
+      if (hasEdge()) return true;
+    }
+    const st2 = read ? read() : null;
+    if (!st2) { showToast("自动连线失败：画布状态不可用。", "error"); return false; }
+    const edge = {
+      id: "ms-edge-" + sourceId + "-" + targetId + "-" + Date.now().toString(36),
+      source: sourceId, sourceHandle: null, target: targetId, targetHandle: null,
+      type: "default", animated: false, selected: false,
+    };
+    try { st2.replaceCanvasState(st2.nodes, (st2.edges || []).concat(edge), st2.groups || []); }
+    catch (error) { console.warn("[漫书] 自动连线(兜底)异常", error); }
+    if (hasEdge()) {
+      const fresh = read ? read() : null;
+      if (fresh && typeof fresh.setSelectedNode === "function") { try { fresh.setSelectedNode(targetId); } catch (_) {} }
+      return true;
+    }
+    showToast("自动连线未生效：这两个节点类型之间不允许连接。", "error");
+    return false;
+  }
+
+  // 坐标硬保险：{x:NaN} 是真值，|| randomPosition() 兜不住它，必须显式校验有限，
+  // 否则建出 NaN 坐标节点 → onlyRenderVisibleElements 下小地图整块变黑、视口看不见。
+  function safePosition(pos) {
+    if (pos) {
+      const x = Number(pos.x), y = Number(pos.y);
+      if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) < 1e7 && Math.abs(y) < 1e7) {
+        return { x, y };
+      }
+    }
+    return randomPosition();
+  }
+
+  // 把新节点放到源节点右侧：源节点本来就在视野里，紧邻它落点必然可见，
+  // 也正好是你拖出「+」菜单松手的结束位置。store 读不到坐标才退回鼠标→随机。
+  function positionNearSource(sourceId) {
+    if (sourceId) {
+      const read = findCanvasStore();
+      const st = read ? read() : null;
+      const src = st && Array.isArray(st.nodes) ? st.nodes.find(n => n && n.id === sourceId) : null;
+      if (src) {
+        const p = src.positionAbsolute || src.position || {};
+        const px = Number(p.x), py = Number(p.y);
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          const m = src.measured || {};
+          const w = Number.isFinite(Number(m.width)) ? Number(m.width) : Number(src.width) || 260;
+          return { x: px + w + 120, y: py };
+        }
+      }
+    }
+    return safePosition(flowPositionFromPointer());
+  }
+
+  function addVideoNode(useFlowPosition, connectFromId) {
     const read = findCanvasStore();
     const state = read ? read() : null;
     if (!state) {
@@ -218,18 +284,38 @@
     // 新建默认模型：跟随当前启用卡勾选的第一个模型，不再写死 veo3fast。
     const av = window.__MS_VIDEO_API__;
     const defaultModel = (av && ((av.videoModels && av.videoModels[0]) || av.model)) || DEFAULT_VIDEO_DATA.videoModelId;
-    const position = useFlowPosition ? flowPositionFromPointer() : null;
+    const position = connectFromId ? positionNearSource(connectFromId)
+      : (useFlowPosition ? flowPositionFromPointer() : null);
     const node = {
       id: "msvideo_" + Date.now().toString(36) + "_" + seq,
       type: "canvasNode",
-      position: position || randomPosition(),
+      position: safePosition(position),
       data: Object.assign({}, DEFAULT_VIDEO_DATA, { videoModelId: defaultModel }),
     };
+    // connect 菜单（拖「+」小球松手）要「建节点 + 连一条源→新节点的边」。
+    // 必须与节点在同一次 replaceCanvasState 里原子写入：若先写节点、再单独走
+    // connectFromNode 补边，那一步会用 fiber 现读到的「上一帧快照」整体回写，
+    // 新节点还没进那一帧 → 边留下、节点被抹掉（表现为「点了没反应」）。
+    // 边只在源类别确实能连入视频时才连（源节点已在入口快照里，读得到）。
+    let edge = null;
+    if (connectFromId) {
+      const src = (state.nodes || []).find(n => n && n.id === connectFromId);
+      const cat = src && src.data && src.data.category;
+      const ok = cat === "text" || cat === "image" || cat === "audio"
+        || (cat === "upload" && uploadIsImage(src));
+      if (ok) {
+        edge = {
+          id: "ms-edge-" + connectFromId + "-" + node.id + "-" + Date.now().toString(36),
+          source: connectFromId, sourceHandle: null, target: node.id, targetHandle: null,
+          type: "default", animated: false, selected: false,
+        };
+      }
+    }
 
     try {
       state.replaceCanvasState(
         state.nodes.concat(node),
-        state.edges,
+        edge ? (state.edges || []).concat(edge) : state.edges,
         state.groups || []
       );
     } catch (error) {
@@ -251,6 +337,7 @@
       }
     });
 
+    scrollNodeIntoView(node.id);
     showToast("已添加视频节点", "success");
     return true;
   }
@@ -311,6 +398,21 @@
       if (items.some(btn => trimText(btn) === LABEL)) continue;
       appendVideoItem(submenu, () => {
         addVideoNode(true);
+        closeContextMenu();
+      }, { className: "canvas-context-menu__item", gap: true });
+    }
+  }
+
+  // 节点右侧「+」小球拖出的是 connect 菜单：子项直接挂在 .canvas-context-menu 上，
+  // 原生点击走 addConnectedNode，而 bundle 对 Video 直接 return，故自建节点并补连线。
+  function patchConnectMenu() {
+    for (const menu of [...document.querySelectorAll(".canvas-context-menu")]) {
+      if (menu.querySelector("[data-ms-video-item]")) continue;
+      if (menu.querySelector(".canvas-context-menu__submenu")) continue;
+      const direct = [...menu.querySelectorAll(":scope > .canvas-context-menu__item")];
+      if (!direct.some(b => trimText(b) === "图片生成")) continue;
+      appendVideoItem(menu, () => {
+        addVideoNode(true, connectSourceId);
         closeContextMenu();
       }, { className: "canvas-context-menu__item", gap: true });
     }
@@ -436,13 +538,29 @@
     return true;
   }
 
-  // ===== 核心修复：patchConnectivity =====
+  // ===== 核心修复：patchConnectivity（幂等版）=====
+  // setSelectedNode 会强制 zustand set → 新 state → React 重渲染。
+  // 本函数被 MutationObserver 经 scheduleSync 每帧反复调用，若每次都
+  // setSelectedNode，就会在拖拽节点途中不断打断 d3-drag 的指针捕获，
+  // 表现为「光标是小手、按住文本节点却拖不动」。故：校验器已是本补丁
+  // 包装且 RF store 仍持有它时直接返回，绝不 setState。
+  let connectivityWrapper = null;
   function patchConnectivity(state) {
     if (!state) {
       const read = findCanvasStore();
       state = read ? read() : null;
     }
     if (!state || typeof state.isValidConnection !== "function") return false;
+
+    const getRF = findReactFlowStore();
+    const rf = getRF ? getRF() : null;
+    const alreadyInPlace = !!connectivityWrapper
+      && state.isValidConnection === connectivityWrapper
+      && rf && rf.isValidConnection === connectivityWrapper;
+    if (alreadyInPlace) {
+      ensureDraggable();   // 不打扰重渲染，仅顺带确认没被别处关成不可拖
+      return true;
+    }
 
     const read = findCanvasStore();
     let original = state.isValidConnection;
@@ -456,8 +574,10 @@
 
     // 同步写进 React Flow 内部 store（拖线校验真正读取的位置）
     patchReactFlowStore(wrapper);
+    connectivityWrapper = wrapper;
 
-    // 触发一次重渲染，让 React Flow 组件把最新校验器同步进内部 store
+    // 仅首次接管时触发一次重渲染，让 RF 组件把校验器同步进内部 store；
+    // 之后靠上面的幂等短路，不再打扰拖拽。
     try {
       if (typeof state.setSelectedNode === "function") {
         state.setSelectedNode(state.selectedNodeId ?? null);
@@ -482,9 +602,23 @@
 
   // ======= 初始化 =======
   let queued = false;
+  // React Flow 内部 store 的 nodesDraggable 可能被置 false（Controls 交互开关
+  // 或重渲染副作用），表现为鼠标变手却拖不动节点。发现即强制恢复。
+  function ensureDraggable() {
+    const getRF = findReactFlowStore();
+    if (!getRF) return;
+    const rf = getRF();
+    if (!rf || typeof rf.setState !== "function") return;
+    if (rf.nodesDraggable === false || rf.nodesConnectable === false || rf.elementsSelectable === false) {
+      try { rf.setState({ nodesDraggable: true, nodesConnectable: true, elementsSelectable: true }); } catch (_) {}
+    }
+  }
+
   function sync() {
+    ensureDraggable();
     patchSidebarDropdown();
     patchContextSubmenu();
+    patchConnectMenu();
     patchConnectivity();
   }
 
@@ -499,10 +633,126 @@
     document.addEventListener("contextmenu", event => {
       lastPointer = { x: event.clientX, y: event.clientY };
     }, true);
+    document.addEventListener("pointermove", ev => { lastPointer = { x: ev.clientX, y: ev.clientY }; }, true);
+    document.addEventListener("pointerdown", ev => {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const n = t.closest(".react-flow__node");
+      if (n && n.dataset && n.dataset.id) connectSourceId = n.dataset.id;
+    }, true);
 
     const host = document.getElementById("root") || document.documentElement;
     new MutationObserver(scheduleSync).observe(host, { childList: true, subtree: true });
+
+  // hover 展开二级菜单后补一次注入：React 重渲染会抹掉追加的按钮
+  document.addEventListener("mouseover", ev => {
+    if (!ev.target || !ev.target.closest || !ev.target.closest(".canvas-context-menu__item.has-submenu, .sidebar__icon-btn")) return;
+    scheduleSync();
+    setTimeout(scheduleSync, 120);
+    setTimeout(scheduleSync, 320);
+  }, true);
+
     sync();
+    startHealthWatch();
+  }
+
+  // 找回坐标坏掉的节点：bundle 开了 onlyRenderVisibleElements，坐标为 NaN/Infinity
+  // 或离谱远的节点会让整块小地图变黑、视口 transform 被污染（表现为「画布东西都看不见」）。
+  // 节点并没被删，只是坐标坏了。本函数只搬「坏坐标」节点，正常节点一律不碰，
+  // 把它们重新排到现有正常节点簇旁边。控制台调用：__MS_VIDEO_NODE_PATCH__.rescueNodes()
+  function rescueNodes() {
+    const read = findCanvasStore();
+    const st = read ? read() : null;
+    if (!st || !Array.isArray(st.nodes)) { console.warn("[漫书] 找回失败：读不到画布状态"); return null; }
+    const isBad = pos => {
+      if (!pos) return true;
+      const x = Number(pos.x), y = Number(pos.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return true;
+      return Math.abs(x) > 1e7 || Math.abs(y) > 1e7;
+    };
+    const good = st.nodes.filter(n => n && !isBad(n.positionAbsolute || n.position));
+    let baseX = 0, baseY = 0;
+    if (good.length) {
+      baseX = good.reduce((a, n) => a + Number((n.positionAbsolute || n.position || {}).x || 0), 0) / good.length;
+      baseY = good.reduce((a, n) => a + Number((n.positionAbsolute || n.position || {}).y || 0), 0) / good.length;
+    }
+    let col = 0;
+    const fixed = st.nodes.map(n => {
+      if (!n || !isBad(n.positionAbsolute || n.position)) return n;
+      const node = { ...n, position: { x: baseX + 360 + (col % 4) * 320, y: baseY + Math.floor(col / 4) * 220 } };
+      col += 1;
+      return node;
+    });
+    if (!col) { console.log("[漫书] 没有坐标坏掉的节点，无需找回。"); return { rescued: 0 }; }
+    try { st.replaceCanvasState(fixed, st.edges || [], st.groups || []); }
+    catch (error) { console.warn("[漫书] 找回写回失败", error); return null; }
+    console.log("[漫书] 已找回 " + col + " 个坐标坏掉的节点，移到正常节点簇旁边。");
+    return { rescued: col };
+  }
+
+  // 建完节点把视口平移到该节点中心：bundle onlyRenderVisibleElements 下，
+  // 落在源节点右侧的节点若出了屏幕右缘就不渲染（看着像「没添加」）。
+  // setCenter 只按 flow 坐标平移视口，不依赖节点是否已渲染，建完即可调。
+  function scrollNodeIntoView(nodeId) {
+    const read = findCanvasStore();
+    const st = read ? read() : null;
+    const node = st && Array.isArray(st.nodes) ? st.nodes.find(n => n && n.id === nodeId) : null;
+    if (!node) return false;
+    const getRF = findReactFlowStore();
+    const rf = getRF ? getRF() : null;
+    if (!rf || typeof rf.setCenter !== "function") return false;
+    const p = node.positionAbsolute || node.position || {};
+    const m = node.measured || {};
+    const cx = Number(p.x) + (Number(m.width) || 260) / 2;
+    const cy = Number(p.y) + (Number(m.height) || 120) / 2;
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return false;
+    const tf = rf.transform;
+    const zoom = tf && Number.isFinite(tf[2]) && tf[2] > 0 ? tf[2] : 1;
+    try { rf.setCenter(cx, cy, { zoom }); return true; } catch (_) { return false; }
+  }
+
+  // 自动健康修复：加载时（含从 IndexedDB 恢复后）若发现坏坐标节点或被 NaN
+  // 污染的视口 transform，就搬回节点并重置视野。bundle 用 fitView:!0 +
+  // onlyRenderVisibleElements，一个 NaN 坐标节点即让整屏/小地图变黑。
+  function ensureHealthyView() {
+    const res = rescueNodes();
+    const getRF = findReactFlowStore();
+    const rf = getRF ? getRF() : null;
+    if (!rf) return res;
+    const t = rf.transform;
+    const transformBad = !t || !Number.isFinite(t[0]) || !Number.isFinite(t[1]) || !Number.isFinite(t[2]);
+    if (res && res.rescued > 0) {
+      // 节点刚被搬回，等 React Flow 同步 nodeLookup 后 fitView 把它们框进视野
+      window.setTimeout(() => { try { if (typeof rf.fitView === "function") rf.fitView({ padding: 0.3 }); } catch (_) {} }, 250);
+    } else if (transformBad) {
+      // 没有坏节点但 transform 已是 NaN：直接重置为初始视野
+      try { if (typeof rf.setViewport === "function") rf.setViewport({ x: 0, y: 0, zoom: 1 }); } catch (_) {}
+    }
+    return res;
+  }
+
+  let healthTimer = null;
+  function startHealthWatch() {
+    if (healthTimer) return;
+    let ticks = 0;
+    healthTimer = window.setInterval(() => {
+      ticks += 1;
+      const read = findCanvasStore();
+      const st = read ? read() : null;
+      const nodesReady = !!(st && Array.isArray(st.nodes) && st.nodes.length > 0);
+      const badPos = n => {
+        const pos = n && (n.positionAbsolute || n.position);
+        return !pos || !Number.isFinite(Number(pos.x)) || !Number.isFinite(Number(pos.y));
+      };
+      const hasBad = nodesReady && st.nodes.some(badPos);
+      const getRF = findReactFlowStore();
+      const rf = getRF ? getRF() : null;
+      const tf = rf && rf.transform;
+      const transformBad = !!(tf && !(Number.isFinite(tf[0]) && Number.isFinite(tf[1]) && Number.isFinite(tf[2])));
+      if (hasBad || transformBad) ensureHealthyView();
+      else if (nodesReady && ticks > 3) { window.clearInterval(healthTimer); healthTimer = null; }
+      if (ticks >= 20) { window.clearInterval(healthTimer); healthTimer = null; }
+    }, 1000);
   }
 
   window.__MS_VIDEO_NODE_PATCH__ = {
@@ -510,6 +760,22 @@
     isReady: () => !!findCanvasStore(),
     // 供语音补丁复用同一套「新建节点强制测量 handleBounds」实现，避免两处重复
     measureNode: nodeId => measureNodeWithRetry(nodeId),
+    connectFromNode: (sourceId, targetId) => connectFromNode(sourceId, targetId),
+    rescueNodes: () => rescueNodes(),
+    ensureHealthyView: () => ensureHealthyView(),
+    scrollNodeIntoView: nodeId => scrollNodeIntoView(nodeId),
+    diagnoseDrag: () => {
+      const g = findReactFlowStore();
+      const rf = g ? g() : null;
+      const info = {
+        rfFound: !!rf,
+        nodesDraggable: rf && rf.nodesDraggable,
+        nodesConnectable: rf && rf.nodesConnectable,
+        elementsSelectable: rf && rf.elementsSelectable,
+      };
+      console.log("[漫书] 拖拽诊断", info);
+      return info;
+    },
     connectivityPatched: () => {
       const read = findCanvasStore();
       const state = read ? read() : null;
