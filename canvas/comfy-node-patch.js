@@ -1226,8 +1226,9 @@
       + (results ? ` · <strong>结果:</strong> ${results} 个` : "");
   }
 
-  // 参数面板开合偏好：记住用户最后一次手动开/关，刷新重进画布后保持
-  const SHEET_PREF_KEY = "manshiguang:canvas-comfy-sheet";
+  // 参数面板开合偏好：记住用户最后一次手动开/关，刷新重进画布后保持。
+  // v2 键：换键作废历史脏值（旧版 bug 可能写过错误状态）
+  const SHEET_PREF_KEY = "manshiguang:canvas-comfy-sheet-v2";
   function readSheetPref() {
     try { return localStorage.getItem(SHEET_PREF_KEY) === "1"; } catch (_) { return false; }
   }
@@ -2459,6 +2460,22 @@
       if (n && n.dataset && n.dataset.id) connectSourceId = n.dataset.id;
     }, true);
   }
+
+  // 自检接口：控制台输入 __MS_COMFY_NODE_PATCH__.diag() 看实际运行版本与面板偏好键值
+  window.__MS_COMFY_NODE_PATCH__ = {
+    version: "20261120-52",
+    diag() {
+      const el = document.querySelector("." + CARD_CLASS);
+      return {
+        version: this.version,
+        scriptSrc: (document.querySelector("script[src*='comfy-node-patch']") || {}).src || "",
+        prefOldKey: localStorage.getItem("manshiguang:canvas-comfy-sheet"),
+        prefKey: localStorage.getItem(SHEET_PREF_KEY),
+        modeSheetOpen,
+        cardOpen: !!el && el.classList.contains("is-params-open"),
+      };
+    },
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init, { once: true });
