@@ -589,16 +589,14 @@
       /* 常用参数固定每行 2 个，单个也不撑满整行 */
       .${CARD_CLASS}__prow--pins { display: grid; grid-template-columns: 1fr 1fr; }
       .${CARD_CLASS}__prow--pins .${CARD_CLASS}__pctl { flex: none; min-width: 0; }
-      .${CARD_CLASS}__phandle {
-        flex: none; margin-right: 4px; color: var(--text-tertiary);
-        cursor: grab; font-size: 12px; line-height: 1.2;
-        -webkit-user-select: none; user-select: none;
+      .${CARD_CLASS}__pmove {
+        flex: none; width: 20px; height: 20px; padding: 0; cursor: pointer;
+        color: var(--text-secondary); background: var(--panel-bg-strong);
+        border: 1px solid var(--panel-border-strong); border-radius: 6px;
+        font-family: inherit; font-size: 9px; line-height: 1;
       }
-      .${CARD_CLASS}__phandle:hover { color: var(--text-secondary); }
-      .${CARD_CLASS}__pctl.is-dragging { opacity: .45; }
-      /* 拖拽时光标正下方是手柄自己，elementFromPoint 会拾不到目标控件 */
-      .${CARD_CLASS}__pctl.is-dragging .${CARD_CLASS}__phandle { pointer-events: none; }
-      .${CARD_CLASS}__pctl.is-drop-target { outline: 2px dashed var(--accent, #e8a33d); outline-offset: 2px; }
+      .${CARD_CLASS}__pmove:hover:not(:disabled) { background: var(--soft-hover); border-color: var(--accent, #e8a33d); }
+      .${CARD_CLASS}__pmove:disabled { opacity: .35; cursor: default; }
       .${CARD_CLASS}__pctl {
         flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
         color: var(--text-secondary); font-size: 11px;
@@ -606,9 +604,10 @@
       .${CARD_CLASS}__pctl-cap { color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; min-width: 0; }
       .${CARD_CLASS}__pctl-captext {
         min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        margin-right: auto;
       }
       .${CARD_CLASS}__ppin {
-        margin-left: auto; flex: none;
+        flex: none;
         display: inline-flex; align-items: center; justify-content: center; gap: 3px;
         height: 20px; padding: 0 7px; cursor: pointer;
         color: var(--text-secondary); background: var(--panel-bg-strong);
@@ -1379,7 +1378,7 @@
       const grp = document.createElement("div"); grp.className = CARD_CLASS + "__group";
       const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = "常用参数";
       const row = document.createElement("div"); row.className = CARD_CLASS + "__prow " + CARD_CLASS + "__prow--pins";
-      pinned.forEach(item => row.appendChild(buildParamControl(item, ids, true)));
+      pinned.forEach((item, i) => row.appendChild(buildParamControl(item, ids, { index: i, count: pinned.length })));
       grp.append(lab, row);
       sheet.appendChild(grp);
       // 横竖屏对调：宽/高都置顶时才出现
@@ -1404,7 +1403,7 @@
     const det = document.createElement("details"); det.className = CARD_CLASS + "__pall";
     const sum = document.createElement("summary"); sum.textContent = `全部参数（${items.length}）`;
     const body = document.createElement("div"); body.className = CARD_CLASS + "__pall-body";
-    items.forEach(item => body.appendChild(buildParamControl(item, ids, false)));
+    items.forEach(item => body.appendChild(buildParamControl(item, ids, null)));
     det.append(sum, body); if (wasOpen) det.open = true; sheet.appendChild(det);
     syncResolutionButtons();
 
@@ -1421,8 +1420,8 @@
     bar.append(reset, hint); sheet.appendChild(bar);
   }
 
-  // 常用参数拖拽排序：顺序就是 comfyPinnedParams 数组顺序，随节点持久化。
-  // 不用 HTML5 draggable——画布页面全局拦截 pointer 事件会吞掉 dragstart，改用 pointer 事件自实现。
+  // 常用参数排序：顺序就是 comfyPinnedParams 数组顺序，随节点持久化。
+  // 用显式 ◀/▶ 按钮而非拖拽——拖拽入口不可发现，画布页还会吞掉 HTML5 dragstart。
   function commitPinOrder(ids) {
     const n = getSelectedComfyNode(); if (!n) return;
     if (paramsModel) paramsModel.pinnedIds = ids; // React 异步，先更缓存保证重画即时正确
@@ -1430,65 +1429,40 @@
     repaintParams();
   }
 
-  function makePinHandle(wrap, id) {
-    const handle = document.createElement("span");
-    handle.className = CARD_CLASS + "__phandle";
-    handle.textContent = "⠿";
-    handle.title = "按住拖动调整常用参数顺序";
-    handle.addEventListener("pointerdown", ev => {
-      ev.preventDefault(); ev.stopPropagation();
-      handle.setPointerCapture(ev.pointerId);
-      wrap.classList.add("is-dragging");
-      let target = null, after = false;
-      const clear = () => {
-        wrap.parentElement?.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
-        target = null;
-      };
-      const onMove = mv => {
-        const el = document.elementFromPoint(mv.clientX, mv.clientY);
-        const over = el && el.closest ? el.closest("." + CARD_CLASS + "__prow--pins ." + CARD_CLASS + "__pctl") : null;
-        clear();
-        if (!over || over === wrap) return;
-        const rect = over.getBoundingClientRect();
-        target = over; after = mv.clientX > rect.left + rect.width / 2;
-        over.classList.add("is-drop-target");
-      };
-      const onUp = () => {
-        handle.removeEventListener("pointermove", onMove);
-        handle.removeEventListener("pointerup", onUp);
-        handle.removeEventListener("pointercancel", onUp);
-        wrap.classList.remove("is-dragging");
-        const n = getSelectedComfyNode();
-        if (target && n) {
-          const toId = target.dataset.pinId;
-          const ids = pinnedIds((paramsModel && paramsModel.items) || []).slice();
-          const fi = ids.indexOf(id);
-          if (fi >= 0 && ids.includes(toId)) {
-            ids.splice(fi, 1);
-            const ni = ids.indexOf(toId);
-            ids.splice(after ? ni + 1 : ni, 0, id);
-            commitPinOrder(ids);
-            return;
-          }
-        }
-        clear();
-      };
-      handle.addEventListener("pointermove", onMove);
-      handle.addEventListener("pointerup", onUp);
-      handle.addEventListener("pointercancel", onUp);
-    });
-    return handle;
+  function shiftPin(id, delta) {
+    const ids = pinnedIds((paramsModel && paramsModel.items) || []).slice();
+    const i = ids.indexOf(id), j = i + delta;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    ids.splice(j, 0, ids.splice(i, 1)[0]);
+    commitPinOrder(ids);
   }
 
-  function buildParamControl(item, ids, draggable) {
+  function makePinOrderButtons(id, index, count) {
+    const frag = document.createDocumentFragment();
+    const mk = (label, delta, disabled, title) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = CARD_CLASS + "__pmove";
+      b.textContent = label; b.title = title; b.disabled = disabled;
+      b.addEventListener("click", ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        if (!ev.currentTarget.disabled) shiftPin(id, delta);
+      }, true);
+      frag.appendChild(b);
+    };
+    mk("◀", -1, index <= 0, "前移");
+    mk("▶", 1, index >= count - 1, "后移");
+    return frag;
+  }
+
+  // order：置顶项传 { index, count } 显示 ◀/▶ 排序按钮；非置顶传 null
+  function buildParamControl(item, ids, order) {
     const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
-    if (draggable) wrap.dataset.pinId = item.id;
     const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
     const capText = document.createElement("span");
     capText.className = CARD_CLASS + "__pctl-captext";
     capText.textContent = item.label;
-    if (draggable && ids && ids.includes(item.id)) cap.appendChild(makePinHandle(wrap, item.id));
     cap.appendChild(capText);
+    if (order) cap.appendChild(makePinOrderButtons(item.id, order.index, order.count));
     if (ids) {
       const isPinned = ids.includes(item.id);
       const star = document.createElement("button");
