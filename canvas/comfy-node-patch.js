@@ -1309,8 +1309,11 @@
     n.textContent = text; return n;
   }
 
-  // 实时值：live comfyParams 覆盖，否则回退工作流基准值
+  // 实时值：同步覆盖缓存优先（commit 走 React 异步 updateNodeData，紧接着重画读 store 会拿到旧值），
+  // 其次 live comfyParams，最后工作流基准值
   function currentParamValue(item) {
+    const ov = paramsModel && paramsModel.overrides;
+    if (ov && (item.nodeId + ":" + item.key) in ov) return ov[item.nodeId + ":" + item.key];
     const n = getSelectedComfyNode();
     const params = (n && n.data.comfyParams) || {};
     const v = (params[item.nodeId] || {})[item.key];
@@ -1389,6 +1392,7 @@
     reset.addEventListener("click", ev => {
       ev.preventDefault(); ev.stopPropagation();
       const n = getSelectedComfyNode(); if (!n) return;
+      if (paramsModel) paramsModel.overrides = {}; // 清掉同步覆盖缓存，否则重画仍显示旧值
       if (patchNodeData(n.id, { comfyParams: {} })) { repaintParams(); refreshModelLine(); showToast("已恢复工作流默认参数"); }
     }, true);
     const hint = document.createElement("span"); hint.className = CARD_CLASS + "__sheet-note";
@@ -1419,6 +1423,10 @@
       const n = getSelectedComfyNode(); if (!n) return;
       const capped = capParamValue(item.key, value);
       if (capped.capped) { showToast(`${capped.name}不能超过 ${capped.max}，已自动回退。`, "error"); value = capped.value; }
+      if (paramsModel) {
+        if (!paramsModel.overrides) paramsModel.overrides = {};
+        paramsModel.overrides[item.nodeId + ":" + item.key] = value; // 重画立即显示新值
+      }
       const params = JSON.parse(JSON.stringify(n.data.comfyParams || {}));
       if (!params[item.nodeId]) params[item.nodeId] = {};
       params[item.nodeId][item.key] = value;
