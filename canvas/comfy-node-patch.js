@@ -57,6 +57,25 @@
   let toastTimer = null;
   let tickTimer = null;
   let card = null, lastNodeId = null, dismissedNodeId = null;
+  // ✕ 关过的节点持久化：bundle 刷新会恢复选中态，不记的话「点叉→刷新→再进画布」卡片又自动弹开；
+  // 点空白关闭不记（那只是暂时收起，且刷新后通常也不再选中）
+  const DISMISSED_KEY = "manshiguang:canvas-comfy-dismissed";
+  function readDismissed() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch (_) { return []; }
+  }
+  function addDismissed(id) {
+    const list = readDismissed().filter(x => x !== id);
+    list.push(id);
+    try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(list.slice(-200))); } catch (_) {}
+  }
+  function clearDismissed(id) {
+    const list = readDismissed();
+    if (!list.includes(id)) return;
+    try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(list.filter(x => x !== id))); } catch (_) {}
+  }
   // 刷新恢复的选中态不该自动弹卡片。判据不靠计时（React Flow 初始化会派发合成
   // pointerdown/事件，isTrusted 与「首次交互」门控都被实测绕过过）：
   // 载入时已选中的节点记为基线，用户首次真实点击才解禁；tick 只弹「非基线节点」或「解禁后」的卡片
@@ -1112,10 +1131,11 @@
     const clsb = document.createElement("button"); clsb.className = CARD_CLASS + "__close"; clsb.innerHTML = "&#x2715;";
     clsb.addEventListener("click", ev => {
       ev.stopPropagation();
-      // ✕ = 全部关掉：无条件记成收起（不看 modeSheetOpen 变量，防其与 DOM 状态不同步）
+      // ✕ = 全部关掉：无条件记面板收起，并持久化「本节点被 ✕ 关过」
       modeSheetOpen = false;
       if (card) card.classList.remove("is-params-open");
       writeSheetPref(false);
+      if (card && card.dataset.nodeId) addDismissed(card.dataset.nodeId);
       hideCard(true);
     }, true);
     hdr.append(ttl, clsb); c.appendChild(hdr);
@@ -2357,6 +2377,9 @@
         // tick 不自动弹它的卡片；首次真实点击后基线失效，新建/切换选中照常自动弹。
         // 不用计时/pointerdown 判首次交互：React Flow 初始化派发合成 pointer 事件，实测会误解锁
         if (restoredSelection === null && !userInteracted) restoredSelection = node.id;
+        // ✕ 关过的节点：跨会话不自动弹（真实点它时才弹并解除记忆）。
+        // 不能只在未交互时挡：刷新后用户点任何地方解锁交互，选中节点又会被弹一次——正是要修的现象
+        if (readDismissed().includes(node.id)) return;
         if (!userInteracted && node.id === restoredSelection) return;
         if (!card || lastNodeId !== node.id) showCard(node);
         else {
@@ -2398,6 +2421,7 @@
         const node = st.nodes.find(n => n && n.id === id && n.data && n.data.category === COMFY_CATEGORY);
         if (node) {
           dismissedNodeId = null;
+          clearDismissed(id); // 真实点它 = 想看了，解除 ✕ 记忆
           if (!card || lastNodeId !== id) showCard(node);
         } else {
           if (card) hideCard();
@@ -2463,7 +2487,7 @@
 
   // 自检接口：控制台输入 __MS_COMFY_NODE_PATCH__.diag() 看实际运行版本与面板偏好键值
   window.__MS_COMFY_NODE_PATCH__ = {
-    version: "20261120-52",
+    version: "20261120-53",
     diag() {
       const el = document.querySelector("." + CARD_CLASS);
       return {
