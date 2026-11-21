@@ -17,15 +17,17 @@
 
   // 工作流参数：友好控件识别（按 key/classType 归类，归不进的一律进「全部参数」原始列表兜底）
   const PARAM_LABELS = {
-    steps: "步数", cfg: "CFG", cfg_scale: "CFG", guidance_scale: "CFG",
-    seed: "种子", denoise: "降噪", scheduler: "调度器", sampler_name: "采样器",
+    steps: "步数", cfg: "CFG", cfg_scale: "CFG", guidance_scale: "CFG", true_cfg_scale: "CFG",
+    seed: "种子", noise_seed: "种子", rand_seed: "种子", random_seed: "种子",
+    denoise: "降噪", scheduler: "调度器", sampler_name: "采样器",
     width: "宽", height: "高", length: "时长/帧数", duration: "时长",
     fps: "帧率", frame_rate: "帧率", num_frames: "帧数", frame_count: "帧数",
     batch_size: "批量", shift: "shift",
+    megapixels: "清晰度", multiple: "倍数", aspect_ratio: "画面比例",
   };
   const STEPS_RE = /^steps$/i;
-  const CFG_RE = /^(cfg|cfg_scale|guidance_scale)$/i;
-  const SEED_RE = /^seed$/i;
+  const CFG_RE = /^(cfg|cfg_scale|true_cfg_scale|guidance_scale)$/i;
+  const SEED_RE = /^(noise_)?(rand|random)?_?seed$/i;
   const DENOISE_RE = /^denoise$/i;
   const VIDEO_LEN_RE = /^(length|duration|num_frames|frame_count|fps|frame_rate)$/i;
   // 下拉选项是否像分辨率/比例预设：16:9、1:1 (Square)、1024x1024、1024×1536 等
@@ -1240,10 +1242,10 @@
     const widthFields = [], heightFields = [];
     for (const f of fields) {
       if (typeof f.value === "string" && POSITIVE_RE.test(f.key) && !NEGATIVE_RE.test(f.key)) continue; // 提示词归卡片顶部，不进参数
-      if (STEPS_RE.test(f.key)) { push("steps", "步数", f); continue; }
-      if (CFG_RE.test(f.key)) { push("cfg", "CFG", f); continue; }
-      if (SEED_RE.test(f.key)) { push("seed", "种子", f, { kind: "number" }); continue; }
-      if (DENOISE_RE.test(f.key)) { push("denoise", "降噪", f); continue; }
+      if (STEPS_RE.test(f.key)) { push("sampling", "采样", f); continue; }
+      if (CFG_RE.test(f.key)) { push("sampling", "采样", f); continue; }
+      if (SEED_RE.test(f.key)) { push("sampling", "采样", f, { kind: "number" }); continue; }
+      if (DENOISE_RE.test(f.key)) { push("sampling", "采样", f); continue; }
       if (VIDEO_LEN_RE.test(f.key)) { push("video", "视频", f); continue; }
       // 选择器节点：画面比例 combo + 同节点数字（百万像素/倍数等）都提到「分辨率」组
       if (resSelectorNodeId && f.nodeId === resSelectorNodeId) {
@@ -1275,6 +1277,12 @@
     }
 
     const otherItems = others.map(f => fieldMeta(f, f.key));
+
+    // 采样组固定顺序：种子 → 步数 → CFG → 降噪（工作流节点顺序是乱的，按显示名排）
+    const SAMPLE_ORDER = { "种子": 0, "步数": 1, "CFG": 2, "降噪": 3 };
+    const sampleGroup = groups.find(g => g.id === "sampling");
+    if (sampleGroup) sampleGroup.items.sort((a, b) =>
+      (SAMPLE_ORDER[a.label] ?? 9) - (SAMPLE_ORDER[b.label] ?? 9));
 
     return { groups: groups.filter(g => g.items.length), others: otherItems };
   }
@@ -1445,7 +1453,7 @@
       const num = document.createElement("input"); num.type = "number"; num.className = CARD_CLASS + "__pnum";
       if (typeof item.value === "number") num.step = item.type === "number" && !Number.isInteger(item.value) ? "0.01" : "1";
       num.value = String(item.value);
-      if (item.kind === "number" && /^seed$/i.test(item.key)) {
+      if (item.kind === "number" && SEED_RE.test(item.key)) {
         const rnd = document.createElement("button"); rnd.type = "button"; rnd.className = CARD_CLASS + "__prand"; rnd.textContent = "随机";
         rnd.addEventListener("click", ev => {
           ev.preventDefault(); ev.stopPropagation();
