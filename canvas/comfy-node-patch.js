@@ -1270,7 +1270,7 @@
       };
     };
 
-    // 不再自动分组：全部标量参数平铺，用户自己把常用的置顶（comfyPinnedParams 持久化）
+    // 不再自动分组：全部标量参数平铺，用户自己把常用的置顶（按工作流全局持久化）
     const items = [];
     for (const f of fields) {
       if (typeof f.value === "string" && POSITIVE_RE.test(f.key) && !NEGATIVE_RE.test(f.key)) continue; // 提示词归卡片顶部，不进参数
@@ -1344,27 +1344,56 @@
     return v !== undefined ? v : item.baseValue;
   }
 
-  // 置顶的常用参数：node.data.comfyPinnedParams = ["nodeId:key", ...]，按节点持久化。
-  // 从未手动勾选过时给一套默认（种子/步数/CFG/降噪/宽高），点过 ☆/★ 后完全听用户的。
+  // 常用参数置顶列表：按「配置+工作流文件路径」全局存（跨画布、跨节点共享，新节点选同工作流即继承）。
+  // 参数值仍按节点存（comfyParams），所以同工作流不同节点可各用各的 9:16/16:9。
+  const PINS_KEY = "manshiguang:canvas-comfy-pins";
+  function readPinStore() {
+    try {
+      const raw = localStorage.getItem(PINS_KEY);
+      const stored = raw ? JSON.parse(raw) : null;
+      return stored && typeof stored === "object" ? stored : {};
+    } catch (_) { return {}; }
+  }
+  function pinStoreKey(node) {
+    const profile = activeComfyProfile();
+    return (profile ? profile.id : "local") + "::" + ((node && node.data.comfyWorkflowPath) || "");
+  }
+  function savePinStoreKey(key, ids) {
+    if (!key.endsWith("::")) return; // 未选工作流不持久化
+    const store = readPinStore();
+    store[key] = ids;
+    try { localStorage.setItem(PINS_KEY, JSON.stringify(store)); } catch (_) {}
+  }
+
+  // 从未设置过时给一套默认（种子/步数/CFG/降噪/宽高），点过 ☆/★ 后完全听用户的。
   const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
   function pinnedIds(items) {
-    // 优先用 paramsModel 缓存：置顶后 React 状态可能还没提交，直接读 store 会拿到旧值
+    // 优先用 paramsModel 缓存：置顶后可能还没落盘，直接读会拿到旧值
     if (paramsModel && Array.isArray(paramsModel.pinnedIds))
       return paramsModel.pinnedIds.filter(id => items.some(it => it.id === id));
-    const n = getSelectedComfyNode();
-    const saved = n && n.data.comfyPinnedParams;
+    const node = getSelectedComfyNode();
+    const key = pinStoreKey(node);
+    const saved = readPinStore()[key];
     if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
+    // 迁移旧的按节点存储：首个节点的手动勾选升级成该工作流的全局默认
+    const legacy = node && node.data.comfyPinnedParams;
+    if (Array.isArray(legacy)) { savePinStoreKey(key, legacy); return legacy.filter(id => items.some(it => it.id === id)); }
     return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
   }
 
+  function persistPinnedIds(ids) {
+    if (paramsModel) paramsModel.pinnedIds = ids; // 先更缓存，重画立即反映
+    const node = getSelectedComfyNode();
+    savePinStoreKey(pinStoreKey(node), ids);
+  }
+
   function togglePin(id) {
-    const n = getSelectedComfyNode(); if (!n) return;
+    if (!getSelectedComfyNode()) return;
     const items = (paramsModel && paramsModel.items) || [];
     const ids = pinnedIds(items).slice();
     const i = ids.indexOf(id);
     if (i >= 0) ids.splice(i, 1); else ids.push(id);
-    if (paramsModel) paramsModel.pinnedIds = ids; // 先更缓存，重画立即反映
-    patchNodeData(n.id, { comfyPinnedParams: ids });
+    persistPinnedIds(ids);
     repaintParams();
   }
 
@@ -1420,16 +1449,14 @@
       if (patchNodeData(n.id, { comfyParams: {} })) { repaintParams(); refreshModelLine(); showToast("已恢复工作流默认参数"); }
     }, true);
     const hint = document.createElement("span"); hint.className = CARD_CLASS + "__sheet-note";
-    hint.textContent = "参数与置顶勾选都随节点保存，生成时写回工作流。";
+    hint.textContent = "参数值按节点保存；常用勾选按工作流全局保存，生成时写回工作流。";
     bar.append(reset, hint); sheet.appendChild(bar);
   }
 
-  // 常用参数排序：顺序就是 comfyPinnedParams 数组顺序，随节点持久化。
+  // 常用参数排序：顺序即全局置顶数组的顺序。
   // 用显式 ◀/▶ 按钮而非拖拽——拖拽入口不可发现，画布页还会吞掉 HTML5 dragstart。
   function commitPinOrder(ids) {
-    const n = getSelectedComfyNode(); if (!n) return;
-    if (paramsModel) paramsModel.pinnedIds = ids; // React 异步，先更缓存保证重画即时正确
-    patchNodeData(n.id, { comfyPinnedParams: ids });
+    persistPinnedIds(ids);
     repaintParams();
   }
 
