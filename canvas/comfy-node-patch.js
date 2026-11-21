@@ -596,6 +596,8 @@
       }
       .${CARD_CLASS}__phandle:hover { color: var(--text-secondary); }
       .${CARD_CLASS}__pctl.is-dragging { opacity: .45; }
+      /* 拖拽时光标正下方是手柄自己，elementFromPoint 会拾不到目标控件 */
+      .${CARD_CLASS}__pctl.is-dragging .${CARD_CLASS}__phandle { pointer-events: none; }
       .${CARD_CLASS}__pctl.is-drop-target { outline: 2px dashed var(--accent, #e8a33d); outline-offset: 2px; }
       .${CARD_CLASS}__pctl {
         flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
@@ -1408,18 +1410,10 @@
     bar.append(reset, hint); sheet.appendChild(bar);
   }
 
-  // 常用参数拖拽排序：顺序就是 comfyPinnedParams 数组顺序，随节点持久化
-  function movePinOrder(fromId, toId, ev) {
+  // 常用参数拖拽排序：顺序就是 comfyPinnedParams 数组顺序，随节点持久化。
+  // 不用 HTML5 draggable——画布页面全局拦截 pointer 事件会吞掉 dragstart，改用 pointer 事件自实现。
+  function commitPinOrder(ids) {
     const n = getSelectedComfyNode(); if (!n) return;
-    const items = (paramsModel && paramsModel.items) || [];
-    const ids = pinnedIds(items).slice();
-    const fi = ids.indexOf(fromId), ti = ids.indexOf(toId);
-    if (fi < 0 || ti < 0) return;
-    ids.splice(fi, 1);
-    const rect = ev.currentTarget.getBoundingClientRect();
-    const after = ev.clientX > rect.left + rect.width / 2;
-    const ni = ids.indexOf(toId);
-    ids.splice(after ? ni + 1 : ni, 0, fromId);
     if (paramsModel) paramsModel.pinnedIds = ids; // React 异步，先更缓存保证重画即时正确
     patchNodeData(n.id, { comfyPinnedParams: ids });
     repaintParams();
@@ -1429,38 +1423,55 @@
     const handle = document.createElement("span");
     handle.className = CARD_CLASS + "__phandle";
     handle.textContent = "⠿";
-    handle.title = "拖动调整常用参数顺序";
+    handle.title = "按住拖动调整常用参数顺序";
     handle.addEventListener("pointerdown", ev => {
       ev.preventDefault(); ev.stopPropagation();
-      wrap.draggable = true;
-    });
-    handle.addEventListener("pointerup", () => { wrap.draggable = false; });
-    wrap.addEventListener("dragstart", ev => {
-      ev.dataTransfer.effectAllowed = "move";
-      ev.dataTransfer.setData("text/plain", id);
+      handle.setPointerCapture(ev.pointerId);
       wrap.classList.add("is-dragging");
-    });
-    wrap.addEventListener("dragend", () => {
-      wrap.draggable = false;
-      wrap.classList.remove("is-dragging", "is-drop-target");
-    });
-    wrap.addEventListener("dragover", ev => {
-      ev.preventDefault();
-      ev.dataTransfer.dropEffect = "move";
-      wrap.classList.add("is-drop-target");
-    });
-    wrap.addEventListener("dragleave", () => wrap.classList.remove("is-drop-target"));
-    wrap.addEventListener("drop", ev => {
-      ev.preventDefault(); ev.stopPropagation();
-      wrap.classList.remove("is-drop-target");
-      const from = ev.dataTransfer.getData("text/plain");
-      if (from && from !== id) movePinOrder(from, id, ev);
+      let target = null, after = false;
+      const clear = () => {
+        wrap.parentElement?.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
+        target = null;
+      };
+      const onMove = mv => {
+        const el = document.elementFromPoint(mv.clientX, mv.clientY);
+        const over = el && el.closest ? el.closest("." + CARD_CLASS + "__prow--pins ." + CARD_CLASS + "__pctl") : null;
+        clear();
+        if (!over || over === wrap) return;
+        const rect = over.getBoundingClientRect();
+        target = over; after = mv.clientX > rect.left + rect.width / 2;
+        over.classList.add("is-drop-target");
+      };
+      const onUp = () => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+        wrap.classList.remove("is-dragging");
+        const n = getSelectedComfyNode();
+        if (target && n) {
+          const toId = target.dataset.pinId;
+          const ids = pinnedIds((paramsModel && paramsModel.items) || []).slice();
+          const fi = ids.indexOf(id);
+          if (fi >= 0 && ids.includes(toId)) {
+            ids.splice(fi, 1);
+            const ni = ids.indexOf(toId);
+            ids.splice(after ? ni + 1 : ni, 0, id);
+            commitPinOrder(ids);
+            return;
+          }
+        }
+        clear();
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
     });
     return handle;
   }
 
   function buildParamControl(item, ids, draggable) {
     const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
+    if (draggable) wrap.dataset.pinId = item.id;
     const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
     const capText = document.createElement("span"); capText.textContent = item.label;
     if (draggable && ids && ids.includes(item.id)) cap.appendChild(makePinHandle(wrap, item.id));
