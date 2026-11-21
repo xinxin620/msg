@@ -42,6 +42,14 @@
     }
     return { value, capped: false };
   }
+  // 控件上限：object_info 的 max 与硬上限取小，滑块/数字框都拖不到超限
+  function capMax(key, specMax) {
+    let m = specMax;
+    for (const cap of PARAM_CAPS) {
+      if (cap.re.test(key)) m = m == null ? cap.max : Math.min(m, cap.max);
+    }
+    return m;
+  }
 
   let seq = 0;
   let lastPointer = null;
@@ -1229,7 +1237,7 @@
         label: PARAM_LABELS[field.key] || field.key,
         kind,
         min: spec && spec[1] ? spec[1].min : undefined,
-        max: spec && spec[1] ? spec[1].max : undefined,
+        max: capMax(field.key, spec && spec[1] ? spec[1].max : undefined),
         step: spec && spec[1] ? spec[1].step : undefined,
         options: opts || undefined,
         value: sv !== undefined ? sv : field.value,
