@@ -1221,7 +1221,9 @@
     // 由 field + object_info 规格算出控件元数据（kind：combo/range/bool/text/number）
     const fieldMeta = field => {
       const spec = (types && fieldSpec(types[field.classType] || null, field.key)) || null;
-      const opts = spec && Array.isArray(spec[1]) ? spec[1].options : null;
+      // combo 两种写法：经典 [选项数组, {...}] 与新版 ["COMBO", {options:[...]}]
+      const opts = Array.isArray(spec?.[0]) ? spec[0]
+        : Array.isArray(spec?.[1]?.options) ? spec[1].options : null;
       const hasRange = spec && typeof spec[1] === "object" && spec[1] && (spec[1].min != null || spec[1].max != null);
       let kind;
       if (opts) kind = "combo";
