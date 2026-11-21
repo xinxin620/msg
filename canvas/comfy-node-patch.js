@@ -650,13 +650,16 @@
         display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 2px;
       }
       .${CARD_CLASS}__pall-body .${CARD_CLASS}__pctl { flex: none; min-width: 0; }
-      .${CARD_CLASS}__pbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+      .${CARD_CLASS}__pbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
       .${CARD_CLASS}__pbar button {
         height: 28px; padding: 0 12px; color: var(--text-primary);
         background: var(--panel-bg-strong); border: 1px solid var(--panel-border-strong);
         border-radius: 7px; font-family: inherit; font-size: 12px; cursor: pointer;
       }
       .${CARD_CLASS}__pbar button:hover { background: var(--soft-hover); }
+      .${CARD_CLASS}__ppublish { color: #fff; background: var(--accent, #e8a33d); border-color: var(--accent, #e8a33d); }
+      .${CARD_CLASS}__ppublish:hover { background: var(--accent, #e8a33d); filter: brightness(1.08); }
+      .${CARD_CLASS}__pbar .${CARD_CLASS}__sheet-note { margin-left: auto; text-align: right; }
       .${CARD_CLASS}__sheet-note { color: var(--text-tertiary); font-size: 11px; line-height: 1.6; }
       .${CARD_CLASS}__model-line {
         flex: 0 0 auto; margin: 2px 2px 0; overflow: hidden;
@@ -1365,52 +1368,37 @@
     try { localStorage.setItem(PINS_KEY, JSON.stringify(store)); } catch (_) {}
   }
 
-  // 从未设置过时给一套默认（种子/步数/CFG/降噪/宽高），点过 ☆/★ 后完全听用户的。
+  // 常用参数解析：缓存 → 全局(按工作流) → 本节点自己的旧置顶 → 默认。
+  // 不再自动扫描兄弟节点/自动落盘——避免「打开面板就被某节点悄悄定成全局」。
+  // 一旦点 ☆/★ 或「以本节点为准」，当前这套即写全局，之后所有节点共享（最后设置生效）。
   const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
   function pinnedIds(items) {
     // 优先用 paramsModel 缓存：置顶后可能还没落盘，直接读会拿到旧值
     if (paramsModel && Array.isArray(paramsModel.pinnedIds))
       return paramsModel.pinnedIds.filter(id => items.some(it => it.id === id));
     const node = getSelectedComfyNode();
-    const key = pinStoreKey(node);
-    const saved = readPinStore()[key];
+    const saved = readPinStore()[pinStoreKey(node)];
     if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
-    // 迁移旧的按节点存储：本节点或同画布同工作流的任一旧节点手动勾选过，就升级成该工作流的全局默认。
-    // （改全局前存的置顶只落在当时那个节点上，新节点全局查不到会误落默认，故要扫同工作流兄弟节点）
-    const legacy = findLegacyPins(node);
-    if (legacy) { savePinStoreKey(key, legacy); return legacy.filter(id => items.some(it => it.id === id)); }
+    // 全局还没有该工作流记录时，本节点若带旧版按节点置顶就先用它显示（不写全局，等你决定）
+    if (node && Array.isArray(node.data.comfyPinnedParams))
+      return node.data.comfyPinnedParams.filter(id => items.some(it => it.id === id));
     return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
-  }
-
-  // 找同工作流下残留的按节点旧置顶，作为全局默认的种子：
-  // 本节点优先；多个兄弟节点各配一套时投票取「最能代表多数」的那套完整配置（并列取画布顺序在前）
-  function findLegacyPins(node) {
-    if (!node) return null;
-    if (Array.isArray(node.data.comfyPinnedParams)) return node.data.comfyPinnedParams;
-    const path = node.data.comfyWorkflowPath || "";
-    if (!path) return null;
-    const r = getStateReader(); const st = r && r();
-    if (!st || !Array.isArray(st.nodes)) return null;
-    const sets = st.nodes
-      .filter(n => n && n.data && n.data.category === COMFY_CATEGORY
-        && (n.data.comfyWorkflowPath || "") === path && Array.isArray(n.data.comfyPinnedParams))
-      .map(n => n.data.comfyPinnedParams);
-    if (!sets.length) return null;
-    if (sets.length === 1) return sets[0];
-    const votes = new Map();
-    sets.forEach(ids => ids.forEach(id => votes.set(id, (votes.get(id) || 0) + 1)));
-    let best = sets[0], bestScore = -1;
-    sets.forEach(ids => {
-      const score = ids.reduce((s, id) => s + (votes.get(id) || 0), 0);
-      if (score > bestScore) { bestScore = score; best = ids; }
-    });
-    return best;
   }
 
   function persistPinnedIds(ids) {
     if (paramsModel) paramsModel.pinnedIds = ids; // 先更缓存，重画立即反映
     const node = getSelectedComfyNode();
     savePinStoreKey(pinStoreKey(node), ids);
+  }
+
+  // 「以本节点为准」：把当前节点正在显示的这套置顶发布成该工作流的全局默认
+  function publishPinsFromNode() {
+    const node = getSelectedComfyNode(); if (!node) return;
+    if (!node.data.comfyWorkflowPath) { showToast("请先选择工作流。", "error"); return; }
+    const items = (paramsModel && paramsModel.items) || [];
+    persistPinnedIds(pinnedIds(items).slice());
+    repaintParams();
+    showToast("已把本节点的常用参数设为该工作流的全局默认", "success");
   }
 
   function togglePin(id) {
@@ -1467,6 +1455,13 @@
     syncResolutionButtons();
 
     const bar = document.createElement("div"); bar.className = CARD_CLASS + "__pbar";
+    const publish = document.createElement("button");
+    publish.type = "button"; publish.className = CARD_CLASS + "__ppublish"; publish.textContent = "以本节点为准";
+    publish.title = "把本节点当前的常用参数，设为该工作流的全局默认（其它用同一工作流的节点都改用它）";
+    publish.addEventListener("click", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      publishPinsFromNode();
+    }, true);
     const reset = document.createElement("button"); reset.type = "button"; reset.textContent = "恢复工作流默认";
     reset.addEventListener("click", ev => {
       ev.preventDefault(); ev.stopPropagation();
@@ -1475,8 +1470,8 @@
       if (patchNodeData(n.id, { comfyParams: {} })) { repaintParams(); refreshModelLine(); showToast("已恢复工作流默认参数"); }
     }, true);
     const hint = document.createElement("span"); hint.className = CARD_CLASS + "__sheet-note";
-    hint.textContent = "参数值按节点保存；常用勾选按工作流全局保存，生成时写回工作流。";
-    bar.append(reset, hint); sheet.appendChild(bar);
+    hint.textContent = "参数值按节点保存；常用勾选按工作流全局保存（最后设置者生效，或点「以本节点为准」采用本节点这套）。";
+    bar.append(publish, reset, hint); sheet.appendChild(bar);
   }
 
   // 常用参数排序：顺序即全局置顶数组的顺序。
