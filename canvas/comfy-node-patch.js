@@ -562,6 +562,9 @@
       }
       /* 工作流参数控件 */
       .${CARD_CLASS}__prow { display: flex; flex-wrap: wrap; gap: 8px; }
+      /* 常用参数固定每行 2 个，单个也不撑满整行 */
+      .${CARD_CLASS}__prow--pins { display: grid; grid-template-columns: 1fr 1fr; }
+      .${CARD_CLASS}__prow--pins .${CARD_CLASS}__pctl { flex: none; min-width: 0; }
       .${CARD_CLASS}__pctl {
         flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
         color: var(--text-secondary); font-size: 11px;
@@ -1325,7 +1328,7 @@
     if (pinned.length) {
       const grp = document.createElement("div"); grp.className = CARD_CLASS + "__group";
       const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = "常用参数";
-      const row = document.createElement("div"); row.className = CARD_CLASS + "__prow";
+      const row = document.createElement("div"); row.className = CARD_CLASS + "__prow " + CARD_CLASS + "__prow--pins";
       pinned.forEach(item => row.appendChild(buildParamControl(item, ids)));
       grp.append(lab, row);
       sheet.appendChild(grp);
