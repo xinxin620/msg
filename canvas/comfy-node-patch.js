@@ -1287,6 +1287,9 @@
   // 从未手动勾选过时给一套默认（种子/步数/CFG/降噪/宽高），点过 ☆/★ 后完全听用户的。
   const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
   function pinnedIds(items) {
+    // 优先用 paramsModel 缓存：置顶后 React 状态可能还没提交，直接读 store 会拿到旧值
+    if (paramsModel && Array.isArray(paramsModel.pinnedIds))
+      return paramsModel.pinnedIds.filter(id => items.some(it => it.id === id));
     const n = getSelectedComfyNode();
     const saved = n && n.data.comfyPinnedParams;
     if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
@@ -1299,15 +1302,19 @@
     const ids = pinnedIds(items).slice();
     const i = ids.indexOf(id);
     if (i >= 0) ids.splice(i, 1); else ids.push(id);
-    if (patchNodeData(n.id, { comfyPinnedParams: ids })) repaintParams();
+    if (paramsModel) paramsModel.pinnedIds = ids; // 先更缓存，重画立即反映
+    patchNodeData(n.id, { comfyPinnedParams: ids });
+    repaintParams();
   }
 
   function paintParamSheet(sheet, model) {
+    const wasOpen = !!(sheet.querySelector("." + CARD_CLASS + "__pall") || {}).open;
     sheet.innerHTML = "";
     const items = model.items || [];
     items.forEach(it => { it.value = currentParamValue(it); });
     if (!items.length) { sheet.appendChild(paramNote("该工作流没有可编辑的标量参数。")); return; }
     const ids = pinnedIds(items);
+    if (paramsModel) paramsModel.pinnedIds = ids;
     const pinned = ids.map(id => items.find(it => it.id === id)).filter(Boolean);
 
     if (pinned.length) {
@@ -1340,7 +1347,7 @@
     const sum = document.createElement("summary"); sum.textContent = `全部参数（${items.length}）`;
     const body = document.createElement("div"); body.className = CARD_CLASS + "__pall-body";
     items.forEach(item => body.appendChild(buildParamControl(item, ids)));
-    det.append(sum, body); sheet.appendChild(det);
+    det.append(sum, body); if (wasOpen) det.open = true; sheet.appendChild(det);
     syncResolutionButtons();
 
     const bar = document.createElement("div"); bar.className = CARD_CLASS + "__pbar";
