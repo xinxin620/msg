@@ -57,8 +57,11 @@
   let toastTimer = null;
   let tickTimer = null;
   let card = null, lastNodeId = null, dismissedNodeId = null;
-  // 刷新恢复的选中态不该自动弹卡片：tick 只在首次真实 pointerdown 后才接管自动 showCard
-  let interacted = false;
+  // 刷新恢复的选中态不该自动弹卡片。判据不靠计时（React Flow 初始化会派发合成
+  // pointerdown/事件，isTrusted 与「首次交互」门控都被实测绕过过）：
+  // 载入时已选中的节点记为基线，用户首次真实点击才解禁；tick 只弹「非基线节点」或「解禁后」的卡片
+  let restoredSelection = null;
+  let userInteracted = false;
   let modeSheetOpen = false;
   let paramsModel = null; // { key, items } 当前已渲染的工作流参数（扁平列表）
   let menu = null, menuAnchor = null;
@@ -2315,8 +2318,11 @@
       const node = getSelectedComfyNode();
       if (node) {
         if (dismissedNodeId === node.id) return;
-        // 刷新恢复的选中态不自动弹卡片，等用户先点一下（interacted）再接管
-        if (!interacted) return;
+        // bundle 刷新后会恢复「最后选中节点」。载入时（用户还没真实点过）已选中的节点记为基线，
+        // tick 不自动弹它的卡片；首次真实点击后基线失效，新建/切换选中照常自动弹。
+        // 不用计时/pointerdown 判首次交互：React Flow 初始化派发合成 pointer 事件，实测会误解锁
+        if (restoredSelection === null && !userInteracted) restoredSelection = node.id;
+        if (!userInteracted && node.id === restoredSelection) return;
         if (!card || lastNodeId !== node.id) showCard(node);
         else {
           refreshCard();
@@ -2334,6 +2340,8 @@
 
   function setupClickCapture() {
     document.addEventListener("click", ev => {
+      // 只认浏览器真实派发的点击（isTrusted）；库代码 dispatchEvent 的合成 click 不算，防误解锁基线
+      if (ev.isTrusted) userInteracted = true;
       const target = ev.target;
       if (card && (card === target || card.contains(target))) return;
       if (menu && menu.contains(target)) return;
@@ -2411,7 +2419,6 @@
       lastPointer = { x: e.clientX, y: e.clientY };
     });
     document.addEventListener("pointerdown", ev => {
-      interacted = true;
       const t = ev.target;
       if (!t || !t.closest) return;
       const n = t.closest(".react-flow__node");
