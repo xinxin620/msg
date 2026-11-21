@@ -700,6 +700,14 @@
         color: #fff; font-size: 12px;
       }
       .ms-comfy-viewer__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ms-comfy-viewer__nav { display: flex; align-items: center; gap: 8px; flex: none; }
+      .ms-comfy-viewer__nav button {
+        height: 30px; padding: 0 12px; color: #fff;
+        background: #ffffff1a; border: 1px solid #ffffff33; border-radius: 999px;
+        font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .ms-comfy-viewer__nav button:hover { background: #ffffff33; }
+      .ms-comfy-viewer__count { font-size: 12px; color: #ffffffb3; }
       .ms-comfy-viewer__close {
         flex: none; height: 30px; padding: 0 14px; color: #fff;
         background: #ffffff1a; border: 1px solid #ffffff33; border-radius: 999px;
@@ -1960,10 +1968,21 @@
         '<pre class="ms-comfy-viewer__text" style="display:none"></pre>' +
         '<div class="ms-comfy-viewer__bar">' +
           '<span class="ms-comfy-viewer__name"></span>' +
-          '<button type="button" class="ms-comfy-viewer__close" data-ms-comfy-close>关闭</button>' +
+          '<div class="ms-comfy-viewer__nav">' +
+            '<button type="button" data-ms-comfy-nav="-1" title="上一张（←）">上一张</button>' +
+            '<span class="ms-comfy-viewer__count"></span>' +
+            '<button type="button" data-ms-comfy-nav="1" title="下一张（→）">下一张</button>' +
+            '<button type="button" class="ms-comfy-viewer__close" data-ms-comfy-close>关闭</button>' +
+          '</div>' +
         '</div>' +
       '</div>';
     viewer.addEventListener("click", ev => {
+      const nav = ev.target.closest("[data-ms-comfy-nav]");
+      if (nav) {
+        ev.preventDefault(); ev.stopPropagation();
+        stepViewerResult(Number(nav.dataset.msComfyNav) || 1);
+        return;
+      }
       if (!ev.target.closest("[data-ms-comfy-close]")) return;
       ev.preventDefault(); ev.stopPropagation();
       closeViewer();
@@ -1975,6 +1994,7 @@
   function closeViewer() {
     const viewer = document.getElementById("ms-comfy-viewer");
     if (!viewer) return;
+    viewerState = null;
     const img = viewer.querySelector("img");
     if (img) img.removeAttribute("src");
     const video = viewer.querySelector("video");
@@ -1984,11 +2004,14 @@
     viewer.classList.remove("is-open");
   }
 
-  function doPreview(node) {
+  // 预览层当前展示的是哪个节点的哪条结果，供上一张/下一张与 ←/→ 使用
+  let viewerState = null; // { nodeId, index }
+
+  function renderViewerResult(node, index) {
     const results = Array.isArray(node.data.results) ? node.data.results : [];
-    if (!results.length) { showToast("当前节点还没有生成结果，先点「生成」。", "error"); return; }
-    const index = Number.isInteger(node.data.activeResultIndex) ? node.data.activeResultIndex : 0;
-    const item = results[index] || results[0];
+    if (!results.length) { closeViewer(); return; }
+    const idx = Math.min(results.length - 1, Math.max(0, Number(index) || 0));
+    const item = results[idx];
     const viewer = ensureViewer();
     const img = viewer.querySelector("img");
     const video = viewer.querySelector("video");
@@ -2007,7 +2030,30 @@
       img.src = item.viewUrl; img.style.display = "block";
     }
     viewer.querySelector(".ms-comfy-viewer__name").textContent = item.fileName || (item.kind === "text" ? "反推文本" : "comfy 输出");
+    const navable = results.length > 1;
+    // 关闭按钮和切换按钮同在 nav 里，只隐藏切换相关三个元素
+    viewer.querySelectorAll("[data-ms-comfy-nav], .ms-comfy-viewer__count").forEach(el => { el.style.display = navable ? "" : "none"; });
+    viewer.querySelector(".ms-comfy-viewer__count").textContent = (idx + 1) + " / " + results.length;
+    viewerState = { nodeId: node.id, index: idx };
     viewer.classList.add("is-open");
+  }
+
+  function stepViewerResult(delta) {
+    if (!viewerState) return;
+    const node = getNodeById(viewerState.nodeId);
+    const results = node && Array.isArray(node.data.results) ? node.data.results : [];
+    if (!results.length) { closeViewer(); return; }
+    const next = (viewerState.index + delta + results.length) % results.length;
+    // 同步回节点，关闭预览后框内也停在同一张
+    if (next !== viewerState.index) patchNodeData(node.id, { activeResultIndex: next });
+    renderViewerResult(node, next);
+  }
+
+  function doPreview(node) {
+    const results = Array.isArray(node.data.results) ? node.data.results : [];
+    if (!results.length) { showToast("当前节点还没有生成结果，先点「生成」。", "error"); return; }
+    const index = Number.isInteger(node.data.activeResultIndex) ? node.data.activeResultIndex : 0;
+    renderViewerResult(node, index);
   }
 
   // ======= 节点框内结果渲染 =======
@@ -2165,6 +2211,8 @@
       if (ev.key !== "Escape") return;
       const viewer = document.getElementById("ms-comfy-viewer");
       if (viewer && viewer.classList.contains("is-open")) {
+        if (ev.key === "ArrowLeft") { ev.preventDefault(); ev.stopPropagation(); stepViewerResult(-1); return; }
+        if (ev.key === "ArrowRight") { ev.preventDefault(); ev.stopPropagation(); stepViewerResult(1); return; }
         ev.preventDefault(); ev.stopPropagation();
         closeViewer();
         return;
