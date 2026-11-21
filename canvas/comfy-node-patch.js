@@ -1375,10 +1375,24 @@
     const key = pinStoreKey(node);
     const saved = readPinStore()[key];
     if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
-    // 迁移旧的按节点存储：首个节点的手动勾选升级成该工作流的全局默认
-    const legacy = node && node.data.comfyPinnedParams;
-    if (Array.isArray(legacy)) { savePinStoreKey(key, legacy); return legacy.filter(id => items.some(it => it.id === id)); }
+    // 迁移旧的按节点存储：本节点或同画布同工作流的任一旧节点手动勾选过，就升级成该工作流的全局默认。
+    // （改全局前存的置顶只落在当时那个节点上，新节点全局查不到会误落默认，故要扫同工作流兄弟节点）
+    const legacy = findLegacyPins(node);
+    if (legacy) { savePinStoreKey(key, legacy); return legacy.filter(id => items.some(it => it.id === id)); }
     return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
+  }
+
+  // 找同工作流下任意节点残留的 comfyPinnedParams（优先本节点），作为全局默认的种子
+  function findLegacyPins(node) {
+    if (!node) return null;
+    if (Array.isArray(node.data.comfyPinnedParams)) return node.data.comfyPinnedParams;
+    const path = node.data.comfyWorkflowPath || "";
+    if (!path) return null;
+    const r = getStateReader(); const st = r && r();
+    if (!st || !Array.isArray(st.nodes)) return null;
+    const sibling = st.nodes.find(n => n && n.data && n.data.category === COMFY_CATEGORY
+      && (n.data.comfyWorkflowPath || "") === path && Array.isArray(n.data.comfyPinnedParams));
+    return sibling ? sibling.data.comfyPinnedParams : null;
   }
 
   function persistPinnedIds(ids) {
