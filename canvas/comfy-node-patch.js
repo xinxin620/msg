@@ -1854,10 +1854,11 @@
   function showCard(node) {
     closeMenu();
     closeViewer();
+    // 每次弹卡片都从收起状态开始：modeSheetOpen 是跨节点/跨开关会话残留的全局变量，
+    // 不重置的话上次开着面板、再进画布就默认展开（复用卡片的路径也不会重置）
+    modeSheetOpen = false;
+    if (card) card.classList.remove("is-params-open");
     if (!card || card.dataset.nodeId !== node.id) {
-      // 换节点重建卡片时重置面板开关：否则上个节点留下的 modeSheetOpen=true
-      // 会让新卡片一打开就是「已展开」，用户点第一次变成收起，感觉要点两次
-      modeSheetOpen = false;
       if (card) card.remove();
       card = buildCard(node);
       document.body.appendChild(card);
