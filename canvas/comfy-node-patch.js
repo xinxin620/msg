@@ -27,6 +27,22 @@
   };
   const SEED_RE = /^(noise_)?(rand|random)?_?seed$/i;
 
+  // 危险参数硬上限：面板提交与生成合并 comfyParams 两处都钉，超限设不进、回退到上限
+  const PARAM_CAPS = [
+    { re: /^batch_size$/i, max: 16, name: "批量" },
+    { re: /^steps$/i, max: 50, name: "步数" },
+    { re: /^(cfg|cfg_scale|true_cfg_scale|guidance_scale)$/i, max: 10, name: "CFG" },
+    { re: /^denoise$/i, max: 1, name: "降噪" },
+  ];
+  function capParamValue(key, value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return { value, capped: false };
+    for (const cap of PARAM_CAPS) {
+      if (cap.re.test(key) && num > cap.max) return { value: cap.max, capped: true, name: cap.name, max: cap.max };
+    }
+    return { value, capped: false };
+  }
+
   let seq = 0;
   let lastPointer = null;
   let connectSourceId = null;
@@ -1391,6 +1407,8 @@
 
     const commit = value => {
       const n = getSelectedComfyNode(); if (!n) return;
+      const capped = capParamValue(item.key, value);
+      if (capped.capped) { showToast(`${capped.name}不能超过 ${capped.max}，已自动回退。`, "error"); value = capped.value; }
       const params = JSON.parse(JSON.stringify(n.data.comfyParams || {}));
       if (!params[item.nodeId]) params[item.nodeId] = {};
       params[item.nodeId][item.key] = value;
@@ -1847,7 +1865,7 @@
         const clean = {}; let any = false;
         for (const [key, value] of Object.entries(values)) {
           if (value === undefined || value === null) continue;
-          clean[key] = value; any = true;
+          clean[key] = capParamValue(key, value).value; any = true;
         }
         if (any) edits[nodeId] = clean;
       }
