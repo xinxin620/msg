@@ -718,7 +718,7 @@
       runtime.details.set(`${url}::${item.path}`, payload);
       saveComfyState();
       cache.detailLoading = "";
-      cache.notice = { kind: "ok", text: `已勾选「${item.name}」：校验通过，共 ${payload.nodes.length} 个节点。` };
+      cache.notice = { kind: "ok", text: `已勾选「${item.name}」：校验通过，共 ${nodeCount} 个节点。` };
     } catch (error) {
       // 校验失败时撤销这次勾选
       toggleSelectedWorkflow(profile, item, url);

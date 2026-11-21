@@ -714,8 +714,10 @@
       }
       /* 节点框内结果媒体层 */
       .canvas-node--comfy .canvas-node__body { position: relative; }
-      .canvas-node--comfy:has(.ms-comfy-media) .canvas-node__other-placeholder { display: none; }
-      .canvas-node--comfy:has(.ms-comfy-media) { min-height: 180px; }
+      /* comfy 节点永远不用 bundle 的「即将支持」占位，框内提示全部由补丁接管 */
+      .canvas-node--comfy .canvas-node__other-placeholder { display: none; }
+      .canvas-node--comfy:has(.ms-comfy-media:not(.is-idle)) { min-height: 180px; }
+      .ms-comfy-media.is-idle { position: static; background: transparent; padding: 16px 10px; }
       .ms-comfy-media {
         position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
         overflow: hidden; background: var(--preview-bg, #0f1013);
@@ -2022,12 +2024,14 @@
       if (running) sig = "running";
       else if (d.status === "error") sig = "error|" + String(d.errorMessage || "执行失败");
       else if (item) sig = [item.kind, item.viewUrl || "", String(item.textContent || "").slice(0, 60), results.length, idx].join("|");
+      else sig = d.comfyWorkflowPath ? "ready" : "idle";
       const old = body.querySelector(".ms-comfy-media");
       if (old && old.dataset.sig === sig) return;
       if (old) old.remove();
       if (!sig) return;
       const box = document.createElement("div");
       box.className = "ms-comfy-media";
+      if (!item && !running && d.status !== "error") box.classList.add("is-idle");
       box.dataset.sig = sig;
       if (running) {
         box.innerHTML = '<div class="ms-comfy-media__hint">生成中…</div>';
@@ -2056,7 +2060,10 @@
       } else {
         const hint = document.createElement("div");
         hint.className = "ms-comfy-media__hint" + (sig.startsWith("error|") ? " is-error" : "");
-        hint.textContent = sig.startsWith("error|") ? sig.slice(6) : "无结果";
+        hint.textContent = sig.startsWith("error|") ? sig.slice(6)
+          : sig === "idle" ? "点击节点选择 ComfyUI 工作流"
+          : sig === "ready" ? "工作流已就绪，点击节点配置后生成"
+          : "无结果";
         box.appendChild(hint);
       }
       if (item && results.length > 1 && !running) {
