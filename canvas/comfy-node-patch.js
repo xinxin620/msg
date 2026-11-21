@@ -1364,7 +1364,7 @@
     return (profile ? profile.id : "local") + "::" + ((node && node.data.comfyWorkflowPath) || "");
   }
   function savePinStoreKey(key, ids) {
-    if (!key.endsWith("::")) return; // 未选工作流不持久化
+    if (key.endsWith("::")) return; // 未选工作流（路径为空）不持久化
     const store = readPinStore();
     store[key] = ids;
     try { localStorage.setItem(PINS_KEY, JSON.stringify(store)); } catch (_) {}
