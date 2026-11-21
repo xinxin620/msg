@@ -57,6 +57,8 @@
   let toastTimer = null;
   let tickTimer = null;
   let card = null, lastNodeId = null, dismissedNodeId = null;
+  // 刷新恢复的选中态不该自动弹卡片：tick 只在首次真实 pointerdown 后才接管自动 showCard
+  let interacted = false;
   let modeSheetOpen = false;
   let paramsModel = null; // { key, items } 当前已渲染的工作流参数（扁平列表）
   let menu = null, menuAnchor = null;
@@ -2313,6 +2315,8 @@
       const node = getSelectedComfyNode();
       if (node) {
         if (dismissedNodeId === node.id) return;
+        // 刷新恢复的选中态不自动弹卡片，等用户先点一下（interacted）再接管
+        if (!interacted) return;
         if (!card || lastNodeId !== node.id) showCard(node);
         else {
           refreshCard();
@@ -2407,6 +2411,7 @@
       lastPointer = { x: e.clientX, y: e.clientY };
     });
     document.addEventListener("pointerdown", ev => {
+      interacted = true;
       const t = ev.target;
       if (!t || !t.closest) return;
       const n = t.closest(".react-flow__node");
