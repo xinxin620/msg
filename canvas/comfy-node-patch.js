@@ -736,8 +736,9 @@
       .ms-comfy-media__hint.is-error { color: #d15a4a; }
       .ms-comfy-media__badge {
         position: absolute; right: 8px; top: 8px; padding: 2px 8px; border-radius: 999px;
-        color: #fff; background: #000000b3; font-size: 11px; pointer-events: none;
+        color: #fff; background: #000000b3; font-size: 11px; cursor: pointer;
       }
+      .ms-comfy-media__badge:hover { background: #000000e6; }
       /* Toast（对齐视频卡片） */
       #ms-comfy-toast {
         position: fixed; left: 50%; bottom: 24px; z-index: 999999;
@@ -2067,9 +2068,15 @@
         box.appendChild(hint);
       }
       if (item && results.length > 1 && !running) {
-        const badge = document.createElement("span");
-        badge.className = "ms-comfy-media__badge";
+        const badge = document.createElement("button");
+        badge.type = "button";
+        badge.className = "ms-comfy-media__badge nodrag nopan";
         badge.textContent = (idx + 1) + "/" + results.length;
+        badge.title = "点击切换到下一个结果";
+        badge.addEventListener("click", ev => {
+          ev.stopPropagation();
+          patchNodeData(node.id, { activeResultIndex: (idx + 1) % results.length });
+        });
         box.appendChild(badge);
       }
       body.appendChild(box);
