@@ -2184,6 +2184,10 @@
       const target = ev.target;
       if (card && (card === target || card.contains(target))) return;
       if (menu && menu.contains(target)) return;
+      // 预览层点任何地方都不算「点空白关卡片」，否则 document 捕获先于 viewer
+      // 处理器执行，closeViewer 把 viewerState 清空，下一张/上一张直接失效
+      const viewerEl = document.getElementById("ms-comfy-viewer");
+      if (viewerEl && viewerEl.classList.contains("is-open") && viewerEl.contains(target)) return;
       const nodeEl = target.closest(".react-flow__node");
       if (!nodeEl) {
         if (card) hideCard();
@@ -2208,15 +2212,16 @@
 
   function setupMenuClose() {
     document.addEventListener("keydown", ev => {
-      if (ev.key !== "Escape") return;
       const viewer = document.getElementById("ms-comfy-viewer");
       if (viewer && viewer.classList.contains("is-open")) {
         if (ev.key === "ArrowLeft") { ev.preventDefault(); ev.stopPropagation(); stepViewerResult(-1); return; }
         if (ev.key === "ArrowRight") { ev.preventDefault(); ev.stopPropagation(); stepViewerResult(1); return; }
+        if (ev.key !== "Escape") return;
         ev.preventDefault(); ev.stopPropagation();
         closeViewer();
         return;
       }
+      if (ev.key !== "Escape") return;
       if (menu) { ev.preventDefault(); ev.stopPropagation(); closeMenu(); }
     }, true);
   }
