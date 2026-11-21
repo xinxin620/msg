@@ -603,13 +603,24 @@
         flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
         color: var(--text-secondary); font-size: 11px;
       }
-      .${CARD_CLASS}__pctl-cap { color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
-      .${CARD_CLASS}__ppin {
-        margin-left: auto; padding: 0 2px; border: 0; background: none; cursor: pointer;
-        color: var(--text-tertiary); font: inherit; font-size: 12px; line-height: 1.2;
+      .${CARD_CLASS}__pctl-cap { color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; min-width: 0; }
+      .${CARD_CLASS}__pctl-captext {
+        min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
-      .${CARD_CLASS}__ppin:hover { color: var(--text-secondary); }
-      .${CARD_CLASS}__ppin.is-on { color: var(--accent, #e8a33d); }
+      .${CARD_CLASS}__ppin {
+        margin-left: auto; flex: none;
+        display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+        height: 20px; padding: 0 7px; cursor: pointer;
+        color: var(--text-secondary); background: var(--panel-bg-strong);
+        border: 1px solid var(--panel-border-strong); border-radius: 999px;
+        font-family: inherit; font-size: 11px; line-height: 1;
+        transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+      }
+      .${CARD_CLASS}__ppin:hover { background: var(--soft-hover); border-color: var(--accent, #e8a33d); }
+      .${CARD_CLASS}__ppin.is-on {
+        color: #fff; background: var(--accent, #e8a33d); border-color: var(--accent, #e8a33d);
+      }
+      .${CARD_CLASS}__ppin.is-on:hover { filter: brightness(1.08); }
       .${CARD_CLASS}__pnum, .${CARD_CLASS}__psel, .${CARD_CLASS}__ptext {
         width: 100%; height: 30px; padding: 0 8px; box-sizing: border-box;
         color: var(--text-primary); background: var(--panel-bg-strong);
@@ -1473,15 +1484,18 @@
     const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
     if (draggable) wrap.dataset.pinId = item.id;
     const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
-    const capText = document.createElement("span"); capText.textContent = item.label;
+    const capText = document.createElement("span");
+    capText.className = CARD_CLASS + "__pctl-captext";
+    capText.textContent = item.label;
     if (draggable && ids && ids.includes(item.id)) cap.appendChild(makePinHandle(wrap, item.id));
     cap.appendChild(capText);
     if (ids) {
       const isPinned = ids.includes(item.id);
       const star = document.createElement("button");
       star.type = "button"; star.className = CARD_CLASS + "__ppin" + (isPinned ? " is-on" : "");
-      star.textContent = isPinned ? "★" : "☆";
-      star.title = isPinned ? "取消置顶" : "置顶为常用";
+      star.innerHTML = '<span aria-hidden="true">' + (isPinned ? "★" : "☆") + "</span>"
+        + "<span>" + (isPinned ? "已常用" : "设为常用") + "</span>";
+      star.title = isPinned ? "从常用参数移除" : "置顶到常用参数";
       star.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
         togglePin(item.id);
