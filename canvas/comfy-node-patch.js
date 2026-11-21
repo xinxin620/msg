@@ -1110,7 +1110,14 @@
     const hdr = document.createElement("div"); hdr.className = CARD_CLASS + "__hdr";
     const ttl = document.createElement("span"); ttl.className = CARD_CLASS + "__title"; ttl.textContent = "ComfyUI 节点";
     const clsb = document.createElement("button"); clsb.className = CARD_CLASS + "__close"; clsb.innerHTML = "&#x2715;";
-    clsb.addEventListener("click", ev => { ev.stopPropagation(); hideCard(true); }, true);
+    clsb.addEventListener("click", ev => {
+      ev.stopPropagation();
+      // ✕ = 全部关掉：无条件记成收起（不看 modeSheetOpen 变量，防其与 DOM 状态不同步）
+      modeSheetOpen = false;
+      if (card) card.classList.remove("is-params-open");
+      writeSheetPref(false);
+      hideCard(true);
+    }, true);
     hdr.append(ttl, clsb); c.appendChild(hdr);
 
     const refRow = document.createElement("div"); refRow.className = CARD_CLASS + "__ref-row";
