@@ -1246,6 +1246,7 @@
       if (CFG_RE.test(f.key)) { push("sampling", "采样", f); continue; }
       if (SEED_RE.test(f.key)) { push("sampling", "采样", f, { kind: "number" }); continue; }
       if (DENOISE_RE.test(f.key)) { push("sampling", "采样", f); continue; }
+      if (/^(sampler_name|scheduler)$/i.test(f.key)) { push("sampling", "采样", f); continue; }
       if (VIDEO_LEN_RE.test(f.key)) { push("video", "视频", f); continue; }
       // 选择器节点：画面比例 combo + 同节点数字（百万像素/倍数等）都提到「分辨率」组
       if (resSelectorNodeId && f.nodeId === resSelectorNodeId) {
@@ -1279,7 +1280,7 @@
     const otherItems = others.map(f => fieldMeta(f, f.key));
 
     // 采样组固定顺序：种子 → 步数 → CFG → 降噪（工作流节点顺序是乱的，按显示名排）
-    const SAMPLE_ORDER = { "种子": 0, "步数": 1, "CFG": 2, "降噪": 3 };
+    const SAMPLE_ORDER = { "采样器": 0, "调度器": 1, "种子": 2, "步数": 3, "CFG": 4, "降噪": 5 };
     const sampleGroup = groups.find(g => g.id === "sampling");
     if (sampleGroup) sampleGroup.items.sort((a, b) =>
       (SAMPLE_ORDER[a.label] ?? 9) - (SAMPLE_ORDER[b.label] ?? 9));
