@@ -589,6 +589,14 @@
       /* 常用参数固定每行 2 个，单个也不撑满整行 */
       .${CARD_CLASS}__prow--pins { display: grid; grid-template-columns: 1fr 1fr; }
       .${CARD_CLASS}__prow--pins .${CARD_CLASS}__pctl { flex: none; min-width: 0; }
+      .${CARD_CLASS}__phandle {
+        flex: none; margin-right: 4px; color: var(--text-tertiary);
+        cursor: grab; font-size: 12px; line-height: 1.2;
+        -webkit-user-select: none; user-select: none;
+      }
+      .${CARD_CLASS}__phandle:hover { color: var(--text-secondary); }
+      .${CARD_CLASS}__pctl.is-dragging { opacity: .45; }
+      .${CARD_CLASS}__pctl.is-drop-target { outline: 2px dashed var(--accent, #e8a33d); outline-offset: 2px; }
       .${CARD_CLASS}__pctl {
         flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
         color: var(--text-secondary); font-size: 11px;
@@ -1358,7 +1366,7 @@
       const grp = document.createElement("div"); grp.className = CARD_CLASS + "__group";
       const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = "常用参数";
       const row = document.createElement("div"); row.className = CARD_CLASS + "__prow " + CARD_CLASS + "__prow--pins";
-      pinned.forEach(item => row.appendChild(buildParamControl(item, ids)));
+      pinned.forEach(item => row.appendChild(buildParamControl(item, ids, true)));
       grp.append(lab, row);
       sheet.appendChild(grp);
       // 横竖屏对调：宽/高都置顶时才出现
@@ -1383,7 +1391,7 @@
     const det = document.createElement("details"); det.className = CARD_CLASS + "__pall";
     const sum = document.createElement("summary"); sum.textContent = `全部参数（${items.length}）`;
     const body = document.createElement("div"); body.className = CARD_CLASS + "__pall-body";
-    items.forEach(item => body.appendChild(buildParamControl(item, ids)));
+    items.forEach(item => body.appendChild(buildParamControl(item, ids, false)));
     det.append(sum, body); if (wasOpen) det.open = true; sheet.appendChild(det);
     syncResolutionButtons();
 
@@ -1400,10 +1408,62 @@
     bar.append(reset, hint); sheet.appendChild(bar);
   }
 
-  function buildParamControl(item, ids) {
+  // 常用参数拖拽排序：顺序就是 comfyPinnedParams 数组顺序，随节点持久化
+  function movePinOrder(fromId, toId, ev) {
+    const n = getSelectedComfyNode(); if (!n) return;
+    const items = (paramsModel && paramsModel.items) || [];
+    const ids = pinnedIds(items).slice();
+    const fi = ids.indexOf(fromId), ti = ids.indexOf(toId);
+    if (fi < 0 || ti < 0) return;
+    ids.splice(fi, 1);
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const after = ev.clientX > rect.left + rect.width / 2;
+    const ni = ids.indexOf(toId);
+    ids.splice(after ? ni + 1 : ni, 0, fromId);
+    if (paramsModel) paramsModel.pinnedIds = ids; // React 异步，先更缓存保证重画即时正确
+    patchNodeData(n.id, { comfyPinnedParams: ids });
+    repaintParams();
+  }
+
+  function makePinHandle(wrap, id) {
+    const handle = document.createElement("span");
+    handle.className = CARD_CLASS + "__phandle";
+    handle.textContent = "⠿";
+    handle.title = "拖动调整常用参数顺序";
+    handle.addEventListener("pointerdown", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      wrap.draggable = true;
+    });
+    handle.addEventListener("pointerup", () => { wrap.draggable = false; });
+    wrap.addEventListener("dragstart", ev => {
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", id);
+      wrap.classList.add("is-dragging");
+    });
+    wrap.addEventListener("dragend", () => {
+      wrap.draggable = false;
+      wrap.classList.remove("is-dragging", "is-drop-target");
+    });
+    wrap.addEventListener("dragover", ev => {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      wrap.classList.add("is-drop-target");
+    });
+    wrap.addEventListener("dragleave", () => wrap.classList.remove("is-drop-target"));
+    wrap.addEventListener("drop", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      wrap.classList.remove("is-drop-target");
+      const from = ev.dataTransfer.getData("text/plain");
+      if (from && from !== id) movePinOrder(from, id, ev);
+    });
+    return handle;
+  }
+
+  function buildParamControl(item, ids, draggable) {
     const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
     const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
     const capText = document.createElement("span"); capText.textContent = item.label;
+    if (draggable && ids && ids.includes(item.id)) cap.appendChild(makePinHandle(wrap, item.id));
     cap.appendChild(capText);
     if (ids) {
       const isPinned = ids.includes(item.id);
