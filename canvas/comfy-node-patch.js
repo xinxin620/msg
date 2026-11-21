@@ -423,6 +423,7 @@
       const r = findCanvasStore();
       const store = r ? r() : null;
       if (store) addComfyNode(store, flowPositionFromPointer());
+      comfyCloseMenu(); // 右键「添加节点」子菜单不会自己关，必须手动收
     });
     submenu.appendChild(btn);
   }
@@ -1157,7 +1158,8 @@
       });
     }, true);
     const paramsBtn = document.createElement("button");
-    paramsBtn.type = "button"; paramsBtn.className = CARD_CLASS + "__params";
+    // 独立类名：与「刷新列表」共用 __params 时，toggleParamSheet 的 querySelector 会错选第一个
+    paramsBtn.type = "button"; paramsBtn.className = CARD_CLASS + "__params " + CARD_CLASS + "__params-toggle";
     paramsBtn.textContent = "工作流参数";
     paramsBtn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
     paramsBtn.addEventListener("click", ev => { ev.preventDefault(); ev.stopPropagation(); toggleParamSheet(); }, true);
@@ -1216,7 +1218,7 @@
     if (!card) return;
     modeSheetOpen = !modeSheetOpen;
     card.classList.toggle("is-params-open", modeSheetOpen);
-    const btn = card.querySelector("." + CARD_CLASS + "__params");
+    const btn = card.querySelector("." + CARD_CLASS + "__params-toggle");
     if (btn) btn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
     if (modeSheetOpen) {
       const node = getSelectedComfyNode();
@@ -1836,6 +1838,9 @@
     closeMenu();
     closeViewer();
     if (!card || card.dataset.nodeId !== node.id) {
+      // 换节点重建卡片时重置面板开关：否则上个节点留下的 modeSheetOpen=true
+      // 会让新卡片一打开就是「已展开」，用户点第一次变成收起，感觉要点两次
+      modeSheetOpen = false;
       if (card) card.remove();
       card = buildCard(node);
       document.body.appendChild(card);
