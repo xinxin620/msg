@@ -25,19 +25,7 @@
     batch_size: "批量", shift: "shift",
     megapixels: "清晰度", multiple: "倍数", aspect_ratio: "画面比例",
   };
-  const STEPS_RE = /^steps$/i;
-  const CFG_RE = /^(cfg|cfg_scale|true_cfg_scale|guidance_scale)$/i;
   const SEED_RE = /^(noise_)?(rand|random)?_?seed$/i;
-  const DENOISE_RE = /^denoise$/i;
-  const VIDEO_LEN_RE = /^(length|duration|num_frames|frame_count|fps|frame_rate)$/i;
-  // 下拉选项是否像分辨率/比例预设：16:9、1:1 (Square)、1024x1024、1024×1536 等
-  const RES_OPT_RE = /^\s*\d+\s*[:x×]\s*\d+/i;
-  function looksLikeResolutionOptions(options) {
-    if (!Array.isArray(options) || options.length < 2) return false;
-    let hits = 0;
-    for (const opt of options) if (typeof opt === "string" && RES_OPT_RE.test(opt)) hits += 1;
-    return hits >= 2 && hits >= Math.ceil(options.length * 0.5);
-  }
 
   let seq = 0;
   let lastPointer = null;
@@ -46,7 +34,7 @@
   let tickTimer = null;
   let card = null, lastNodeId = null, dismissedNodeId = null;
   let modeSheetOpen = false;
-  let paramsModel = null; // { nodeId, workflowPath, groups, others } 当前已渲染的工作流参数
+  let paramsModel = null; // { key, items } 当前已渲染的工作流参数（扁平列表）
   let menu = null, menuAnchor = null;
   const workflowLists = new Map(); // baseUrl -> {items, loading, error, loadedAt}
   const workflowRaw = new Map();   // baseUrl::path -> payload
@@ -573,7 +561,13 @@
         flex: 1 1 120px; min-width: 110px; display: flex; flex-direction: column; gap: 4px;
         color: var(--text-secondary); font-size: 11px;
       }
-      .${CARD_CLASS}__pctl-cap { color: var(--text-tertiary); }
+      .${CARD_CLASS}__pctl-cap { color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
+      .${CARD_CLASS}__ppin {
+        margin-left: auto; padding: 0 2px; border: 0; background: none; cursor: pointer;
+        color: var(--text-tertiary); font: inherit; font-size: 12px; line-height: 1.2;
+      }
+      .${CARD_CLASS}__ppin:hover { color: var(--text-secondary); }
+      .${CARD_CLASS}__ppin.is-on { color: var(--accent, #e8a33d); }
       .${CARD_CLASS}__pnum, .${CARD_CLASS}__psel, .${CARD_CLASS}__ptext {
         width: 100%; height: 30px; padding: 0 8px; box-sizing: border-box;
         color: var(--text-primary); background: var(--panel-bg-strong);
@@ -1192,11 +1186,8 @@
     const fields = helper.editableFields(basePrompt);
     const saved = node.data.comfyParams || {};
 
-    const groups = [];
-    const others = [];
-    const groupOf = id => groups.find(g => g.id === id);
     // 由 field + object_info 规格算出控件元数据（kind：combo/range/bool/text/number）
-    const fieldMeta = (field, label) => {
+    const fieldMeta = field => {
       const spec = (types && fieldSpec(types[field.classType] || null, field.key)) || null;
       const opts = spec && Array.isArray(spec[1]) ? spec[1].options : null;
       const hasRange = spec && typeof spec[1] === "object" && spec[1] && (spec[1].min != null || spec[1].max != null);
@@ -1208,9 +1199,10 @@
       else kind = "number";
       const sv = saved[field.nodeId] && saved[field.nodeId][field.key];
       return {
+        id: field.nodeId + ":" + field.key,
         nodeId: field.nodeId, key: field.key, classType: field.classType,
         baseValue: field.value, type: field.type,
-        label: label != null ? label : (PARAM_LABELS[field.key] || field.key),
+        label: PARAM_LABELS[field.key] || field.key,
         kind,
         min: spec && spec[1] ? spec[1].min : undefined,
         max: spec && spec[1] ? spec[1].max : undefined,
@@ -1219,73 +1211,15 @@
         value: sv !== undefined ? sv : field.value,
       };
     };
-    const push = (id, label, field, override) => {
-      let g = groupOf(id);
-      if (!g) { g = { id, label, items: [] }; groups.push(g); }
-      const item = fieldMeta(field, null);
-      if (override) Object.assign(item, override);
-      g.items.push(item);
-      return item;
-    };
-    // 取一个 field 在 object_info 里的 combo 选项（无则 null）
-    const optionsOf = field => {
-      const spec = (types && fieldSpec(types[field.classType] || null, field.key)) || null;
-      return spec && Array.isArray(spec[1]) ? spec[1].options : null;
-    };
 
-    // 分辨率选择器：某 combo 选项像比例/分辨率预设 → 其所在节点视为尺寸来源
-    let resSelectorNodeId = "";
-    for (const f of fields) {
-      if (f.type === "string" && looksLikeResolutionOptions(optionsOf(f))) { resSelectorNodeId = f.nodeId; break; }
-    }
-
-    const widthFields = [], heightFields = [];
+    // 不再自动分组：全部标量参数平铺，用户自己把常用的置顶（comfyPinnedParams 持久化）
+    const items = [];
     for (const f of fields) {
       if (typeof f.value === "string" && POSITIVE_RE.test(f.key) && !NEGATIVE_RE.test(f.key)) continue; // 提示词归卡片顶部，不进参数
-      if (STEPS_RE.test(f.key)) { push("sampling", "采样", f); continue; }
-      if (CFG_RE.test(f.key)) { push("sampling", "采样", f); continue; }
-      if (SEED_RE.test(f.key)) { push("sampling", "采样", f, { kind: "number" }); continue; }
-      if (DENOISE_RE.test(f.key)) { push("sampling", "采样", f); continue; }
-      if (/^(sampler_name|scheduler)$/i.test(f.key)) { push("sampling", "采样", f); continue; }
-      if (VIDEO_LEN_RE.test(f.key)) { push("video", "视频", f); continue; }
-      // 选择器节点：画面比例 combo + 同节点数字（百万像素/倍数等）都提到「分辨率」组
-      if (resSelectorNodeId && f.nodeId === resSelectorNodeId) {
-        const isAspectCombo = f.type === "string" && looksLikeResolutionOptions(optionsOf(f));
-        push("resolution", "分辨率", f, isAspectCombo ? { label: "画面比例" } : null);
-        continue;
-      }
-      if (/^width$/i.test(f.key)) { widthFields.push(f); continue; }
-      if (/^height$/i.test(f.key)) { heightFields.push(f); continue; }
-      others.push(f);
-    }
-    // 分辨率（无选择器时）：成对的 width/height 合成一个节点控件（多对取第一对，其余进全部参数）
-    if (!resSelectorNodeId) {
-      const resPair = widthFields.length && heightFields.length
-        ? widthFields.find(w => heightFields.some(h => h.nodeId === w.nodeId)) : null;
-      if (resPair) {
-        const resH = heightFields.find(h => h.nodeId === resPair.nodeId);
-        push("resolution", "分辨率", resPair, { kind: "number", label: "宽", groupRole: "w" });
-        push("resolution", "分辨率", resH, { kind: "number", label: "高", groupRole: "h" });
-        widthFields.filter(f => f !== resPair).forEach(f => others.push(f));
-        heightFields.filter(f => f !== resH).forEach(f => others.push(f));
-      } else {
-        widthFields.forEach(f => others.push(f));
-        heightFields.forEach(f => others.push(f));
-      }
-    } else {
-      widthFields.forEach(f => others.push(f));
-      heightFields.forEach(f => others.push(f));
+      items.push(fieldMeta(f));
     }
 
-    const otherItems = others.map(f => fieldMeta(f, f.key));
-
-    // 采样组固定顺序：种子 → 步数 → CFG → 降噪（工作流节点顺序是乱的，按显示名排）
-    const SAMPLE_ORDER = { "采样器": 0, "调度器": 1, "种子": 2, "步数": 3, "CFG": 4, "降噪": 5 };
-    const sampleGroup = groups.find(g => g.id === "sampling");
-    if (sampleGroup) sampleGroup.items.sort((a, b) =>
-      (SAMPLE_ORDER[a.label] ?? 9) - (SAMPLE_ORDER[b.label] ?? 9));
-
-    return { groups: groups.filter(g => g.items.length), others: otherItems };
+    return { items };
   }
 
   function paramSheetKey(node) {
@@ -1349,22 +1283,43 @@
     return v !== undefined ? v : item.baseValue;
   }
 
+  // 置顶的常用参数：node.data.comfyPinnedParams = ["nodeId:key", ...]，按节点持久化。
+  // 从未手动勾选过时给一套默认（种子/步数/CFG/降噪/宽高），点过 ☆/★ 后完全听用户的。
+  const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
+  function pinnedIds(items) {
+    const n = getSelectedComfyNode();
+    const saved = n && n.data.comfyPinnedParams;
+    if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
+    return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
+  }
+
+  function togglePin(id) {
+    const n = getSelectedComfyNode(); if (!n) return;
+    const items = (paramsModel && paramsModel.items) || [];
+    const ids = pinnedIds(items).slice();
+    const i = ids.indexOf(id);
+    if (i >= 0) ids.splice(i, 1); else ids.push(id);
+    if (patchNodeData(n.id, { comfyPinnedParams: ids })) repaintParams();
+  }
+
   function paintParamSheet(sheet, model) {
     sheet.innerHTML = "";
-    const groups = model.groups || [];
-    const others = model.others || [];
-    groups.forEach(g => g.items.forEach(it => { it.value = currentParamValue(it); }));
-    others.forEach(it => { it.value = currentParamValue(it); });
-    if (!groups.length && !others.length) { sheet.appendChild(paramNote("该工作流没有可编辑的标量参数。")); return; }
+    const items = model.items || [];
+    items.forEach(it => { it.value = currentParamValue(it); });
+    if (!items.length) { sheet.appendChild(paramNote("该工作流没有可编辑的标量参数。")); return; }
+    const ids = pinnedIds(items);
+    const pinned = ids.map(id => items.find(it => it.id === id)).filter(Boolean);
 
-    groups.forEach(g => {
+    if (pinned.length) {
       const grp = document.createElement("div"); grp.className = CARD_CLASS + "__group";
-      const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = g.label;
+      const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = "常用参数";
       const row = document.createElement("div"); row.className = CARD_CLASS + "__prow";
-      g.items.forEach(item => row.appendChild(buildParamControl(item, g)));
+      pinned.forEach(item => row.appendChild(buildParamControl(item, ids)));
       grp.append(lab, row);
-      // 横竖屏对调只在「分辨率」组真有可编辑 width/height 对时才出现（选择器工作流靠画面比例下拉，不显示）
-      if (g.id === "resolution" && g.items.some(i => i.groupRole === "w") && g.items.some(i => i.groupRole === "h")) {
+      sheet.appendChild(grp);
+      // 横竖屏对调：宽/高都置顶时才出现
+      const pair = resolutionPair();
+      if (pair) {
         const seg = document.createElement("div"); seg.className = CARD_CLASS + "__seg " + CARD_CLASS + "__orient-seg";
         [["横屏", true], ["竖屏", false]].forEach(([name, landscape]) => {
           const b = document.createElement("button"); b.type = "button"; b.dataset.orient = landscape ? "land" : "port"; b.textContent = name;
@@ -1377,17 +1332,16 @@
         });
         grp.appendChild(seg);
       }
-      sheet.appendChild(grp);
-    });
-    syncResolutionButtons();
-
-    if (others.length) {
-      const det = document.createElement("details"); det.className = CARD_CLASS + "__pall";
-      const sum = document.createElement("summary"); sum.textContent = `全部参数（${others.length}）`;
-      const body = document.createElement("div"); body.className = CARD_CLASS + "__pall-body";
-      others.forEach(item => body.appendChild(buildParamControl(item, null)));
-      det.append(sum, body); sheet.appendChild(det);
+    } else {
+      sheet.appendChild(paramNote("点「全部参数」里控件右上角的 ☆，把常用参数置顶到这里。"));
     }
+
+    const det = document.createElement("details"); det.className = CARD_CLASS + "__pall";
+    const sum = document.createElement("summary"); sum.textContent = `全部参数（${items.length}）`;
+    const body = document.createElement("div"); body.className = CARD_CLASS + "__pall-body";
+    items.forEach(item => body.appendChild(buildParamControl(item, ids)));
+    det.append(sum, body); sheet.appendChild(det);
+    syncResolutionButtons();
 
     const bar = document.createElement("div"); bar.className = CARD_CLASS + "__pbar";
     const reset = document.createElement("button"); reset.type = "button"; reset.textContent = "恢复工作流默认";
@@ -1397,14 +1351,27 @@
       if (patchNodeData(n.id, { comfyParams: {} })) { repaintParams(); refreshModelLine(); showToast("已恢复工作流默认参数"); }
     }, true);
     const hint = document.createElement("span"); hint.className = CARD_CLASS + "__sheet-note";
-    hint.textContent = "参数随节点保存，生成时写回工作流。";
+    hint.textContent = "参数与置顶勾选都随节点保存，生成时写回工作流。";
     bar.append(reset, hint); sheet.appendChild(bar);
   }
 
-  function buildParamControl(item, group) {
+  function buildParamControl(item, ids) {
     const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
     const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
-    cap.textContent = group && group.id === "resolution" ? (item.groupRole === "w" ? "宽" : "高") : item.label;
+    const capText = document.createElement("span"); capText.textContent = item.label;
+    cap.appendChild(capText);
+    if (ids) {
+      const isPinned = ids.includes(item.id);
+      const star = document.createElement("button");
+      star.type = "button"; star.className = CARD_CLASS + "__ppin" + (isPinned ? " is-on" : "");
+      star.textContent = isPinned ? "★" : "☆";
+      star.title = isPinned ? "取消置顶" : "置顶为常用";
+      star.addEventListener("click", ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        togglePin(item.id);
+      }, true);
+      cap.appendChild(star);
+    }
     wrap.appendChild(cap);
 
     const commit = value => {
@@ -1470,11 +1437,15 @@
     return wrap;
   }
 
+  // 宽高对：只有两者都置顶时才显示横竖屏按钮（对调写回 comfyParams）
   function resolutionPair() {
-    const grp = paramsModel && paramsModel.groups && paramsModel.groups.find(g => g.id === "resolution");
-    if (!grp) return null;
-    const w = grp.items.find(i => i.groupRole === "w"), h = grp.items.find(i => i.groupRole === "h");
-    return w && h ? { w, h } : null;
+    const items = paramsModel && paramsModel.items;
+    if (!items || !Array.isArray(items)) return null;
+    const ids = pinnedIds(items);
+    const w = items.find(i => /^width$/i.test(i.key) && ids.includes(i.id));
+    if (!w) return null;
+    const h = items.find(i => /^height$/i.test(i.key) && i.nodeId === w.nodeId && ids.includes(i.id));
+    return h ? { w, h } : null;
   }
 
   function resolutionValues() {
