@@ -1354,8 +1354,10 @@
     return v !== undefined ? v : item.baseValue;
   }
 
-  // 常用参数置顶列表：按「配置+工作流文件路径」全局存（跨画布、跨节点共享，新节点选同工作流即继承）。
-  // 参数值仍按节点存（comfyParams），所以同工作流不同节点可各用各的 9:16/16:9。
+  // 常用参数置顶列表：**每个节点各存自己那套**（node.data.comfyPinnedParams），
+  // 改任何节点都不影响其它节点。localStorage（按「配置+工作流」）只存「全局默认」，
+  // 仅作为之后**新增节点**的初始继承来源——点「以本节点为准」才会写它。
+  // 参数值同样按节点存（comfyParams），同工作流不同节点可各用各的 9:16/16:9。
   const PINS_KEY = "manshiguang:canvas-comfy-pins";
   function readPinStore() {
     try {
@@ -1375,37 +1377,39 @@
     try { localStorage.setItem(PINS_KEY, JSON.stringify(store)); } catch (_) {}
   }
 
-  // 常用参数解析：缓存 → 全局(按工作流) → 本节点自己的旧置顶 → 默认。
-  // 不再自动扫描兄弟节点/自动落盘——避免「打开面板就被某节点悄悄定成全局」。
-  // 一旦点 ☆/★ 或「以本节点为准」，当前这套即写全局，之后所有节点共享（最后设置生效）。
+  // 常用参数解析：缓存 → 本节点自己的置顶 → 该工作流的全局默认 → 默认。
+  // 置顶 id 形如「工作流内节点id:字段名」，与画布节点无关，故不同节点之间可直接继承。
   const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
   function pinnedIds(items) {
     // 优先用 paramsModel 缓存：置顶后可能还没落盘，直接读会拿到旧值
     if (paramsModel && Array.isArray(paramsModel.pinnedIds))
       return paramsModel.pinnedIds.filter(id => items.some(it => it.id === id));
     const node = getSelectedComfyNode();
-    const saved = readPinStore()[pinStoreKey(node)];
-    if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
-    // 全局还没有该工作流记录时，本节点若带旧版按节点置顶就先用它显示（不写全局，等你决定）
     if (node && Array.isArray(node.data.comfyPinnedParams))
       return node.data.comfyPinnedParams.filter(id => items.some(it => it.id === id));
+    const saved = readPinStore()[pinStoreKey(node)];
+    if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
     return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
   }
 
+  // 只写本节点自己的置顶，绝不动别的节点
   function persistPinnedIds(ids) {
     if (paramsModel) paramsModel.pinnedIds = ids; // 先更缓存，重画立即反映
     const node = getSelectedComfyNode();
-    savePinStoreKey(pinStoreKey(node), ids);
+    if (node) patchNodeData(node.id, { comfyPinnedParams: ids });
   }
 
-  // 「以本节点为准」：把当前节点正在显示的这套置顶发布成该工作流的全局默认
+  // 「以本节点为准」：把本节点这套写为该工作流的**全局默认**，
+  // 只影响以后新增的节点，已存在的节点保持各自设置不变。
   function publishPinsFromNode() {
     const node = getSelectedComfyNode(); if (!node) return;
     if (!node.data.comfyWorkflowPath) { showToast("请先选择工作流。", "error"); return; }
     const items = (paramsModel && paramsModel.items) || [];
-    persistPinnedIds(pinnedIds(items).slice());
+    const ids = pinnedIds(items).slice();
+    if (paramsModel) paramsModel.pinnedIds = ids;
+    savePinStoreKey(pinStoreKey(node), ids);
     repaintParams();
-    showToast("已把本节点的常用参数设为该工作流的全局默认", "success");
+    showToast("已设为该工作流的默认常用参数（只影响以后新增的节点）", "success");
   }
 
   function togglePin(id) {
@@ -1477,7 +1481,7 @@
       if (patchNodeData(n.id, { comfyParams: {} })) { repaintParams(); refreshModelLine(); showToast("已恢复工作流默认参数"); }
     }, true);
     const hint = document.createElement("span"); hint.className = CARD_CLASS + "__sheet-note";
-    hint.textContent = "参数值按节点保存；常用勾选按工作流全局保存（最后设置者生效，或点「以本节点为准」采用本节点这套）。";
+    hint.textContent = "参数值和常用勾选都按节点保存，互不影响；「以本节点为准」只把这套勾选设为以后新增节点的默认。";
     bar.append(publish, reset, hint); sheet.appendChild(bar);
   }
 
