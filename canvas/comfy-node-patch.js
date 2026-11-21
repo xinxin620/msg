@@ -1382,7 +1382,8 @@
     return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
   }
 
-  // 找同工作流下任意节点残留的 comfyPinnedParams（优先本节点），作为全局默认的种子
+  // 找同工作流下残留的按节点旧置顶，作为全局默认的种子：
+  // 本节点优先；多个兄弟节点各配一套时投票取「最能代表多数」的那套完整配置（并列取画布顺序在前）
   function findLegacyPins(node) {
     if (!node) return null;
     if (Array.isArray(node.data.comfyPinnedParams)) return node.data.comfyPinnedParams;
@@ -1390,9 +1391,20 @@
     if (!path) return null;
     const r = getStateReader(); const st = r && r();
     if (!st || !Array.isArray(st.nodes)) return null;
-    const sibling = st.nodes.find(n => n && n.data && n.data.category === COMFY_CATEGORY
-      && (n.data.comfyWorkflowPath || "") === path && Array.isArray(n.data.comfyPinnedParams));
-    return sibling ? sibling.data.comfyPinnedParams : null;
+    const sets = st.nodes
+      .filter(n => n && n.data && n.data.category === COMFY_CATEGORY
+        && (n.data.comfyWorkflowPath || "") === path && Array.isArray(n.data.comfyPinnedParams))
+      .map(n => n.data.comfyPinnedParams);
+    if (!sets.length) return null;
+    if (sets.length === 1) return sets[0];
+    const votes = new Map();
+    sets.forEach(ids => ids.forEach(id => votes.set(id, (votes.get(id) || 0) + 1)));
+    let best = sets[0], bestScore = -1;
+    sets.forEach(ids => {
+      const score = ids.reduce((s, id) => s + (votes.get(id) || 0), 0);
+      if (score > bestScore) { bestScore = score; best = ids; }
+    });
+    return best;
   }
 
   function persistPinnedIds(ids) {
