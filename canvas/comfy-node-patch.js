@@ -23,7 +23,7 @@
     width: "宽", height: "高", length: "时长/帧数", duration: "时长",
     fps: "帧率", frame_rate: "帧率", num_frames: "帧数", frame_count: "帧数",
     batch_size: "批量", shift: "shift",
-    megapixels: "清晰度", multiple: "倍数", aspect_ratio: "画面比例",
+    megapixels: "清晰度（百万像素）", multiple: "倍数", aspect_ratio: "画面比例",
   };
   const SEED_RE = /^(noise_)?(rand|random)?_?seed$/i;
 
