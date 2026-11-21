@@ -1377,8 +1377,9 @@
     try { localStorage.setItem(PINS_KEY, JSON.stringify(store)); } catch (_) {}
   }
 
-  // 常用参数解析：缓存 → 本节点自己的置顶 → 该工作流的全局默认 → 默认。
-  // 置顶 id 形如「工作流内节点id:字段名」，与画布节点无关，故不同节点之间可直接继承。
+  // 常用参数解析：缓存 → 本节点自己的置顶 → 默认。
+  // 全局默认（localStorage）不在这读——只在「选工作流」那一刻播种进新节点，
+  // 否则老节点每次渲染都跟着全局变（用户否决过同步改老节点）。
   const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
   function pinnedIds(items) {
     // 优先用 paramsModel 缓存：置顶后可能还没落盘，直接读会拿到旧值
@@ -1387,8 +1388,6 @@
     const node = getSelectedComfyNode();
     if (node && Array.isArray(node.data.comfyPinnedParams))
       return node.data.comfyPinnedParams.filter(id => items.some(it => it.id === id));
-    const saved = readPinStore()[pinStoreKey(node)];
-    if (Array.isArray(saved)) return saved.filter(id => items.some(it => it.id === id));
     return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
   }
 
@@ -1737,8 +1736,17 @@
       }
       btn.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
-        // 切工作流：旧 comfyParams 的 nodeId 多半对不上，清空避免脏参数
-        patchNodeData(node.id, { comfyWorkflowPath: item.path, comfyParams: {} });
+        // 切工作流：旧 comfyParams 的 nodeId 多半对不上，清空避免脏参数。
+        // 置顶此刻用全局默认「播种」一次（无记录则清成默认规则），此后本节点独立演化，
+        // 全局再变也不会同步过来——只有新选工作流的节点才继承。
+        const profile = activeComfyProfile();
+        const gKey = (profile ? profile.id : "local") + "::" + item.path;
+        const seed = readPinStore()[gKey];
+        patchNodeData(node.id, {
+          comfyWorkflowPath: item.path,
+          comfyParams: {},
+          comfyPinnedParams: Array.isArray(seed) ? seed.slice() : null,
+        });
         paramsModel = null;
         closeMenu(); refreshCard();
         if (modeSheetOpen) { const n = getSelectedComfyNode(); if (n) renderParamSheet(n); }
