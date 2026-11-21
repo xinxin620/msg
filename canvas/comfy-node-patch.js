@@ -530,16 +530,22 @@
       .${CARD_CLASS}__params:active { transform: translateY(1px); }
       .${CARD_CLASS}__params:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       .${CARD_CLASS}__params[aria-expanded="true"] { background: var(--soft-hover); border-color: var(--accent); }
+      /* 展开参数：卡片给固定更高高度并 overflow:hidden，提示词框保持可用高度，
+         参数面板内部滚动——否则 height:auto 的 flex 列里提示词框会被压回 min-height */
       .${CARD_CLASS}.is-params-open {
-        height: auto; max-height: calc(100vh - 20px); overflow-y: auto;
+        height: min(760px, calc(100vh - 20px));
+        overflow: hidden;
       }
+      .${CARD_CLASS}.is-params-open .${CARD_CLASS}__prompt-shell { flex: 0 0 auto; height: 150px; min-height: 0; }
       .${CARD_CLASS}__sheet {
         flex: 0 0 auto; display: none; flex-direction: column; gap: 11px;
         margin-top: 10px; padding: 12px;
         background: var(--panel-bg-muted);
         border: 1px solid var(--panel-border); border-radius: 10px;
       }
-      .${CARD_CLASS}.is-params-open .${CARD_CLASS}__sheet { display: flex; }
+      .${CARD_CLASS}.is-params-open .${CARD_CLASS}__sheet {
+        display: flex; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+      }
       .${CARD_CLASS}__group { display: flex; flex-direction: column; gap: 6px; }
       .${CARD_CLASS}__group-label { color: var(--text-secondary); font-size: 11px; line-height: 1.4; }
       .${CARD_CLASS}__seg { display: flex; flex-wrap: wrap; gap: 6px; }
