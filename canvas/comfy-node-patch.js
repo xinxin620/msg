@@ -713,7 +713,10 @@
         white-space: pre-wrap; text-align: left; box-shadow: 0 20px 40px #00000080;
       }
       /* 节点框内结果媒体层 */
-      .canvas-node--comfy .canvas-node__body { position: relative; }
+      /* React Flow 外层给的是固定 measured 高度；.canvas-node 默认高度=内容高，
+         媒体层 absolute 不占流，卡片底部就露一条白。撑满外层，图片铺满整个框。 */
+      .canvas-node--comfy { height: 100%; display: flex; flex-direction: column; }
+      .canvas-node--comfy .canvas-node__body { position: relative; flex: 1 1 auto; height: auto; }
       /* comfy 节点永远不用 bundle 的「即将支持」占位，框内提示全部由补丁接管 */
       .canvas-node--comfy .canvas-node__other-placeholder { display: none; }
       .canvas-node--comfy:has(.ms-comfy-media:not(.is-idle)) { min-height: 180px; }
@@ -2039,7 +2042,8 @@
       } else if (item && item.kind === "image") {
         const img = document.createElement("img");
         img.src = item.viewUrl; img.alt = ""; img.draggable = false;
-        img.addEventListener("click", ev => { ev.stopPropagation(); doPreview(getNodeById(node.id) || node); });
+        // 单击不拦：冒泡到卡片让 bundle 选中节点、弹出配置卡片；双击才开大图预览
+        img.addEventListener("dblclick", ev => { ev.stopPropagation(); doPreview(getNodeById(node.id) || node); });
         box.appendChild(img);
       } else if (item && item.kind === "video") {
         box.classList.add("nodrag");
