@@ -607,12 +607,11 @@
         margin-right: auto;
       }
       .${CARD_CLASS}__ppin {
-        flex: none;
-        display: inline-flex; align-items: center; justify-content: center; gap: 3px;
-        height: 20px; padding: 0 7px; cursor: pointer;
+        flex: none; width: 24px; height: 20px; padding: 0; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
         color: var(--text-secondary); background: var(--panel-bg-strong);
-        border: 1px solid var(--panel-border-strong); border-radius: 999px;
-        font-family: inherit; font-size: 11px; line-height: 1;
+        border: 1px solid var(--panel-border-strong); border-radius: 6px;
+        font-family: inherit; font-size: 12px; line-height: 1;
         transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
       }
       .${CARD_CLASS}__ppin:hover { background: var(--soft-hover); border-color: var(--accent, #e8a33d); }
@@ -645,7 +644,11 @@
       .${CARD_CLASS}__pall summary::-webkit-details-marker { display: none; }
       .${CARD_CLASS}__pall summary::before { content: "▸ "; }
       .${CARD_CLASS}__pall[open] summary::before { content: "▾ "; }
-      .${CARD_CLASS}__pall-body { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+      /* 全部参数与常用参数同用 2 列网格：4 列 flex-wrap 会把标签挤成省略号、下拉值也显示不全 */
+      .${CARD_CLASS}__pall-body {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 2px;
+      }
+      .${CARD_CLASS}__pall-body .${CARD_CLASS}__pctl { flex: none; min-width: 0; }
       .${CARD_CLASS}__pbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
       .${CARD_CLASS}__pbar button {
         height: 28px; padding: 0 12px; color: var(--text-primary);
@@ -1467,8 +1470,7 @@
       const isPinned = ids.includes(item.id);
       const star = document.createElement("button");
       star.type = "button"; star.className = CARD_CLASS + "__ppin" + (isPinned ? " is-on" : "");
-      star.innerHTML = '<span aria-hidden="true">' + (isPinned ? "★" : "☆") + "</span>"
-        + "<span>" + (isPinned ? "已常用" : "设为常用") + "</span>";
+      star.textContent = isPinned ? "★" : "☆";
       star.title = isPinned ? "从常用参数移除" : "置顶到常用参数";
       star.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
