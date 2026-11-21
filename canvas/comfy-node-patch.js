@@ -1792,10 +1792,10 @@
     return [top, ...parts].filter(Boolean).join(" · ");
   }
 
-  async function ensureWorkflowRaw(profile, path) {
+  async function ensureWorkflowRaw(profile, path, force) {
     const url = normalizeComfyUrl(profile.baseUrl);
     const key = `${url}::${path}`;
-    if (workflowRaw.has(key)) return workflowRaw.get(key);
+    if (!force && workflowRaw.has(key)) return workflowRaw.get(key);
     const response = await fetch(
       `${PROXY_PREFIX}api/userdata/${encodeURIComponent("workflows/" + path)}?base=${encodeURIComponent(url)}`,
       { method: "GET", cache: "no-store", headers: comfyHeaders(profile) },
@@ -1825,7 +1825,8 @@
     const url = normalizeComfyUrl(profile.baseUrl);
     const headers = { "Content-Type": "application/json", ...comfyHeaders(profile) };
     try {
-      const raw = await ensureWorkflowRaw(profile, path);
+      // 每次生成强制重拉磁盘最新原文：用户在 ComfyUI 里改存工作流后画布不必刷页
+      const raw = await ensureWorkflowRaw(profile, path, true);
       const verdict = helper.analyze(raw);
       if (!verdict.ok) throw new Error(blockerText(verdict.blockers));
       const basePrompt = helper.convert(raw);
