@@ -607,11 +607,12 @@
         margin-right: auto;
       }
       .${CARD_CLASS}__ppin {
-        flex: none; width: 24px; height: 20px; padding: 0; cursor: pointer;
-        display: inline-flex; align-items: center; justify-content: center;
+        flex: none;
+        display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+        height: 20px; padding: 0 7px; cursor: pointer;
         color: var(--text-secondary); background: var(--panel-bg-strong);
-        border: 1px solid var(--panel-border-strong); border-radius: 6px;
-        font-family: inherit; font-size: 12px; line-height: 1;
+        border: 1px solid var(--panel-border-strong); border-radius: 999px;
+        font-family: inherit; font-size: 11px; line-height: 1;
         transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
       }
       .${CARD_CLASS}__ppin:hover { background: var(--soft-hover); border-color: var(--accent, #e8a33d); }
@@ -1459,7 +1460,9 @@
 
   // order：置顶项传 { index, count } 显示 ◀/▶ 排序按钮；非置顶传 null
   function buildParamControl(item, ids, order) {
-    const wrap = document.createElement("label"); wrap.className = CARD_CLASS + "__pctl";
+    // 用 div 不用 label：label 会把点文字/空白的点击转发给内部第一个 button（★/◀），
+    // 导致点哪都在置顶/移动；div 无此转发，只有真按钮可点
+    const wrap = document.createElement("div"); wrap.className = CARD_CLASS + "__pctl";
     const cap = document.createElement("span"); cap.className = CARD_CLASS + "__pctl-cap";
     const capText = document.createElement("span");
     capText.className = CARD_CLASS + "__pctl-captext";
@@ -1470,7 +1473,8 @@
       const isPinned = ids.includes(item.id);
       const star = document.createElement("button");
       star.type = "button"; star.className = CARD_CLASS + "__ppin" + (isPinned ? " is-on" : "");
-      star.textContent = isPinned ? "★" : "☆";
+      star.innerHTML = '<span aria-hidden="true">' + (isPinned ? "★" : "☆") + "</span>"
+        + "<span>" + (isPinned ? "已常用" : "设为常用") + "</span>";
       star.title = isPinned ? "从常用参数移除" : "置顶到常用参数";
       star.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
