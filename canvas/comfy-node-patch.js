@@ -1887,6 +1887,8 @@
   function hideCard(dismissed) {
     closeMenu();
     closeViewer();
+    // ✕ 关闭 = 全部关掉：面板还开着时一并记成收起（点空白关的不算，保持面板原状态）
+    if (dismissed && modeSheetOpen) { modeSheetOpen = false; writeSheetPref(false); }
     if (card) {
       card.classList.remove("is-visible");
       setTimeout(() => { if (card && !card.classList.contains("is-visible")) { card.remove(); card = null; } }, 320);
