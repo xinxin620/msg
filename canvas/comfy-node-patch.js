@@ -1219,9 +1219,19 @@
       + (results ? ` · <strong>结果:</strong> ${results} 个` : "");
   }
 
+  // 参数面板开合偏好：记住用户最后一次手动开/关，刷新重进画布后保持
+  const SHEET_PREF_KEY = "manshiguang:canvas-comfy-sheet";
+  function readSheetPref() {
+    try { return localStorage.getItem(SHEET_PREF_KEY) === "1"; } catch (_) { return false; }
+  }
+  function writeSheetPref(open) {
+    try { localStorage.setItem(SHEET_PREF_KEY, open ? "1" : "0"); } catch (_) {}
+  }
+
   function toggleParamSheet() {
     if (!card) return;
     modeSheetOpen = !modeSheetOpen;
+    writeSheetPref(modeSheetOpen);
     card.classList.toggle("is-params-open", modeSheetOpen);
     const btn = card.querySelector("." + CARD_CLASS + "__params-toggle");
     if (btn) btn.setAttribute("aria-expanded", modeSheetOpen ? "true" : "false");
@@ -1854,15 +1864,17 @@
   function showCard(node) {
     closeMenu();
     closeViewer();
-    // 每次弹卡片都从收起状态开始：modeSheetOpen 是跨节点/跨开关会话残留的全局变量，
-    // 不重置的话上次开着面板、再进画布就默认展开（复用卡片的路径也不会重置）
-    modeSheetOpen = false;
-    if (card) card.classList.remove("is-params-open");
+    // 参数面板开合按用户上次操作持久化（localStorage），进画布/弹卡片时恢复；
+    // 不持久化的话 modeSheetOpen 是内存残留，行为不可预期（曾表现为“永远收起”或“莫名展开”）
+    modeSheetOpen = readSheetPref();
     if (!card || card.dataset.nodeId !== node.id) {
       if (card) card.remove();
-      card = buildCard(node);
+      card = buildCard(node); // buildCard 按 modeSheetOpen 加 is-params-open 并渲染面板
       document.body.appendChild(card);
-    } else refreshCard();
+    } else {
+      card.classList.toggle("is-params-open", modeSheetOpen);
+      if (modeSheetOpen) renderParamSheet(node); else refreshCard();
+    }
     card.dataset.nodeId = node.id;
     const rect = getNodeScreenRect(node);
     if (rect) positionCard(card, rect);
