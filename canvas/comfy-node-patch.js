@@ -1970,7 +1970,7 @@
     const kinds = new Set((blockers || []).map(item => item.kind));
     const names = [...new Set((blockers || []).map(item => item.type).filter(Boolean))].slice(0, 3);
     let reason = "这个工作流包含画布无法安全转换的节点。";
-    if (kinds.has("subgraph")) reason = "工作流含「子图」节点，请在 ComfyUI 里展开子图后另存再选。";
+    if (kinds.has("subgraph")) reason = "工作流引用的子图定义缺失，无法展开，请在 ComfyUI 里重新打开该工作流并再次保存。";
     else if (kinds.has("virtual")) reason = "工作流使用了只在前端生效的节点，画布无法转换。";
     else if (kinds.has("legacy-widgets")) reason = "部分节点参数未命名，请在 ComfyUI 里重新保存该工作流。";
     return `${reason}${names.length ? ` 涉及节点：${names.join("、")}。` : ""}`;
