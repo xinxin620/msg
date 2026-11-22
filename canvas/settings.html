@@ -89,7 +89,7 @@
     </style>
     <script>
       (() => {
-        const currentVersion = "20261122-1";
+        const currentVersion = "20261122-2";
         const url = new URL(window.location.href);
         if (url.searchParams.get("v") === currentVersion) return;
         url.searchParams.set("v", currentVersion);
@@ -107,7 +107,7 @@
     <script defer src="./text-api-patch.js?v=20261116-15"></script>
     <script defer src="./video-api-patch.js?v=20261119-24"></script>
     <script defer src="./voice-api-patch.js?v=20261119-11"></script>
-    <script defer src="./settings-page-patch.js?v=20261122-1"></script>
+    <script defer src="./settings-page-patch.js?v=20261122-2"></script>
   </head>
   <body>
     <div id="root"></div>

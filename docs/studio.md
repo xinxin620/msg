@@ -1,7 +1,7 @@
 # AI 创作工作台（studio/）
 
 > 域记忆。AGENTS.md 路由到这里；改动前先读本文件，再进 `studio/assets/studio.js` 头注释与代码。
-> 零依赖外壳（IIFE 无构建）。画布/图片工坊/看背影识人/API设置为 iframe 实时页，其余四项（剧情导演台/设定与出图/数字人视频/任务与成片）占位。**只是外壳+路由，不代理 API 配置、不复制资产索引、不重实现工作流**——实际能力全在 `canvas/`、`gallery/`、`server.py`。API设置只是把画布的设置弹窗整页化（`canvas/settings.html`），配置数据仍与画布同源共享，外壳不另存一份。
+> 零依赖外壳（IIFE 无构建）。画布/图片工坊/看背影识人/API设置为 iframe 实时页，其余四项（剧情导演台/设定与出图/数字人视频/任务与成片）占位。**只是外壳+路由，不代理 API 配置、不复制资产索引、不重实现工作流**——实际能力全在 `canvas/`、`gallery/`、`server.py`。API设置只是把画布的设置弹窗整页化（`canvas/settings.html`），配置数据仍与画布同源共享，外壳不另存一份；该页只显示 5 个 API 分区（文本/图片/视频/语音/ComfyUI），常规与快捷键仍在画布设置里配。
 
 ## 组成
 - `studio/index.html`：静态骨架（`#railList`/`#stageFrame`/顶部工具条/`#assetDirChip`/`#soonTemplate`）+ 版本守卫，缺/过期 `v` 自动重定向。

@@ -2,16 +2,22 @@
   "use strict";
 
   // ⚠ 仅由 canvas/settings.html 加载，切勿加进 canvas/index.html。
-  // 作用：把画布 bundle 的「模型与接口设置」弹窗铺满整页，做成独立的设置工作区。
-  // 原则：纯 CSS + 程序化打开弹窗，不改只读 bundle、不动任何 DOM 结构、不碰画布节点。
+  // 作用：把画布 bundle 的「模型与接口设置」弹窗铺成独立整页，并只保留 5 个 API 分区。
+  // 原则：纯 CSS + 程序化打开弹窗，不改只读 bundle、不删 bundle 的 DOM 结构、不碰画布节点。
   //   经核实 isSettingsOpen 不在 bundle persist 的 partialize 白名单内，
   //   所以在这里打开弹窗不会写盘、也不会让画布那边自动弹窗。
+  //   「常规设置/快捷键设置」与作者打赏区只在显示层隐藏（item.hidden），
+  //   bundle 的 React 状态与数据读写完全不受影响，画布那边照常能配。
 
   const STYLE_ID = "ms-settings-page-style";
   const BAR_ID = "ms-settings-page-bar";
   const ROOT_CLASS = "ms-settings-page";
   const OPEN_CLASS = "ms-sp-open";
   const SETTINGS_GEAR_TITLE = "模型与接口设置";
+  // 本页不属于「API设置」的原生分区（按 label 精确匹配，避免误伤补丁注入的 API tab）。
+  const OFF_PAGE_LABELS = ["常规设置", "快捷键设置"];
+  // 优先落地的默认分区（改名前后两种写法都认），找不到再退到第一个可见分区。
+  const PREFERRED_TAB = /^(图片API来源设置|API\s*来源设置)$/;
 
   function installStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -20,47 +26,104 @@
     style.textContent = `
       html.${ROOT_CLASS} body { overflow: hidden; }
 
-      /* overlay 变成不透明全屏舞台：盖住标题栏(z90)/侧栏(z68)/画布，无需逐条隐藏 chrome。
+      /* overlay 变成不透明舞台：盖住标题栏(z90)/侧栏(z68)/画布，无需逐条隐藏 chrome。
          pointer-events:none 让 overlay 自身的「点空白关闭」永远点不到；
          modal 内再恢复 pointer-events:auto，正常交互不受影响。 */
       html.${ROOT_CLASS} .settings-overlay {
         position: fixed; inset: 0; z-index: 1000;
-        display: block; overflow: auto; padding: 48px 0 0;
-        background: #eeecea;
+        display: block; overflow: hidden; padding: 56px 24px 24px;
+        background:
+          radial-gradient(1100px 520px at 12% -8%, #ffffffb3, #0000 60%),
+          radial-gradient(900px 460px at 96% 4%, #f6ece0a6, #0000 58%),
+          var(--canvas-bg, #efece6);
         -webkit-backdrop-filter: none; backdrop-filter: none;
         pointer-events: none;
+      }
+      html.${ROOT_CLASS}[data-theme=dark] .settings-overlay {
+        background:
+          radial-gradient(1100px 520px at 12% -8%, #ffffff12, #0000 60%),
+          radial-gradient(900px 460px at 96% 4%, #8f7c681f, #0000 58%),
+          var(--canvas-bg);
       }
       html.${ROOT_CLASS} .settings-modal,
       html.${ROOT_CLASS} .settings-modal.settings-modal--sectioned {
         pointer-events: auto;
-        width: min(1040px, 100%); max-width: 1040px;
-        height: calc(100% - 48px); max-height: none;
-        margin: 0 auto; border: 0; border-radius: 0;
-        box-shadow: none; overflow: hidden;
+        width: min(1180px, 100%); max-width: 1180px;
+        height: 100%; max-height: none;
+        margin: 0 auto; border-radius: 20px;
+        border: 1px solid #8f7c6833;
+        box-shadow: 0 30px 72px #372c2238, inset 0 1px 0 #ffffff94;
+        overflow: hidden;
       }
 
-      /* 去掉所有会误关弹窗的出口：右上角叉 + 底部「保存配置」（其 onClick 即关闭）。 */
-      html.${ROOT_CLASS} .settings-modal__header .close-btn,
+      /* 顶部条已经有标题，弹窗自带的「设置 + 叉」整条去掉；
+         底部「保存配置」按钮的 onClick 就是关弹窗，一并隐藏，杜绝误关出口。 */
+      html.${ROOT_CLASS} .settings-modal__header,
       html.${ROOT_CLASS} .settings-modal__footer { display: none !important; }
 
+      /* 本页只讲 API：常规/快捷键分区与作者打赏区隐藏。 */
+      html.${ROOT_CLASS} .settings-sidebar__author { display: none !important; }
+      html.${ROOT_CLASS} .settings-sidebar__nav { gap: 6px; }
+      html.${ROOT_CLASS} .settings-sidebar__item {
+        min-height: 40px; border-radius: 12px; font-size: 13px;
+      }
+      /* 原生 CSS 给 item 设了 display:flex，会盖掉 hidden 属性，这里显式断掉。 */
+      html.${ROOT_CLASS} .settings-sidebar__item[hidden] { display: none !important; }
+      html.${ROOT_CLASS} .settings-sidebar__title { display: none; }
+      html.${ROOT_CLASS} .settings-sidebar { padding: 18px 14px; gap: 12px; }
+      html.${ROOT_CLASS} .settings-modal__layout { grid-template-columns: 210px minmax(0, 1fr); }
+
       html.${ROOT_CLASS} #${BAR_ID} {
-        position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1100;
-        display: flex; align-items: center; gap: 12px; padding: 0 18px;
-        background: #241d17; color: #fff8f2;
-        font: 13px/1.4 "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        position: fixed; top: 0; left: 0; right: 0; height: 56px; z-index: 1100;
+        display: flex; align-items: center; gap: 14px; padding: 0 26px;
+        background: var(--panel-bg-strong, #fffdfaf2);
+        border-bottom: 1px solid var(--panel-border, #8f7c6826);
+        color: var(--text-primary, #2f251c);
+        font: 13px/1.4 var(--font-body, "Microsoft YaHei UI", "Noto Sans SC", sans-serif);
+        -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
       }
-      #${BAR_ID} .ms-sp-title { font-weight: 700; font-size: 14px; }
-      #${BAR_ID} .ms-sp-hint { color: #d9cdbf; font-size: 12px; margin-right: auto; }
+      #${BAR_ID} .ms-sp-mark {
+        width: 30px; height: 30px; border-radius: 10px; flex: 0 0 auto;
+        display: grid; place-items: center;
+        background: linear-gradient(180deg, #3a3027, #241d17); color: #fff8f2;
+        font-size: 15px;
+      }
+      html.${ROOT_CLASS}[data-theme=dark] #${BAR_ID} .ms-sp-mark {
+        background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+        color: var(--accent-text);
+      }
+      #${BAR_ID} .ms-sp-copy { display: grid; gap: 1px; margin-right: auto; min-width: 0; }
+      #${BAR_ID} .ms-sp-title { font-weight: 700; font-size: 15px; letter-spacing: .01em; }
+      #${BAR_ID} .ms-sp-hint {
+        color: var(--text-secondary, #8a7a67); font-size: 12px; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
       #${BAR_ID} button {
-        border: 0; border-radius: 999px; padding: 8px 18px; cursor: pointer;
-        font: 600 13px/1 "Noto Sans SC", "Microsoft YaHei", sans-serif;
-        background: #ff6a1a; color: #fff;
+        border: 1px solid var(--accent, #241d17); border-radius: 999px; padding: 9px 20px;
+        cursor: pointer; white-space: nowrap; flex: 0 0 auto;
+        font: 600 13px/1 var(--font-body, "Microsoft YaHei UI", "Noto Sans SC", sans-serif);
+        background: linear-gradient(180deg, var(--accent, #3a3027), var(--accent-hover, #241d17));
+        color: var(--accent-text, #fff8f2);
+        box-shadow: 0 12px 24px #372b2126;
+        transition: transform .16s, box-shadow .16s, opacity .16s;
       }
-      #${BAR_ID} button:disabled { opacity: .6; cursor: default; }
-      #${BAR_ID} .ms-sp-reopen { background: #3a3027; }
+      #${BAR_ID} button:hover { transform: translateY(-1px); box-shadow: 0 16px 28px #372b2133; }
+      #${BAR_ID} button:disabled { opacity: .6; cursor: default; transform: none; }
+      #${BAR_ID} .ms-sp-reopen {
+        background: var(--float-bg, #fff); color: var(--text-primary, #3a3027);
+        border-color: var(--panel-border-strong, #8f7c6840); box-shadow: none;
+      }
       /* 「重新打开设置」仅在弹窗确实不在时出现（兜底；本 bundle 无 Escape 关弹窗）。 */
       html.${ROOT_CLASS}.${OPEN_CLASS} #${BAR_ID} .ms-sp-reopen { display: none; }
       html.${ROOT_CLASS}:not(.${OPEN_CLASS}) #${BAR_ID} .ms-sp-reopen { display: inline-block; }
+
+      @media (max-width: 900px) {
+        html.${ROOT_CLASS} .settings-overlay { padding: 56px 0 0; }
+        html.${ROOT_CLASS} .settings-modal { border-radius: 0; border-left: 0; border-right: 0; }
+        html.${ROOT_CLASS} .settings-modal__layout { grid-template-columns: 1fr; }
+        html.${ROOT_CLASS} .settings-sidebar { border-right: 0; border-bottom: 1px solid #8f7c681a; }
+        #${BAR_ID} .ms-sp-hint { display: none; }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -90,6 +153,32 @@
       (el) => (el.title || "").indexOf(SETTINGS_GEAR_TITLE) >= 0,
     );
     if (gear) gear.click();
+  }
+
+  // 显示层裁掉非 API 分区，并保证当前停在某个 API 分区上。
+  function trimSections() {
+    const nav = document.querySelector(".settings-sidebar__nav");
+    if (!nav) return;
+    const visible = [];
+    [...nav.querySelectorAll(".settings-sidebar__item")].forEach((item) => {
+      const label = (item.textContent || "").trim();
+      const offPage = OFF_PAGE_LABELS.some((text) => label === text);
+      item.hidden = offPage;
+      if (!offPage) visible.push(item);
+    });
+    if (!visible.length) return;
+    if (visible.some((item) => item.classList.contains("is-active"))) {
+      nav.__msSpPick = null;
+      return;
+    }
+    const target =
+      visible.find((item) => PREFERRED_TAB.test((item.textContent || "").trim())) || visible[0];
+    // 同一个目标 1.2 秒内只点一次：React 尚未接管时点了不会有 is-active，
+    // 既不能和 MutationObserver 成环，也不能就此放弃（超时后允许重试）。
+    const pick = nav.__msSpPick;
+    if (pick && pick.item === target && Date.now() - pick.at < 1200) return;
+    nav.__msSpPick = { item: target, at: Date.now() };
+    target.click();
   }
 
   function flash(el, text) {
@@ -127,8 +216,11 @@
     bar = document.createElement("div");
     bar.id = BAR_ID;
     bar.innerHTML =
-      '<span class="ms-sp-title">API设置</span>' +
-      '<span class="ms-sp-hint">改完点「应用到画布」让画布重新载入生效；本页只调整本地配置，不画节点。</span>' +
+      '<span class="ms-sp-mark" aria-hidden="true">⚙</span>' +
+      '<span class="ms-sp-copy">' +
+      '<span class="ms-sp-title">API 来源设置</span>' +
+      '<span class="ms-sp-hint">文本 · 图片 · 视频 · 语音 · ComfyUI 与画布共用同一份本地配置；资产目录和「从本地恢复」仍在画布「常规设置」里</span>' +
+      "</span>" +
       '<button type="button" class="ms-sp-reopen">重新打开设置</button>' +
       '<button type="button" class="ms-sp-apply">应用到画布</button>';
     bar.querySelector(".ms-sp-reopen").addEventListener("click", ensureOpen);
@@ -144,7 +236,11 @@
     ensureBar();
     const open = !!document.querySelector(".settings-overlay");
     document.documentElement.classList.toggle(OPEN_CLASS, open);
-    if (!open) ensureOpen();
+    if (!open) {
+      ensureOpen();
+      return;
+    }
+    trimSections();
   }
 
   let observer = null;
