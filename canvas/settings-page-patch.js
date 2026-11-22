@@ -79,12 +79,18 @@
 
       html.${ROOT_CLASS} #${BAR_ID} {
         position: fixed; top: 0; left: 0; right: 0; height: 56px; z-index: 1100;
-        display: flex; align-items: center; gap: 14px; padding: 0 26px;
+        display: flex; align-items: center; padding: 0 24px;
         background: var(--panel-bg-strong, #fffdfaf2);
         border-bottom: 1px solid var(--panel-border, #8f7c6826);
         color: var(--text-primary, #2f251c);
         font: 13px/1.4 var(--font-body, "Microsoft YaHei UI", "Noto Sans SC", sans-serif);
         -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+      }
+      /* 内容宽度与下方居中卡片对齐（同 .settings-modal 的 min(1180px,100%)），
+         否则「应用到画布」会贴到视口最右、和卡片脱节。 */
+      #${BAR_ID} .ms-sp-inner {
+        display: flex; align-items: center; gap: 14px; width: 100%;
+        max-width: 1180px; margin: 0 auto;
       }
       #${BAR_ID} .ms-sp-mark {
         width: 30px; height: 30px; border-radius: 10px; flex: 0 0 auto;
@@ -96,7 +102,7 @@
         background: linear-gradient(180deg, var(--accent), var(--accent-hover));
         color: var(--accent-text);
       }
-      #${BAR_ID} .ms-sp-copy { display: grid; gap: 1px; margin-right: 14px; min-width: 0; }
+      #${BAR_ID} .ms-sp-copy { display: grid; gap: 1px; margin-right: 18px; min-width: 0; }
       #${BAR_ID} .ms-sp-tabs {
         display: flex; flex: 0 0 auto; gap: 4px; padding: 4px; margin-right: auto;
         border: 1px solid var(--panel-border, #8f7c6826); border-radius: 999px;
@@ -243,6 +249,7 @@
     bar = document.createElement("div");
     bar.id = BAR_ID;
     bar.innerHTML =
+      '<span class="ms-sp-inner">' +
       '<span class="ms-sp-mark" aria-hidden="true">⚙</span>' +
       '<span class="ms-sp-copy">' +
       '<span class="ms-sp-title">设置</span>' +
@@ -254,7 +261,8 @@
       ).join("") +
       "</span>" +
       '<button type="button" class="ms-sp-reopen">重新打开设置</button>' +
-      '<button type="button" class="ms-sp-apply">应用到画布</button>';
+      '<button type="button" class="ms-sp-apply">应用到画布</button>' +
+      "</span>";
     bar.querySelectorAll(".ms-sp-tabs button").forEach((button) => {
       button.addEventListener("click", () => selectTopTab(button.dataset.tab));
     });

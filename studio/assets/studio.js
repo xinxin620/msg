@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "20261122-3";
+  const VERSION = "20261122-4";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";
@@ -222,9 +222,9 @@
   }
 
   function renderBar(workspace) {
-    // 画布自带标题栏，外壳这一行在画布 tab 下是重复信息：整行收起，
+    // 画布与设置自带整页标题栏，外壳这一行是重复信息：整行收起，
     // 舞台区用 flex:1 自动占满，其它 tab（图片工坊/占位区）保持原样。
-    if (studioBar) studioBar.hidden = workspace.id === "canvas";
+    if (studioBar) studioBar.hidden = workspace.id === "canvas" || workspace.id === "settings";
     barKicker.textContent = workspace.kicker;
     barTitle.textContent = workspace.label;
     barDesc.textContent = workspace.tagline;
