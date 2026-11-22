@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "20261122-2";
+  const VERSION = "20261122-3";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";
@@ -138,8 +138,8 @@
     },
     {
       id: "settings",
-      label: "API设置",
-      tagline: "文本·图片·视频·语音·ComfyUI",
+      label: "设置",
+      tagline: "API设置，后续其它设置统一入口",
       kicker: "SETTINGS",
       icon: "icon-settings",
       type: "frame",

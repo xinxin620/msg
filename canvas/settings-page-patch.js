@@ -2,7 +2,9 @@
   "use strict";
 
   // ⚠ 仅由 canvas/settings.html 加载，切勿加进 canvas/index.html。
-  // 作用：把画布 bundle 的「模型与接口设置」弹窗铺成独立整页，并只保留 5 个 API 分区。
+  // 作用：把画布 bundle 的「模型与接口设置」弹窗铺成独立整页，作为工作台「设置」工作区；
+  //   顶栏 `TOP_TABS` 是设置分区切换器（现只有「API设置」，选中时侧栏只保留 5 个 API 分区），
+  //   后续新增设置分区（如「常规」）往 TOP_TABS 加项并在 trimSections 按分区裁剪即可。
   // 原则：纯 CSS + 程序化打开弹窗，不改只读 bundle、不删 bundle 的 DOM 结构、不碰画布节点。
   //   经核实 isSettingsOpen 不在 bundle persist 的 partialize 白名单内，
   //   所以在这里打开弹窗不会写盘、也不会让画布那边自动弹窗。
@@ -14,6 +16,8 @@
   const ROOT_CLASS = "ms-settings-page";
   const OPEN_CLASS = "ms-sp-open";
   const SETTINGS_GEAR_TITLE = "模型与接口设置";
+  // 顶栏分区 tab（工作台左栏为「设置」，本页按分区切换）；后续新增设置分区往这里加一项。
+  const TOP_TABS = [{ id: "api", label: "API设置" }];
   // 本页不属于「API设置」的原生分区（按 label 精确匹配，避免误伤补丁注入的 API tab）。
   const OFF_PAGE_LABELS = ["常规设置", "快捷键设置"];
   // 优先落地的默认分区（改名前后两种写法都认），找不到再退到第一个可见分区。
@@ -92,7 +96,21 @@
         background: linear-gradient(180deg, var(--accent), var(--accent-hover));
         color: var(--accent-text);
       }
-      #${BAR_ID} .ms-sp-copy { display: grid; gap: 1px; margin-right: auto; min-width: 0; }
+      #${BAR_ID} .ms-sp-copy { display: grid; gap: 1px; margin-right: 14px; min-width: 0; }
+      #${BAR_ID} .ms-sp-tabs {
+        display: flex; flex: 0 0 auto; gap: 4px; padding: 4px; margin-right: auto;
+        border: 1px solid var(--panel-border, #8f7c6826); border-radius: 999px;
+        background: var(--float-bg, #fff);
+      }
+      #${BAR_ID} .ms-sp-tabs button {
+        padding: 6px 16px; border: 0; border-radius: 999px;
+        background: transparent; color: var(--text-secondary, #8a7a67);
+        box-shadow: none; font: 600 12px/1 var(--font-body, "Microsoft YaHei UI", "Noto Sans SC", sans-serif);
+      }
+      #${BAR_ID} .ms-sp-tabs button:hover { transform: none; box-shadow: none; color: var(--text-primary, #2f251c); }
+      #${BAR_ID} .ms-sp-tabs button.is-active {
+        background: var(--accent, #3a3027); color: var(--accent-text, #fff8f2);
+      }
       #${BAR_ID} .ms-sp-title { font-weight: 700; font-size: 15px; letter-spacing: .01em; }
       #${BAR_ID} .ms-sp-hint {
         color: var(--text-secondary, #8a7a67); font-size: 12px; white-space: nowrap;
@@ -155,14 +173,23 @@
     if (gear) gear.click();
   }
 
+  // 当前顶栏分区；后续新增分区时在这里扩展并按分区裁剪侧栏。
+  let topTab = TOP_TABS[0].id;
+
+  function selectTopTab(id) {
+    topTab = id;
+    sync();
+  }
+
   // 显示层裁掉非 API 分区，并保证当前停在某个 API 分区上。
   function trimSections() {
     const nav = document.querySelector(".settings-sidebar__nav");
     if (!nav) return;
+    const offLabels = topTab === "api" ? OFF_PAGE_LABELS : [];
     const visible = [];
     [...nav.querySelectorAll(".settings-sidebar__item")].forEach((item) => {
       const label = (item.textContent || "").trim();
-      const offPage = OFF_PAGE_LABELS.some((text) => label === text);
+      const offPage = offLabels.some((text) => label === text);
       item.hidden = offPage;
       if (!offPage) visible.push(item);
     });
@@ -218,11 +245,19 @@
     bar.innerHTML =
       '<span class="ms-sp-mark" aria-hidden="true">⚙</span>' +
       '<span class="ms-sp-copy">' +
-      '<span class="ms-sp-title">API 来源设置</span>' +
-      '<span class="ms-sp-hint">文本 · 图片 · 视频 · 语音 · ComfyUI 与画布共用同一份本地配置；资产目录和「从本地恢复」仍在画布「常规设置」里</span>' +
+      '<span class="ms-sp-title">设置</span>' +
+      '<span class="ms-sp-hint">与画布共用同一份本地配置；资产目录和「从本地恢复」仍在画布「常规设置」里</span>' +
+      "</span>" +
+      '<span class="ms-sp-tabs" role="tablist" aria-label="设置分区">' +
+      TOP_TABS.map((tab) =>
+        '<button type="button" role="tab" data-tab="' + tab.id + '">' + tab.label + "</button>",
+      ).join("") +
       "</span>" +
       '<button type="button" class="ms-sp-reopen">重新打开设置</button>' +
       '<button type="button" class="ms-sp-apply">应用到画布</button>';
+    bar.querySelectorAll(".ms-sp-tabs button").forEach((button) => {
+      button.addEventListener("click", () => selectTopTab(button.dataset.tab));
+    });
     bar.querySelector(".ms-sp-reopen").addEventListener("click", ensureOpen);
     bar.querySelector(".ms-sp-apply").addEventListener("click", (event) => {
       applyToCanvas(event.currentTarget);
@@ -233,7 +268,10 @@
 
   function sync() {
     document.documentElement.classList.add(ROOT_CLASS);
-    ensureBar();
+    const bar = ensureBar();
+    bar.querySelectorAll(".ms-sp-tabs button").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.tab === topTab);
+    });
     const open = !!document.querySelector(".settings-overlay");
     document.documentElement.classList.toggle(OPEN_CLASS, open);
     if (!open) {
