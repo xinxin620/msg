@@ -5,7 +5,7 @@
 ## 路由表（你提到什么 → 读什么）
 | 你提到 | 先读 | 再进 |
 | --- | --- | --- |
-| 画布 / 工作流 / ComfyUI / 图片·文本 API 配置 / 素材上传 / 视频节点 | `docs/画布.md` | `canvas/*.js`（各补丁头注释）、`web-bridge.js` |
+| 画布 / 工作流 / ComfyUI / 图片·文本 API 配置 / API设置整页 / 素材上传 / 视频节点 | `docs/画布.md` | `canvas/*.js`（各补丁头注释）、`canvas/settings.html`+`settings-page-patch.js`、`web-bridge.js` |
 | 图片工坊 / 资产库 / 姿势·服装·人像 / 嵌入 | `docs/gallery.md` | `gallery/assets/gallery.js`、`gallery.css` |
 | 工作台 / studio / 目录授权 / 工作区 | `docs/studio.md` | `studio/assets/studio.js` |
 | 看背影识人 / 小游戏 / 背影素材 / 战绩榜 | `docs/game.md` | `game/assets/game.js`、`game/data/roster.json` |

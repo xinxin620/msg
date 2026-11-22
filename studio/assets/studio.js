@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "20261117-1";
+  const VERSION = "20261122-1";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";
@@ -135,6 +135,16 @@
       ],
       relation:
         "只读汇总为主，不接管生成过程；失败任务给出可定位的原因而不是笼统报错。",
+    },
+    {
+      id: "settings",
+      label: "API设置",
+      tagline: "模型接口·常规·快捷键",
+      kicker: "SETTINGS",
+      icon: "icon-settings",
+      type: "frame",
+      url: "../canvas/settings.html?v=" + VERSION,
+      state: "在线",
     },
   ];
 
@@ -506,7 +516,16 @@
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
-    if (!data || data.source !== "manshiguang-asset-embed") return;
+    if (!data) return;
+    // API设置页点「应用到画布」：重载画布 frame，让它重新读取刚写入的配置。
+    if (
+      data.source === "manshiguang-canvas-settings" &&
+      data.type === "apply-to-canvas"
+    ) {
+      applyCanvasSettings();
+      return;
+    }
+    if (data.source !== "manshiguang-asset-embed") return;
     if (data.type === "directory-changed") {
       refreshDirChip();
       return;
@@ -517,6 +536,18 @@
       deliverToCanvas(data.asset);
     }
   });
+
+  // 复用 refreshBtn 的重载写法：只重置画布 iframe 的 src，不销毁、不动设置页自身。
+  function applyCanvasSettings() {
+    const workspace = findWorkspace("canvas");
+    const entry = frames.get("canvas");
+    // 画布 frame 还没建过：新建的画布首载即读新配置，无需重载。
+    if (!workspace || !entry) return;
+    stageBoot.dataset.ready = "false";
+    entry.ready = false;
+    entry.iframe.src = buildUrl(workspace, readState().assetTab);
+    window.setTimeout(setBootReady, 14000);
+  }
 
   function showNote(message) {
     if (!stageNote || !stageNoteText) return;
