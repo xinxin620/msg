@@ -891,11 +891,19 @@
     return out;
   }
 
-  // 读取直接连入本节点的上游：文本数组 + 图片/音频源数组（口径与 bundle qv/Nv 一致：localPath 优先）
+  // 取一个媒体节点的源地址：results 当前项优先，回退节点直存字段（口径与 bundle qv/Nv 一致：localPath 优先）
+  function mediaSourceOf(node) {
+    const d = node.data || {};
+    const list = Array.isArray(d.results) ? d.results : [];
+    const res = list[d.activeResultIndex || 0] || list[0] || null;
+    return String((res && (res.localPath || res.mediaUrl || res.url)) || d.mediaUrl || d.localPath || d.referenceImage || "");
+  }
+
+  // 读取直接连入本节点的上游：文本 + 图/音/视三类源数组（视频工作流常需多参考图 + 参考音色 + 参考视频）
   function upstreamInputs(nodeId) {
     const r = getStateReader(); const st = r && r();
-    const texts = []; const images = []; const audios = [];
-    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return { texts, images, audios };
+    const texts = []; const images = []; const audios = []; const videos = [];
+    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return { texts, images, audios, videos };
     st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
       const src = st.nodes.find(n => n && n.id === edge.source);
       if (!src || !src.data) return;
@@ -905,23 +913,25 @@
         const script = c === "audio" ? String(src.data.promptText || "").trim() : "";
         if (script) texts.push(script);
         else nodeTextOf(src).forEach(t => texts.push(t));
-        if (c === "audio") {
-          // 音频二进制：bundle 音频卡片同口径 results[].mediaUrl，运行时注入 LoadAudio
-          const list = Array.isArray(src.data.results) ? src.data.results : [];
-          const res = list[src.data.activeResultIndex || 0] || list[0] || null;
-          const source = (res && (res.localPath || res.mediaUrl)) || src.data.mediaUrl || "";
-          if (source) audios.push(String(source));
-        }
-      } else if (c === "image" || (c === "upload" && src.data.assetType === "image")) {
-        const res = Array.isArray(src.data.results) ? src.data.results[src.data.activeResultIndex || 0] : null;
-        const source = (res && (res.localPath || res.mediaUrl)) || (c === "image" ? src.data.referenceImage : "");
-        if (source) images.push(String(source));
+        // 音频节点二进制另走注入 LoadAudio（语音克隆/参考音色）
+        if (c === "audio") { const s = mediaSourceOf(src); if (s) audios.push(s); }
+      } else if (c === "image") {
+        const s = mediaSourceOf(src); if (s) images.push(s);
+      } else if (c === "video") {
+        const s = mediaSourceOf(src); if (s) videos.push(s);
+      } else if (c === "upload") {
+        const kind = String(src.data.assetType || "").toLowerCase();
+        const s = mediaSourceOf(src);
+        if (!s) return;
+        if (kind === "audio") audios.push(s);
+        else if (kind === "video") videos.push(s);
+        else images.push(s);
       }
     });
-    return { texts, images, audios };
+    return { texts, images, audios, videos };
   }
 
-  // data:/http(s) 媒体可取回；file:// 或盘符路径浏览器读不到
+  // data:/http(s) 直接取；盘符/file:// 浏览器读不到，走桥接 readLocalMediaDataUrl 转 data: 再取
   async function fetchMediaBlob(src) {
     try {
       if (/^data:/i.test(src)) {
@@ -933,82 +943,77 @@
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         return await resp.blob();
       }
+      const api = window.electronAPI;
+      if (api && typeof api.readLocalMediaDataUrl === "function") {
+        const dataUrl = await api.readLocalMediaDataUrl(src);
+        if (dataUrl) { const resp = await fetch(dataUrl); return await resp.blob(); }
+      }
     } catch (_) { return null; }
     return null;
   }
 
-  function imageFileName(src, index) {
-    const mimeMatch = /^data:([^;,]+)/i.exec(src);
-    const extFromMime = mimeMatch ? String(mimeMatch[1].split("/")[1] || "png").replace("jpeg", "jpg") : "png";
+  // 媒体加载节点表：class_type -> {kind, field}。ComfyUI 0.45.2 只有 /upload/image 一个上传端点，
+  // 字段名固定 image，靠扩展名区分图/音/视；upload/audio、upload/video 在本机是 405（不存在）。
+  const MEDIA_LOADERS = {
+    LoadImage: { kind: "image", field: "image" },
+    LoadImageGoohai: { kind: "image", field: "image" },
+    LoadAudio: { kind: "audio", field: "audio" },
+    VHS_LoadVideo: { kind: "video", field: "video" },
+    LoadVideo: { kind: "video", field: "file" },
+  };
+  const MEDIA_LABEL = { image: "图片", audio: "音频", video: "视频" };
+  const MEDIA_EXT_RE = {
+    image: /^(png|jpe?g|webp|gif|bmp)$/i,
+    audio: /^(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i,
+    video: /^(mp4|mov|webm|mkv|avi|m4v)$/i,
+  };
+  const MEDIA_DEFAULT_EXT = { image: "png", audio: "mp3", video: "mp4" };
+
+  // 保留原文件名（仅当扩展名与该媒体类型匹配），否则生成带类型默认扩展名的临时名
+  function mediaFileName(src, index, kind) {
     const clean = String(src).split("?")[0].split("#")[0];
-    const tail = clean.slice(clean.lastIndexOf("/") + 1);
-    const named = /^[\w.-]+\.(png|jpe?g|webp|gif|bmp)$/i.test(tail) ? tail : "canvas-up-" + Date.now() + "-" + index + "." + extFromMime;
-    return named;
-  }
-
-  // 上传上游图片到 ComfyUI 并写进工作流 LoadImage 节点；返回告警文案数组
-  async function injectUpstreamImages(profile, url, headers, promptObj, imageSources) {
-    const warnings = [];
-    if (!imageSources.length) return warnings;
-    const loaders = Object.entries(promptObj).filter(([, node]) => node && node.class_type === "LoadImage");
-    if (!loaders.length) { warnings.push("工作流里没有 LoadImage 节点，上游图片未注入"); return warnings; }
-    for (let i = 0; i < imageSources.length; i++) {
-      const target = loaders[Math.min(i, loaders.length - 1)][1];
-      const blob = await fetchMediaBlob(imageSources[i]);
-      if (!blob) { warnings.push("第 " + (i + 1) + " 张上游图片是本地路径或被 CORS 拦截，无法自动上传"); continue; }
-      const form = new FormData();
-      form.append("image", blob, imageFileName(imageSources[i], i));
-      const resp = await fetch(PROXY_PREFIX + "image?base=" + encodeURIComponent(url), {
-        method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
-      });
-      const text = await resp.text();
-      let payload = null;
-      try { payload = JSON.parse(text); } catch (_) { payload = null; }
-      if (!resp.ok || !payload?.name) {
-        warnings.push("上游图片上传失败：" + (payload?.error || ("HTTP " + resp.status)));
-        continue;
-      }
-      const name = payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
-      if (target.inputs && typeof target.inputs === "object") target.inputs.image = name;
-      else target.inputs = { image: name, upload: "image" };
-    }
-    return warnings;
-  }
-
-  function audioFileName(src, index) {
+    let tail = clean.slice(Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\")) + 1);
+    try { tail = decodeURIComponent(tail); } catch (_) { /* 原样 */ }
+    const m = /^([\w.\- ]+)\.(\w+)$/.exec(tail);
+    if (m && MEDIA_EXT_RE[kind].test(m[2])) return tail;
     const mimeMatch = /^data:([^;,]+)/i.exec(src);
-    const extFromMime = mimeMatch ? String((mimeMatch[1].split("/")[1] || "mp3").split(";")[0]) : "mp3";
-    const clean = String(src).split("?")[0].split("#")[0];
-    const tail = clean.slice(clean.lastIndexOf("/") + 1);
-    const named = /^[\w.-]+\.(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i.test(tail) ? tail : "canvas-audio-" + Date.now() + "-" + index + "." + extFromMime;
-    return named;
+    const extFromMime = mimeMatch
+      ? String((mimeMatch[1].split("/")[1] || "").split(";")[0]).replace("jpeg", "jpg") || MEDIA_DEFAULT_EXT[kind]
+      : MEDIA_DEFAULT_EXT[kind];
+    return "canvas-up-" + Date.now() + "-" + index + "." + extFromMime;
   }
 
-  // 上传上游音频到 ComfyUI 并写进工作流 LoadAudio 节点；返回告警文案数组
-  async function injectUpstreamAudios(profile, url, promptObj, audioSources) {
+  // 把上游图/音/视按序上传并写进工作流对应加载节点；不足复用最后一个，返回告警文案数组
+  async function injectUpstreamMedia(profile, url, promptObj, sources) {
     const warnings = [];
-    if (!audioSources.length) return warnings;
-    const loaders = Object.entries(promptObj).filter(([, node]) => node && node.class_type === "LoadAudio");
-    if (!loaders.length) { warnings.push("工作流里没有 LoadAudio 节点，上游音频未注入"); return warnings; }
-    for (let i = 0; i < audioSources.length; i++) {
-      const target = loaders[Math.min(i, loaders.length - 1)][1];
-      const blob = await fetchMediaBlob(audioSources[i]);
-      if (!blob) { warnings.push("第 " + (i + 1) + " 条上游音频是本地路径或被 CORS 拦截，无法自动上传"); continue; }
-      const form = new FormData();
-      form.append("audio", blob, audioFileName(audioSources[i], i));
-      const resp = await fetch(PROXY_PREFIX + "upload/audio?base=" + encodeURIComponent(url), {
-        method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
-      });
-      const text = await resp.text();
-      let payload = null;
-      try { payload = JSON.parse(text); } catch (_) { payload = null; }
-      if (!resp.ok || !payload?.name) {
-        warnings.push("上游音频上传失败：" + (payload?.error || ("HTTP " + resp.status)));
-        continue;
+    const entries = Object.entries(promptObj).filter(([, node]) => node && MEDIA_LOADERS[node.class_type]);
+    for (const kind of ["image", "audio", "video"]) {
+      const list = (sources && sources[kind + "s"]) || [];
+      if (!list.length) continue;
+      const label = MEDIA_LABEL[kind];
+      const loaders = entries.filter(([, node]) => MEDIA_LOADERS[node.class_type].kind === kind);
+      if (!loaders.length) { warnings.push(`工作流里没有${label}加载节点，${list.length} 个上游${label}未注入`); continue; }
+      for (let i = 0; i < list.length; i++) {
+        const target = loaders[Math.min(i, loaders.length - 1)][1];
+        const field = MEDIA_LOADERS[target.class_type].field;
+        const blob = await fetchMediaBlob(list[i]);
+        if (!blob) { warnings.push(`第 ${i + 1} 个上游${label}本地路径读不到或被 CORS 拦截，无法自动上传`); continue; }
+        const form = new FormData();
+        form.append("image", blob, mediaFileName(list[i], i, kind));
+        const resp = await fetch(PROXY_PREFIX + "upload/image?base=" + encodeURIComponent(url), {
+          method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
+        });
+        const text = await resp.text();
+        let payload = null;
+        try { payload = JSON.parse(text); } catch (_) { payload = null; }
+        if (!resp.ok || !payload?.name) {
+          warnings.push(`上游${label}上传失败：` + (payload?.error || ("HTTP " + resp.status)));
+          continue;
+        }
+        const name = payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
+        if (target.inputs && typeof target.inputs === "object") target.inputs[field] = name;
+        else target.inputs = { [field]: name };
       }
-      const name = payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
-      if (target.inputs && typeof target.inputs === "object") target.inputs.audio = name;
-      else target.inputs = { audio: name, upload: "audio" };
     }
     return warnings;
   }
@@ -1084,6 +1089,33 @@
           node.inputs[key] = matches[0];
           fixes.push(`${node.class_type}·${key}：${value} → ${matches[0]}`);
         }
+      }
+    }
+    return fixes;
+  }
+
+  // 补齐「required 且 socketless」的前端控件输入：官方 graphToPrompt 会把每个 widget 的实时值写进
+  // API prompt，但这类控件（ImageCompare.compare_view 等）不持久化到工作流文件，convert() 读不到就漏。
+  // 服务端只校验该键存在（execute 多半忽略其值），缺了就报「Required input is missing」。
+  // combo 型填首个合法选项，其余填 ""，避免「Value not in list」。
+  function fillRequiredSocketless(types, prompt) {
+    if (!types) return [];
+    const fixes = [];
+    for (const node of Object.values(prompt || {})) {
+      const def = types[node?.class_type];
+      const required = def?.input?.required;
+      if (!node?.inputs || !required) continue;
+      const pairs = Array.isArray(required)
+        ? required.filter(p => Array.isArray(p))
+        : Object.entries(required).map(([k, v]) => [k, v]);
+      for (const [key, spec] of pairs) {
+        if (key in node.inputs) continue;
+        const opts = Array.isArray(spec) ? spec[1] : null;
+        if (!opts || opts.socketless !== true) continue;
+        const first = Array.isArray(spec) ? spec[0] : null;
+        const value = Array.isArray(first) && first.length ? first[0] : "";
+        node.inputs[key] = value;
+        fixes.push(`${node.class_type}·${key}`);
       }
     }
     return fixes;
@@ -2095,10 +2127,11 @@
       const comboTypes = await ensureObjectInfo(url, profile);
       const comboFixes = sanitizeComboValues(comboTypes, finalPrompt);
       if (comboFixes.length) showToast(`已自动匹配本机模型：${comboFixes.join("；")}`, "info");
+      // 补齐工作流文件里没存的 required socketless 控件（如 ImageCompare.compare_view），否则提交报缺输入
+      fillRequiredSocketless(comboTypes, finalPrompt);
 
       const upstream = upstreamInputs(node.id);
-      const warnings = await injectUpstreamImages(profile, url, headers, finalPrompt, upstream.images);
-      warnings.push(...await injectUpstreamAudios(profile, url, finalPrompt, upstream.audios));
+      const warnings = await injectUpstreamMedia(profile, url, finalPrompt, upstream);
       if (warnings.length) showToast(warnings.join("；"), "error");
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
