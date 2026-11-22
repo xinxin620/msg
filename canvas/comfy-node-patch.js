@@ -1415,10 +1415,10 @@
     try { localStorage.setItem(PINS_KEY, JSON.stringify(store)); } catch (_) {}
   }
 
-  // 常用参数解析：缓存 → 本节点自己的置顶 → 默认。
+  // 常用参数解析：缓存 → 本节点自己的置顶 → 空。
   // 全局默认（localStorage）不在这读——只在「选工作流」那一刻播种进新节点，
   // 否则老节点每次渲染都跟着全局变（用户否决过同步改老节点）。
-  const DEFAULT_PIN_RE = /^(steps|cfg|cfg_scale|true_cfg_scale|guidance_scale|(noise_)?(rand|random)?_?seed|denoise|width|height)$/i;
+  // 从没置顶过的节点返回空：常用参数完全由用户自己点 ☆ 决定，不再有内置规则默认。
   function pinnedIds(items) {
     // 优先用 paramsModel 缓存：置顶后可能还没落盘，直接读会拿到旧值
     if (paramsModel && Array.isArray(paramsModel.pinnedIds))
@@ -1426,7 +1426,7 @@
     const node = getSelectedComfyNode();
     if (node && Array.isArray(node.data.comfyPinnedParams))
       return node.data.comfyPinnedParams.filter(id => items.some(it => it.id === id));
-    return items.filter(it => DEFAULT_PIN_RE.test(it.key)).map(it => it.id);
+    return []; // 无置顶即空
   }
 
   // 只写本节点自己的置顶，绝不动别的节点
@@ -1775,8 +1775,8 @@
       btn.addEventListener("click", ev => {
         ev.preventDefault(); ev.stopPropagation();
         // 切工作流：旧 comfyParams 的 nodeId 多半对不上，清空避免脏参数。
-        // 置顶此刻用全局默认「播种」一次（无记录则清成默认规则），此后本节点独立演化，
-        // 全局再变也不会同步过来——只有新选工作流的节点才继承。
+        // 置顶此刻用全局默认「播种」一次（无记录则留空，常用参数由用户自己点 ☆），
+        // 此后本节点独立演化，全局再变也不会同步过来——只有新选工作流的节点才继承。
         const profile = activeComfyProfile();
         const gKey = (profile ? profile.id : "local") + "::" + item.path;
         const seed = readPinStore()[gKey];
