@@ -172,6 +172,54 @@
     try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); return true; } catch (_) { return false; }
   }
 
+  // 按结果图真实比例撑框：React Flow 节点读顶层 style.width/height，
+  // 框高 = 标题栏高 + 图片区高（图片区严格等于比例），再强制重测 handleBounds。
+  // 比例存进 data.comfyFrameRatio，刷新后 syncNodeMedia 据此自愈。
+  const FRAME_MIN_H = 120, FRAME_MAX_H = 560;
+  function applyFrameRatio(nodeId, ratio) {
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    const r = getStateReader(); const st = r && r();
+    if (!st) return;
+    const node = (st.nodes || []).find(n => n && n.id === nodeId);
+    if (!node) return;
+    // 幂等守卫：比例与已存值一致且框已撑开，直接跳过。
+    // 否则「onload→写 style→replaceCanvasState→React 重渲染→媒体层重建→再 onload」会死循环。
+    const sameRatio = typeof node.data.comfyFrameRatio === "number"
+      && Math.abs(node.data.comfyFrameRatio - ratio) < 0.01;
+    if (sameRatio && node.style && node.style.width) return;
+    const nodeEl = document.querySelector('.react-flow__node[data-id="' + nodeId + '"]');
+    const bodyEl = nodeEl && nodeEl.querySelector(".canvas-node__body");
+    if (!nodeEl || !bodyEl) return;
+    // 标题栏高 = body 顶相对节点顶的偏移，按画布缩放还原成 flow 坐标
+    const zoom = (st.viewport && Number(st.viewport.zoom) > 0) ? Number(st.viewport.zoom) : 1;
+    const headerH = Math.max(0, Math.round(
+      (bodyEl.getBoundingClientRect().top - nodeEl.getBoundingClientRect().top) / zoom,
+    ));
+    const contentW = ratio >= 1 ? 280 : 210;
+    const bodyH = Math.min(FRAME_MAX_H, Math.max(FRAME_MIN_H, contentW / ratio));
+    node.style = { width: contentW + "px", height: Math.round(headerH + bodyH) + "px" };
+    node.data.comfyFrameRatio = ratio;
+    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    // React Flow 自带 ResizeObserver 会在新尺寸渲染后重测 handleBounds；
+    // 这里再延迟补一次强制测量，防个别情况下重测漏跑（连线点停在旧框）。
+    const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
+    if (typeof measure === "function") {
+      window.setTimeout(() => { try { measure(nodeId); } catch (_) {} }, 220);
+    }
+  }
+
+  function clearFrameRatio(nodeId) {
+    const r = getStateReader(); const st = r && r();
+    if (!st) return;
+    const node = (st.nodes || []).find(n => n && n.id === nodeId);
+    if (!node || !node.style) return;
+    node.style = undefined;
+    if (node.data && typeof node.data.comfyFrameRatio === "number") delete node.data.comfyFrameRatio;
+    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
+    if (typeof measure === "function") { try { measure(nodeId); } catch (_) {} }
+  }
+
   function escapeHtml(s) {
     return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
@@ -2332,12 +2380,20 @@
         img.src = item.viewUrl; img.alt = ""; img.draggable = false;
         // 单击不拦：冒泡到卡片让 bundle 选中节点、弹出配置卡片；双击才开大图预览
         img.addEventListener("dblclick", ev => { ev.stopPropagation(); doPreview(getNodeById(node.id) || node); });
+        img.addEventListener("load", () => {
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) applyFrameRatio(node.id, img.naturalWidth / img.naturalHeight);
+        });
+        // 缓存命中时 load 可能已错过，立即补一次
+        if (img.complete && img.naturalWidth > 0) applyFrameRatio(node.id, img.naturalWidth / img.naturalHeight);
         box.appendChild(img);
       } else if (item && item.kind === "video") {
         box.classList.add("nodrag");
         const video = document.createElement("video");
         video.src = item.viewUrl; video.controls = true; video.muted = true;
         video.playsInline = true; video.preload = "metadata"; video.draggable = false;
+        video.addEventListener("loadedmetadata", () => {
+          if (video.videoWidth > 0 && video.videoHeight > 0) applyFrameRatio(node.id, video.videoWidth / video.videoHeight);
+        });
         box.appendChild(video);
       } else if (item && item.kind === "audio") {
         box.classList.add("nodrag", "ms-comfy-media--audio");
@@ -2345,11 +2401,13 @@
         audio.src = item.viewUrl; audio.controls = true;
         audio.preload = "metadata";
         box.appendChild(audio);
+        clearFrameRatio(node.id);
       } else if (item && item.kind === "text") {
         const pre = document.createElement("div");
         pre.className = "ms-comfy-media__text";
         pre.textContent = String(item.textContent || "");
         box.appendChild(pre);
+        clearFrameRatio(node.id);
       } else {
         const hint = document.createElement("div");
         hint.className = "ms-comfy-media__hint" + (sig.startsWith("error|") ? " is-error" : "");
@@ -2358,6 +2416,7 @@
           : sig === "ready" ? "工作流已就绪，点击节点配置后生成"
           : "无结果";
         box.appendChild(hint);
+        clearFrameRatio(node.id);
       }
       if (item && results.length > 1 && !running) {
         const badge = document.createElement("button");
