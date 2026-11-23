@@ -286,6 +286,21 @@
     return `${PROXY_PREFIX}view?${params.toString()}`;
   }
 
+  const MEDIA_EXT_VIDEO = /\.(mp4|webm|mov|m4v|mkv|avi|flv|3gp)\b/i;
+  const MEDIA_EXT_AUDIO = /\.(mp3|wav|flac|ogg|oga|m4a|aac|opus)\b/i;
+  // 新版 ComfyUI 把 mp4 放进 history 的 outputs.images 键，修复前落库的旧 results
+  // 会把视频标成 kind:"image"（渲染成 <img> 空白）。渲染前按文件名扩展名纠正 kind，
+  // 旧节点刷新即自愈、无需重新生成。只改 kind、保留原 viewUrl——viewUrl 含随机
+  // rand，若重建会让 syncNodeMedia 的 sig 每拍变化、视频反复重载播不动，故绝不重建。
+  function normalizeResultKind(item) {
+    if (!item || typeof item !== "object") return item;
+    const name = String(item.fileName || "");
+    let want = item.kind;
+    if (MEDIA_EXT_VIDEO.test(name)) want = "video";
+    else if (MEDIA_EXT_AUDIO.test(name)) want = "audio";
+    return want === item.kind ? item : { ...item, kind: want };
+  }
+
   function randomPosition() {
     return { x: 200 + Math.random() * 400, y: 100 + Math.random() * 300 };
   }
@@ -2347,7 +2362,7 @@
     const results = Array.isArray(node.data.results) ? node.data.results : [];
     if (!results.length) { closeViewer(); return; }
     const idx = Math.min(results.length - 1, Math.max(0, Number(index) || 0));
-    const item = results[idx];
+    const item = normalizeResultKind(results[idx]);
     const viewer = ensureViewer();
     const img = viewer.querySelector("img");
     const video = viewer.querySelector("video");
@@ -2404,7 +2419,7 @@
       const d = node.data;
       const results = Array.isArray(d.results) ? d.results : [];
       const idx = results.length ? Math.min(results.length - 1, Math.max(0, Number(d.activeResultIndex) || 0)) : 0;
-      const item = results.length ? results[idx] : null;
+      const item = results.length ? normalizeResultKind(results[idx]) : null;
       const running = runningNodes.has(node.id) || d.status === "running";
       let sig = "";
       if (running) sig = "running";
