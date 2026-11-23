@@ -47,9 +47,6 @@
   const MAX_WIDTH = 572;
   const MAX_HEIGHT = 440;
   const NODE_GAP = 10;
-  // 节点 DOM 被 React Flow 卸载后，用它兜底反算节点屏幕尺寸。
-  const FALLBACK_NODE_WIDTH = 260;
-  const FALLBACK_NODE_HEIGHT = 120;
   const PLACEHOLDER_TEXT =
     "在这里自由输入图片提示词，内容较长时可滚动或放大编辑。";
   const REFERENCE_HINT = "（输入 @ 可选择已链接图片）";
@@ -978,17 +975,21 @@
 
   function getSelectedNodeByCategory(state, category) {
     if (!state || !category) return null;
+    const nodes = state.nodes || [];
+    const matchCategory = (id) => {
+      if (!id) return null;
+      const node = nodes.find((item) => item.id === id);
+      return node && node.data && node.data.category === category ? node : null;
+    };
     const storeId =
       state.selectedNodeId || (state.selectedNodeIds || [])[0] || null;
-    // fiber 快照可能停在旧 state：旧兜底只在「类别不符」时重扫，两个同类别
-    // 节点之间切换（图片→图片）永远不触发，卡片就会粘在上一个节点。
-    // DOM 的 selected 与 store 不一致时以 DOM 为准。
-    const domId = getDomSelectedNodeId();
-    const selectedId = domId && domId !== storeId ? domId : storeId;
-    if (!selectedId) return null;
-    const node = (state.nodes || []).find((item) => item.id === selectedId);
-    if (!node || !node.data || node.data.category !== category) return null;
-    return node;
+    const storeNode = matchCategory(storeId);
+    const domNode = matchCategory(getDomSelectedNodeId());
+    // 两边都命中同一类别时以 DOM 为准：fiber 快照可能滞后，同类别切换
+    // （图片→图片）只有 DOM 的 selected 标记是新的，否则卡片粘在上一个节点。
+    // 只有一边命中当前类别时以命中的为准：反推等「程序化跨类别选中」时
+    // store 已指向新文本节点、DOM 高亮类还挂在旧图片节点，无脑信 DOM 会锚错。
+    return domNode || storeNode;
   }
 
   function getSelectedImageNode(state) {
@@ -1756,20 +1757,17 @@
 
     const measured = node.measured || {};
     const cached = lastNodeSizes.get(node.id) || {};
-    const width = firstFiniteNumber(
-      measured.width,
-      cached.width,
-      node.width,
-      FALLBACK_NODE_WIDTH
-    );
-    const height = firstFiniteNumber(
-      measured.height,
-      cached.height,
-      node.height,
-      FALLBACK_NODE_HEIGHT
-    );
+    const realWidth = firstFiniteNumber(measured.width, cached.width, node.width);
+    const realHeight = firstFiniteNumber(measured.height, cached.height, node.height);
+    // 反推等「刚程序化建好、React 尚未测量」的一刻：DOM 没挂上且没有任何
+    // 真实尺寸，此时用 260×120 假尺寸反算会把卡片贴到节点右下（top 按 120
+    // 算、水平按 260 居中，都与文本节点真实尺寸错位）。宁可这一拍不锚定
+    // （positionEditor 保留默认居中位），等 React 测完由下一次重算贴正，
+    // 也好过先跳到明显错误的地方再纠回。节点滚出视口的兜底仍走下面反算
+    // （那种情况 measured/缓存必有真实值，不会命中此 return）。
+    if (realWidth === null || realHeight === null) return null;
 
-    return rectFromFlowPosition(state, node, width, height);
+    return rectFromFlowPosition(state, node, realWidth, realHeight);
   }
 
   // ======= 贴着节点定位 =======
@@ -2465,7 +2463,7 @@
     window.addEventListener("resize", handleLayoutChange);
 
     window.__MS_IMAGE_EDITOR__ = {
-      version: "20261116-7",
+      version: "20261123-1",
       refresh: decorate,
       reposition: schedulePosition,
       // 供其它补丁复用「跳到 API 来源设置并定位模型列表」
