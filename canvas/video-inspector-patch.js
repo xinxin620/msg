@@ -120,6 +120,21 @@
         flex: none; padding-right: 8px; color: var(--text-secondary);
         border-right: 1px solid var(--panel-border); font-size: 12px;
       }
+      .${CARD_CLASS}__ref-strip {
+        flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin: -4px 0 10px;
+      }
+      .${CARD_CLASS}__ref-strip:empty { display: none; }
+      .${CARD_CLASS}__ref-chip {
+        position: relative; width: 44px; height: 56px; flex: none;
+        border-radius: 6px; overflow: hidden; background: #000;
+        border: 1px solid var(--panel-border-strong);
+      }
+      .${CARD_CLASS}__ref-chip img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .${CARD_CLASS}__ref-chip__idx {
+        position: absolute; left: 2px; top: 2px; padding: 1px 5px;
+        border-radius: 999px; background: #000000c0; color: #fff; font-size: 10px;
+      }
       .${CARD_CLASS}__ref-value {
         flex: 1 1 auto; min-width: 0; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap;
@@ -399,6 +414,47 @@
     return "已引用：" + parts.join(" · ");
   }
 
+  // 上游图按 edges 连线顺序收集（与 statsText 的计数、bundle 实发顺序同源），
+  // 每张标成「图N」缩略图，让用户看清哪张是图1（顺序=连线先后，非画布左右）。
+  function orderedUpstreamImages(nodeId) {
+    const r = getStateReader(); const st = r && r();
+    const out = [];
+    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return out;
+    st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
+      const src = st.nodes.find(n => n && n.id === edge.source);
+      if (!src || !src.data) return;
+      const c = src.data.category;
+      const isImg = c === "image" || (c === "upload" && src.data.assetType === "image");
+      if (!isImg) return;
+      const res = pickResult(src);
+      const url = String((res && (res.localPath || res.mediaUrl || res.url)) || src.data.mediaUrl || src.data.localPath || "");
+      if (url) out.push(url);
+    });
+    return out;
+  }
+
+  function renderRefStrip(strip, nodeId) {
+    const images = orderedUpstreamImages(nodeId);
+    const sig = images.join("\n");
+    if (strip.dataset.sig === sig) return;
+    strip.dataset.sig = sig;
+    strip.innerHTML = "";
+    images.forEach((src, i) => {
+      const chip = document.createElement("div"); chip.className = CARD_CLASS + "__ref-chip";
+      const idx = document.createElement("span"); idx.className = CARD_CLASS + "__ref-chip__idx";
+      idx.textContent = "图" + (i + 1);
+      const img = document.createElement("img"); img.alt = "";
+      chip.append(img, idx); strip.appendChild(chip);
+      if (/^(data:|https?:)/i.test(src)) { img.src = src; }
+      else {
+        const api = window.electronAPI;
+        if (api && typeof api.readLocalMediaDataUrl === "function") {
+          api.readLocalMediaDataUrl(src).then((u) => { if (u && strip.contains(chip)) img.src = u; }).catch(() => {});
+        }
+      }
+    });
+  }
+
   // 真实生效的那部分：bundle 的视频请求没有任何字段承载音频/音色，
   // 但 promptText 会进请求，所以这里把上游音频的合成文本并入提示词。
   function mergeAudioScripts() {
@@ -460,6 +516,8 @@
       mergeAudioScripts();
     }, true);
     refRow.append(refLabel, refValue, refHint, refBtn); c.appendChild(refRow);
+    const refStrip = document.createElement("div"); refStrip.className = CARD_CLASS + "__ref-strip";
+    c.appendChild(refStrip);
     syncRefRow(c, node);
 
     // Prompt label
@@ -803,6 +861,8 @@
     const stats = node ? upstreamStats(node.id) : null;
     const refValue = root.querySelector("." + CARD_CLASS + "__ref-value");
     if (refValue) refValue.textContent = statsText(stats);
+    const strip = root.querySelector("." + CARD_CLASS + "__ref-strip");
+    if (strip && node) renderRefStrip(strip, node.id);
     const btn = root.querySelector("." + CARD_CLASS + "__ref-btn");
     if (btn) btn.classList.toggle("is-available", !!(stats && stats.audios));
     // 连了音频就把代价写在行内：executeNode 会先自动跑一次配音（真实扣费），

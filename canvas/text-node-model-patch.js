@@ -85,6 +85,21 @@
         border-bottom: 1px solid var(--node-border, rgba(0, 0, 0, 0.08));
         margin-bottom: 4px;
       }
+      .ms-txt-ref-strip {
+        display: flex; align-items: center; gap: 6px;
+        flex-wrap: wrap; padding: 6px 10px 0;
+      }
+      .ms-txt-ref-strip:empty { display: none; }
+      .ms-txt-ref-chip {
+        position: relative; width: 40px; height: 50px; flex: none;
+        border-radius: 6px; overflow: hidden; background: #000;
+        border: 1px solid var(--node-border, rgba(0, 0, 0, 0.18));
+      }
+      .ms-txt-ref-chip img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .ms-txt-ref-chip__idx {
+        position: absolute; left: 2px; top: 2px; padding: 1px 5px;
+        border-radius: 999px; background: #000000c0; color: #fff; font-size: 10px;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -189,8 +204,76 @@
     dropdown.appendChild(list);
   }
 
+  // 文本面板是浮动面板、无 data-id，但 bundle 保证它对应「当前唯一选中文本节点」，
+  // 用 selectedNodeId 定位，再复刻 bundle qv 的上游图收集顺序（入边顺序→图片类→当前结果url）。
+  function canvasState() {
+    try {
+      return typeof window.Jh === "function" && typeof window.Jh.getState === "function"
+        ? window.Jh.getState() : null;
+    } catch { return null; }
+  }
+
+  function nodeImageUrl(node) {
+    const d = (node && node.data) || {};
+    const results = Array.isArray(d.results) ? d.results : [];
+    const res = results[d.activeResultIndex || 0] || results[0] || null;
+    return String((res && (res.mediaUrl || res.localPath || res.url)) || d.mediaUrl || d.localPath || "");
+  }
+
+  function orderedUpstreamImages(nodeId) {
+    const st = canvasState();
+    const out = [];
+    if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes) || !nodeId) return out;
+    st.edges.filter((e) => e && e.target === nodeId).forEach((edge) => {
+      const src = st.nodes.find((n) => n && n.id === edge.source);
+      if (!src || !src.data) return;
+      const c = String(src.data.category || "");
+      const isImg = c === "image" || (c === "upload" && src.data.assetType === "image");
+      if (!isImg) return;
+      const url = nodeImageUrl(src);
+      if (url) out.push(url);
+    });
+    return out;
+  }
+
+  function renderRefStrip(panel) {
+    const st = canvasState();
+    const selectedId = st && st.selectedNodeId;
+    const node = st && selectedId ? st.nodes.find((n) => n && n.id === selectedId) : null;
+    const isTextNode = node && String(node.data && node.data.category || "") === "text";
+    const images = isTextNode ? orderedUpstreamImages(selectedId) : [];
+    let strip = panel.querySelector(".ms-txt-ref-strip");
+    if (!images.length) { if (strip) strip.remove(); return; }
+    if (!strip) {
+      strip = document.createElement("div");
+      strip.className = "ms-txt-ref-strip";
+      const ta = panel.querySelector(".action-panel__prompt-input");
+      if (ta && ta.parentNode === panel) panel.insertBefore(strip, ta.nextSibling);
+      else panel.insertBefore(strip, panel.firstChild);
+    }
+    const sig = images.join("\n");
+    if (strip.dataset.sig === sig) return;
+    strip.dataset.sig = sig;
+    strip.innerHTML = "";
+    images.forEach((src, i) => {
+      const chip = document.createElement("div"); chip.className = "ms-txt-ref-chip";
+      const idx = document.createElement("span"); idx.className = "ms-txt-ref-chip__idx";
+      idx.textContent = "图" + (i + 1);
+      const img = document.createElement("img"); img.alt = "";
+      chip.append(img, idx); strip.appendChild(chip);
+      if (/^(data:|https?:)/i.test(src)) { img.src = src; }
+      else {
+        const api = window.electronAPI;
+        if (api && typeof api.readLocalMediaDataUrl === "function") {
+          api.readLocalMediaDataUrl(src).then((u) => { if (u && strip.contains(chip)) img.src = u; }).catch(() => {});
+        }
+      }
+    });
+  }
+
   function applyPanel(panel) {
     if (!panel) return;
+    try { renderRefStrip(panel); } catch (_) {}
     const profile = readActiveProfile();
     const models = getModels(profile);
     if (!models.length) {
@@ -245,6 +328,14 @@
 
   // 同一页面内在「文本API来源设置」里切换启用配置时，标题要跟着换。
   window.addEventListener("manshiguang:text-api-changed", applyAll);
+
+  // 连线增删不会重渲染浮动文本面板，observer（只监听 addedNodes）漏触发；
+  // 轮询兜底刷新缩略图带（renderRefStrip 内 sig 守卫，重复调用只比字符串不重建）。
+  window.setInterval(() => {
+    document.querySelectorAll(".action-panel--text").forEach((panel) => {
+      try { renderRefStrip(panel); } catch (_) {}
+    });
+  }, 300);
 
   window.addEventListener("storage", (event) => {
     if (event.key === KEY) applyAll();
