@@ -439,7 +439,7 @@
     modelRow.setAttribute("aria-expanded", "false");
     const modelLabel = document.createElement("span"); modelLabel.className = CARD_CLASS + "__model-label"; modelLabel.textContent = "语音 API";
     const modelValue = document.createElement("span"); modelValue.className = CARD_CLASS + "__model-value";
-    modelValue.textContent = node.data.audioModelId || DEFAULT_MODELS[0];
+    modelValue.textContent = displayModel(node);
     const modelChevron = document.createElement("span"); modelChevron.className = CARD_CLASS + "__model-chevron"; modelChevron.textContent = "▾";
     modelRow.append(modelLabel, modelValue, modelChevron);
     modelRow.addEventListener("click", ev => {
@@ -461,7 +461,7 @@
 
     // Model line
     const ml = document.createElement("div"); ml.className = CARD_CLASS + "__model-line";
-    ml.innerHTML = '<strong>模型:</strong> ' + escHtml(node.data.audioModelId || DEFAULT_MODELS[0]);
+    ml.innerHTML = '<strong>模型:</strong> ' + escHtml(displayModel(node));
     c.appendChild(ml);
 
     // Action buttons
@@ -760,6 +760,20 @@
     return null;
   }
 
+  // 显示=实发：voice-api-patch 接管后，节点里没设过 audioModelId 的会兜底到
+  // 勾选集合/配置模型名，标签不能再显示 bundle 默认 speech-2.8-hd（假显示）。
+  function displayModel(node) {
+    const raw = (node && node.data && node.data.audioModelId) || "";
+    try {
+      const fn = window.__MS_VOICE_API_PATCH__ && window.__MS_VOICE_API_PATCH__.effectiveModel;
+      if (typeof fn === "function") {
+        const eff = String(fn(raw) || "").trim();
+        if (eff) return eff;
+      }
+    } catch (_) {}
+    return raw || DEFAULT_MODELS[0];
+  }
+
   function activeVoiceProfile() {
     const state = readVoiceApiState();
     if (!state) return null;
@@ -786,7 +800,7 @@
     return [
       profile && profile.id || "",
       selectedVoiceModels(profile).join(","),
-      node && node.data && node.data.audioModelId || "",
+      displayModel(node),
     ].join("|");
   }
 
@@ -822,7 +836,7 @@
     const profile = activeVoiceProfile();
     const models = selectedVoiceModels(profile);
     const node = getSelectedAudioNode();
-    const chosen = node && node.data && node.data.audioModelId || "";
+    const chosen = displayModel(node);
     const menu = document.createElement("div");
     menu.className = CARD_CLASS + "__menu";
 
@@ -932,9 +946,9 @@
     }
     const modelValue = card.querySelector("." + CARD_CLASS + "__model-value");
     const n = getSelectedAudioNode();
-    if (modelValue && n) modelValue.textContent = n.data.audioModelId || DEFAULT_MODELS[0];
+    if (modelValue && n) modelValue.textContent = displayModel(n);
     const ml = card.querySelector("." + CARD_CLASS + "__model-line");
-    if (ml && n) ml.innerHTML = '<strong>模型:</strong> ' + escHtml(n.data.audioModelId || DEFAULT_MODELS[0]);
+    if (ml && n) ml.innerHTML = '<strong>模型:</strong> ' + escHtml(displayModel(n));
     syncParamSheet();
     syncModelMenu();
     syncSourceMenu();

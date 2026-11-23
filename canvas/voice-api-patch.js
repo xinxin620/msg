@@ -1569,6 +1569,13 @@
     },
     close: deactivate,
     refresh: publishActiveVoice,
+    // 节点标签显示用：bundle 默认 audioModelId（speech-2.8-hd）不在勾选集合时，
+    // 实际发送走 pickVoiceModel 兜底；这里导出同一份判定，显示=实发。
+    effectiveModel: (requested) => {
+      const profile = activeVoiceProfile();
+      if (!profile || !canUseVoiceProfile(profile)) return String(requested || "").trim();
+      return pickVoiceModel(profile, requested) || String(requested || "").trim();
+    },
     debug: () => {
       const profile = activeVoiceProfile();
       let persistedKey = "";
