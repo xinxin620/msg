@@ -1086,7 +1086,79 @@
     return "canvas-up-" + Date.now() + "-" + index + "." + extFromMime;
   }
 
-  // 把上游图/音/视按序上传并写进工作流对应加载节点；不足复用最后一个，返回告警文案数组
+  // autogrow 槽位族（MiniMax H3 的 ref_images.ref_image_0..N 等，API 格式里是
+  // 「family.item_N」展平键、值引用加载节点）：按上游媒体数把槽位调成一致——
+  // 多了复制加载节点（新 id 递增、_meta.title 标「复制N」）补 item_N 键，
+  // 少了删键并回收不再被引用的加载节点。返回按槽序的 [nodeId, out] 映射，
+  // 注入即一一对应；非 autogrow 工作流返回 null，走旧「不足复用最后一个」轮转。
+  // 同 kind 多族（如 ref_audios 与 ref_video_audios）取已占槽最多的族，避免猜错语义。
+  const AUTOGROW_SLOT_RE = /^(.+)\.(.+?)_(\d+)$/;
+  function resizeAutogrowSlots(promptObj, kind, count) {
+    const isLoaderOfKind = (node) => node && MEDIA_LOADERS[node.class_type] && MEDIA_LOADERS[node.class_type].kind === kind;
+    const families = [];
+    const famOf = new Map();
+    for (const [ownerId, node] of Object.entries(promptObj)) {
+      for (const [key, value] of Object.entries(node.inputs || {})) {
+        if (!Array.isArray(value) || value.length !== 2) continue;
+        const m = AUTOGROW_SLOT_RE.exec(key);
+        if (!m) continue;
+        if (!isLoaderOfKind(promptObj[String(value[0])])) continue;
+        const [full, family, base, index] = m;
+        let fam = famOf.get(family);
+        if (!fam) { fam = { family, base, owner: ownerId, slots: new Map() }; famOf.set(family, fam); families.push(fam); }
+        fam.slots.set(Number(index), { key, ref: value });
+      }
+    }
+    if (!families.length) return null;
+    const fam = families.reduce((a, b) => (b.slots.size > a.slots.size ? b : a));
+    // 只认从 0 开始的连续段，断档视为族尾
+    let have = 0;
+    while (fam.slots.has(have)) have += 1;
+    if (!have) return null;
+    const dropped = [];
+    for (let i = count; i < have; i += 1) {
+      const s = fam.slots.get(i);
+      if (!s) continue;
+      delete promptObj[fam.owner].inputs[s.key];
+      dropped.push(String(s.ref[0]));
+      fam.slots.delete(i);
+    }
+    const templateRef = fam.slots.get(Math.min(have, count) - 1);
+    const templateNode = templateRef ? promptObj[String(templateRef.ref[0])] : null;
+    if (count > have && !templateNode) return null;
+    let nextId = Object.keys(promptObj).reduce((max, k) => Math.max(max, Number(k) || 0), 0) + 1;
+    for (let i = have; i < count; i += 1) {
+      const copyId = String(nextId++);
+      const title = templateNode._meta && templateNode._meta.title;
+      promptObj[copyId] = {
+        class_type: templateNode.class_type,
+        inputs: { ...templateNode.inputs },
+        _meta: { title: `${title || templateNode.class_type}（复制${i + 1}）` },
+      };
+      promptObj[fam.owner].inputs[`${fam.family}.${fam.base}_${i}`] = [Number(copyId), 0];
+      fam.slots.set(i, { key: `${fam.family}.${fam.base}_${i}`, ref: [copyId, 0] });
+    }
+    // 回收孤儿：被删槽引用的加载节点若不再被任何输入引用，从提交图里移除
+    if (dropped.length) {
+      const stillUsed = new Set();
+      for (const node of Object.values(promptObj)) {
+        for (const value of Object.values(node.inputs || {})) {
+          if (Array.isArray(value)) stillUsed.add(String(value[0]));
+        }
+      }
+      dropped.forEach((id) => { if (!stillUsed.has(id)) delete promptObj[id]; });
+    }
+    const mapping = [];
+    for (let i = 0; i < count; i += 1) {
+      const s = fam.slots.get(i);
+      if (!s) return null; // 理论不达；宁可整体退回旧轮转也不半途错配
+      mapping.push([String(s.ref[0]), s.ref[1]]);
+    }
+    return mapping;
+  }
+
+  // 把上游图/音/视按序上传并写进工作流对应加载节点：autogrow 族（H3 参考槽位）
+  // 先配平到媒体数、按槽序一一对应；普通加载节点不足复用最后一个。返回告警文案数组
   async function injectUpstreamMedia(profile, url, promptObj, sources) {
     const warnings = [];
     const entries = Object.entries(promptObj).filter(([, node]) => node && MEDIA_LOADERS[node.class_type]);
@@ -1096,8 +1168,10 @@
       const label = MEDIA_LABEL[kind];
       const loaders = entries.filter(([, node]) => MEDIA_LOADERS[node.class_type].kind === kind);
       if (!loaders.length) { warnings.push(`工作流里没有${label}加载节点，${list.length} 个上游${label}未注入`); continue; }
+      // autogrow 族先把槽位配平到 list.length，注入按槽序一一对应
+      const slotRefs = resizeAutogrowSlots(promptObj, kind, list.length);
       for (let i = 0; i < list.length; i++) {
-        const target = loaders[Math.min(i, loaders.length - 1)][1];
+        const target = slotRefs ? promptObj[slotRefs[i][0]] : loaders[Math.min(i, loaders.length - 1)][1];
         const field = MEDIA_LOADERS[target.class_type].field;
         const blob = await fetchMediaBlob(list[i]);
         if (!blob) { warnings.push(`第 ${i + 1} 个上游${label}本地路径读不到或被 CORS 拦截，无法自动上传`); continue; }
