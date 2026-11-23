@@ -564,6 +564,21 @@
         text-overflow: ellipsis; white-space: nowrap;
       }
       .${CARD_CLASS}__ref-hint { flex: none; color: var(--text-tertiary); font-size: 11px; }
+      .${CARD_CLASS}__ref-strip {
+        flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin: -4px 0 10px;
+      }
+      .${CARD_CLASS}__ref-strip:empty { display: none; }
+      .${CARD_CLASS}__ref-chip {
+        position: relative; width: 44px; height: 56px; flex: none;
+        border-radius: 6px; overflow: hidden; background: #000;
+        border: 1px solid var(--panel-border-strong);
+      }
+      .${CARD_CLASS}__ref-chip img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .${CARD_CLASS}__ref-chip__idx {
+        position: absolute; left: 2px; top: 2px; padding: 1px 5px;
+        border-radius: 999px; background: #000000c0; color: #fff; font-size: 10px;
+      }
       .${CARD_CLASS}__prompt-label {
         flex: 0 0 auto; margin: 0 2px 7px;
         color: var(--text-secondary); font-size: 12px; line-height: 1.4;
@@ -947,6 +962,31 @@
     return String((res && (res.localPath || res.mediaUrl || res.url)) || d.mediaUrl || d.localPath || d.referenceImage || "");
   }
 
+  // 上游图按注入顺序渲染成带「图N」角标的缩略图带：第 N 张即实际进 image_N 的那张，
+  // 让用户一眼区分谁是图1（顺序＝edges 连线顺序，非画布左右位置）。
+  function renderRefStrip(strip, nodeId) {
+    const inputs = upstreamInputs(nodeId);
+    const images = (inputs && inputs.images) || [];
+    const sig = images.join("\n");
+    if (strip.dataset.sig === sig) return;
+    strip.dataset.sig = sig;
+    strip.innerHTML = "";
+    images.forEach((src, i) => {
+      const chip = document.createElement("div"); chip.className = CARD_CLASS + "__ref-chip";
+      const idx = document.createElement("span"); idx.className = CARD_CLASS + "__ref-chip__idx";
+      idx.textContent = "图" + (i + 1);
+      const img = document.createElement("img"); img.alt = "";
+      chip.append(img, idx); strip.appendChild(chip);
+      if (/^(data:|https?:)/i.test(src)) { img.src = src; }
+      else {
+        const api = window.electronAPI;
+        if (api && typeof api.readLocalMediaDataUrl === "function") {
+          api.readLocalMediaDataUrl(src).then((u) => { if (u && strip.contains(chip)) img.src = u; }).catch(() => {});
+        }
+      }
+    });
+  }
+
   // 读取直接连入本节点的上游：文本 + 图/音/视三类源数组（视频工作流常需多参考图 + 参考音色 + 参考视频）
   function upstreamInputs(nodeId) {
     const r = getStateReader(); const st = r && r();
@@ -1227,6 +1267,10 @@
     const refHint = document.createElement("span"); refHint.className = CARD_CLASS + "__ref-hint";
     refHint.textContent = "提示词写入工作流文本节点";
     refRow.append(refLabel, refValue, refHint); c.appendChild(refRow);
+
+    const refStrip = document.createElement("div"); refStrip.className = CARD_CLASS + "__ref-strip";
+    c.appendChild(refStrip);
+    renderRefStrip(refStrip, node.id);
 
     const plbl = document.createElement("div"); plbl.className = CARD_CLASS + "__prompt-label"; plbl.textContent = "提示词";
     c.appendChild(plbl);
@@ -2016,6 +2060,8 @@
     }
     const refValue = card.querySelector("." + CARD_CLASS + "__ref-value");
     if (refValue) refValue.textContent = statsText(upstreamStats(node.id));
+    const refStrip = card.querySelector("." + CARD_CLASS + "__ref-strip");
+    if (refStrip) renderRefStrip(refStrip, node.id);
     const ta = card.querySelector("." + CARD_CLASS + "__prompt-input");
     if (ta && document.activeElement !== ta && ta.value !== (node.data.comfyPrompt || "")) ta.value = node.data.comfyPrompt || "";
     const ph = card.querySelector("." + CARD_CLASS + "__prompt-ph");
