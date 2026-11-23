@@ -193,6 +193,21 @@
   }
 
   /* ===== 相对路径解析与遍历 ===== */
+  // File System Access 的原生错误是英文 NotFoundError 之类，直接漏进界面没法看。
+  // 统一翻成中文再往外抛（story 侧「不静默成功」，但必须是用户读得懂的失败）。
+  function friendlyError(error, relPath) {
+    if (error?.name === "NotFoundError") {
+      return new Error(`目录或文件不存在：${relPath}（确认路径拼写后点刷新）`);
+    }
+    if (error?.name === "NotAllowedError") {
+      return new Error("目录授权被拒绝或已失效，请重新添加项目");
+    }
+    if (error?.name === "SecurityError") {
+      return new Error("浏览器安全策略拒绝了这次目录访问，请通过本地服务器（start.bat）打开本页");
+    }
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
   function splitRel(relPath) {
     const raw = String(relPath || "").replace(/\\/g, "/");
     const segments = raw.split("/").filter((part) => part && part !== ".");
@@ -248,11 +263,15 @@
   }
 
   async function readText(token, relPath) {
-    const root = await rootHandle(token);
-    const { parent, name } = await resolveFile(root, relPath);
-    const fileHandle = await parent.getFileHandle(name);
-    const file = await fileHandle.getFile();
-    return { text: await file.text(), lastModified: file.lastModified, name };
+    try {
+      const root = await rootHandle(token);
+      const { parent, name } = await resolveFile(root, relPath);
+      const fileHandle = await parent.getFileHandle(name);
+      const file = await fileHandle.getFile();
+      return { text: await file.text(), lastModified: file.lastModified, name };
+    } catch (error) {
+      throw friendlyError(error, relPath);
+    }
   }
 
   // 写文本：父目录逐级创建，覆盖同名文件。失败抛中文，不静默。

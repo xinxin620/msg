@@ -215,5 +215,144 @@
     return { scenes, dialogueLines, voicedChars, voLines, estSeconds };
   }
 
-  window.__MS_STORY_RENDER__ = { parseScreenplay, speakerColors, countStats, TAGS };
+  /* ===== H3 分镜解析（story 侧轻量版，结构校验权威仍在 skills 的 validate_h3_storyboard.py） ===== */
+  // 契约：## H3-UNIT-EPxxx-... · 标题；单元元数据 "- 时长：N 秒" / "- 模式：reference"；
+  // ### SHOT-... · 标题；### H3 提示词 下英文 ```text 块 + ### 中文对照 下中文块。
+  const H3_UNIT_RE = /^##\s+(H3-UNIT-[^\s·]+)(?:\s*·\s*(.*))?$/;
+  const H3_SHOT_RE = /^###\s+(SHOT-[^\s·]+)(?:\s*·\s*(.*))?$/;
+  const H3_META_RE = /^-\s*([一-龥A-Za-z]+)：\s*(.+)$/;
+
+  function parseH3(text) {
+    const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+    const units = [];
+    let unit = null;
+    let shot = null;
+    let section = ""; // unit | shot | prompt | contrast
+    let fence = null; // { lang, lines[] }
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+
+      if (fence) {
+        if (trimmed.startsWith("```")) {
+          fence.content = fence.lines.join("\n").replace(/^\n+|\n+$/g, "");
+          const target = shot || unit;
+          if (target) {
+            if (fence.lang === "zh" || section === "contrast") target.contrast = fence.content;
+            else target.prompt = fence.content;
+          }
+          fence = null;
+          return;
+        }
+        fence.lines.push(line);
+        return;
+      }
+
+      if (trimmed.startsWith("```")) {
+        fence = { lang: section === "contrast" ? "zh" : "en", lines: [] };
+        return;
+      }
+
+      const unitMatch = H3_UNIT_RE.exec(trimmed);
+      if (unitMatch) {
+        unit = { id: unitMatch[1], title: unitMatch[2] || "", meta: {}, shots: [], prompt: "", contrast: "" };
+        shot = null;
+        section = "unit";
+        units.push(unit);
+        return;
+      }
+      if (!unit) return;
+
+      const shotMatch = H3_SHOT_RE.exec(trimmed);
+      if (shotMatch && !/^###\s*H3\s*提示词/.test(trimmed) && !/^###\s*中文对照/.test(trimmed)) {
+        shot = { id: shotMatch[1], title: shotMatch[2] || "", meta: {} };
+        unit.shots.push(shot);
+        section = "shot";
+        return;
+      }
+      if (/^###\s*H3\s*提示词/.test(trimmed)) { section = "prompt"; shot = null; return; }
+      if (/^###\s*中文对照/.test(trimmed)) { section = "contrast"; shot = null; return; }
+
+      const meta = H3_META_RE.exec(trimmed);
+      if (meta && (section === "unit" || section === "shot")) {
+        const target = section === "unit" ? unit : shot;
+        if (!target.meta[meta[1]]) target.meta[meta[1]] = meta[2].trim();
+      }
+    });
+
+    if (fence) {
+      const content = fence.lines.join("\n").replace(/^\n+|\n+$/g, "");
+      const target = shot || unit;
+      if (target) { if (fence.lang === "zh" || section === "contrast") target.contrast = content; else target.prompt = content; }
+    }
+
+    const stats = {
+      units: units.length,
+      shots: units.reduce((sum, u) => sum + u.shots.length, 0),
+      over: units.filter((u) => {
+        const sec = parseInt(String(u.meta["时长"] || ""), 10);
+        return Number.isFinite(sec) && (sec < 4 || sec > 15);
+      }).length,
+      missingPrompt: units.filter((u) => !u.prompt.trim()).length,
+    };
+    return { units, stats };
+  }
+
+  /* ===== 视觉设定 / 资产生图提示词 条目解析（对齐 liang-visual-assets-prompts 文档骨架） ===== */
+  // 视觉设定.md：## 人物与造型|生物|地点与视图|道具与状态 分组；
+  // ### CHAR-xxx · 名 / ### LOC-... / ### PROP-... 条目；#### LOOK-... 造型变体挂当前条目。
+  const ASSET_GROUP_RE = /^##\s+(人物与造型|生物|地点与视图|道具与状态)\s*$/;
+  const ASSET_ITEM_RE = /^###\s+((?:CHAR|LOC|PROP)-[A-Z0-9-]+)\s*(?:·\s*(.*))?$/;
+  const ASSET_LOOK_RE = /^####\s+(LOOK-[A-Z0-9-]+)\s*(?:·\s*(.*))?$/;
+
+  function parseVisualAssets(text) {
+    const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+    const groups = [];
+    let group = null;
+    let item = null;
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const g = ASSET_GROUP_RE.exec(trimmed);
+      if (g) { group = { category: g[1], items: [] }; groups.push(group); item = null; return; }
+      if (/^##\s/.test(trimmed)) { group = null; item = null; return; }
+      if (!group) return;
+      const m = ASSET_ITEM_RE.exec(trimmed);
+      if (m) { item = { id: m[1], name: (m[2] || "").trim(), looks: [] }; group.items.push(item); return; }
+      const lk = ASSET_LOOK_RE.exec(trimmed);
+      if (lk && item) { item.looks.push({ id: lk[1], name: (lk[2] || "").trim() }); }
+    });
+    return {
+      groups,
+      total: groups.reduce((sum, g) => sum + g.items.length, 0),
+      lookTotal: groups.reduce((sum, g) => sum + g.items.reduce((s, i) => s + i.looks.length, 0), 0),
+    };
+  }
+
+  // 资产生图提示词.md：## IMG-xxx · 名 条目；### 可复制提示词 下引用块行（> 开头）算有正文。
+  const PROMPT_ITEM_RE = /^##\s+(IMG-[A-Z0-9-]+)\s*(?:·\s*(.*))?$/;
+
+  function parseAssetPrompts(text) {
+    const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+    const items = [];
+    let item = null;
+    let inCopy = false;
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const m = PROMPT_ITEM_RE.exec(trimmed);
+      if (m) {
+        item = { id: m[1], name: (m[2] || "").trim(), copyLines: 0 };
+        items.push(item);
+        inCopy = false;
+        return;
+      }
+      if (/^##\s/.test(trimmed)) { item = null; inCopy = false; return; }
+      if (!item) return;
+      if (/^###\s*可复制提示词/.test(trimmed)) { inCopy = true; return; }
+      if (/^###\s/.test(trimmed)) { inCopy = false; return; }
+      if (inCopy && trimmed.startsWith(">")) item.copyLines += 1;
+    });
+    return { items, missingCopy: items.filter((i) => !i.copyLines).length };
+  }
+
+  window.__MS_STORY_RENDER__ = { parseScreenplay, speakerColors, countStats, parseH3, parseVisualAssets, parseAssetPrompts, TAGS };
 })();

@@ -5,18 +5,25 @@
 > 定位：**项目/剧集管理 + 剧本专用查看**，不重实现写作——生成能力（小说→剧本、剧本→分镜、资产提取）归 `liang-drama-prompts` 等 skills 与后续「生成」批次，本域只读写文件、渲染、组织。
 
 ## 组成
-- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`）+ 图标 sprite + 版本守卫（`20261123-2`）。脚本顺序：`story-fs.js` → `story-render.js` → `story.js`（defer）。
+- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`）+ 图标 sprite + 版本守卫（`20261123-3`）。脚本顺序：`story-fs.js` → `story-render.js` → `story.js`（defer）。
 - `story/assets/story-fs.js`：文件层。直连共享 IndexedDB `manshiguang-canvas-bridge`/`directoryHandles`（同 game.js 先例，**不加载 web-bridge.js**，避免画布 fetch/图片 src 补丁副作用）。挂 `window.__MS_STORY_FS__`。
-- `story/assets/story-render.js`：剧本专用渲染器。挂 `window.__MS_STORY_RENDER__`（`parseScreenplay`/`speakerColors`/`countStats`）。
-- `story/assets/story.js`：外壳路由与视图（项目卡片 → 剧集树 + 文件标签页）。
+- `story/assets/story-render.js`：专用解析器。挂 `window.__MS_STORY_RENDER__`：`parseScreenplay`/`speakerColors`/`countStats`/`parseH3`/`parseVisualAssets`/`parseAssetPrompts`。
+- `story/assets/story.js`：外壳路由与视图（项目卡片 → 剧集树 + 三阶段 tab）。
 - `story/assets/story.css`：主题。**与 studio 外壳同一套浅色 token**（`--bg:#eeecea` 等，抄自 `studio.css` :root）——外壳不是夜航星海深色，别按深色做。
 - `story/assets/story-gen.js`：生成层（复用画布文本 API 配置 + skill 骨架），**已写好但本批未挂进页面**，随「生成」批次启用。
+
+## 三阶段 tab（`20261123-3`，用户点名）
+项目内按制作阶段分三个 tab（`STAGES` 注册表，files 顺序即子标签顺序）：
+1. **原文与剧本**：`原文.md`（小说/大纲原文，raw 预览）+ `剧本.md`（专用渲染）。`原文.md` 是本域新增约定（skills 没有这个契约），生成批次「小说转剧本」从这里取输入。
+2. **分镜工作台**：`H3分镜.md` → `parseH3` 单元卡（时长徽标 **4–15 秒越界标红**、模式、SHOT 表、英文正文块/中文对照块分块 + 一键复制）。
+3. **资产列表**：`视觉设定.md` → `parseVisualAssets` 按四类分组（空组也显示）；`资产生图提示词.md` → `parseAssetPrompts` IMG 项 + 缺可复制正文计数。
+剧集树状态点随之改为按阶段 3 个（script=紫 / storyboard=粉 / assets=绿）。
 
 ## 实体与键位
 - 项目注册表：同 store 键 `story:projects` = `[{token,name,createdAt,lastOpened}]`。一个授权目录＝一部剧（方案①，用户 2026-11-23 拍板）。
 - 项目 handle 记录：键 `webdir:<uuid>:<encoded-name>`，**只写 token 记录、绝不覆盖 `bridge:default`**——否则换项目会把画布资产目录一起改掉。
 - 移除项目＝删注册表行 + 删 token 记录，不碰本地文件、不碰画布授权。
-- 剧集目录约定：`<root>/剧集/EPxxx/{剧本.md,视觉设定.md,资产生图提示词.md,H3分镜.md}`，文件名精确匹配（大小写敏感），缺失显示「缺」不放假数据。
+- 剧集目录约定：`<root>/剧集/EPxxx/{原文.md,剧本.md,视觉设定.md,资产生图提示词.md,H3分镜.md}`，文件名精确匹配（大小写敏感），缺失显示「缺」不放假数据。
 
 ## 消息契约
 - story iframe → 外壳：`{source:"manshiguang-story-embed",type:"request-directory",requestId}`（iframe 内点「添加项目」时，`showDirectoryPicker` 必须顶层窗口，同资产授权先例）。
@@ -30,7 +37,13 @@
 - 时长是粗估（可发声字÷4.1，VO 计入），页面明写「权威估算以 skills 的 duration_estimate 为准」——导演台不做门禁。
 - 未知结构降级为动作段落原样显示，正文一字不丢。
 
+## 分镜/资产解析口径（`20261123-3`）
+- `parseH3` 跟 `liang-h3-storyboard-prompts` 骨架：`## H3-UNIT-… · 标题` / `- 时长：N 秒` / `### SHOT-…` / `### H3 提示词` 下英文 ```text 块 / `### 中文对照` 下中文块。**双块按 section 归属，不混**（英文块混中文=提示词污染，是 skill 点名的事故源）。解析不出单元时整篇 raw 兜底显示，不白屏。
+- `parseVisualAssets`/`parseAssetPrompts` 跟 `liang-visual-assets-prompts` 的 `references/documents-and-extraction.md` 骨架：四分组标题精确匹配、`CHAR-/LOC-/PROP-/LOOK-/IMG-` ID 前缀；分组外内容（项目视觉方向/跨场连续性）只显示不解析。
+- 浏览器侧解析只做**即时反馈**（越界/缺块计数），结构校验权威仍在 skills 的 `validate_h3_storyboard.py`——两边规则冲突时以 skills 为准并回改这里。
+
 ## 已知边界与坑
+- **原生错误必须过 `friendlyError`**：File System Access 抛的是英文 `NotFoundError` 等，直接 `error.message` 上界面就是「A requested file or directory could not be found…」（用户 4173 实测截图抓到过）。fs 层读写入口统一 catch 翻中文；story.js 展示层拿到的应当已是中文。
 - `fileMeta` 的 `lastModified` 是浏览器缓存的元数据，可能滞后于磁盘；显示文案别写成「实时」。
 - 逐集探测文件存在性 = 每集一次 `listDir`，几十集会有一串 IO；剧集数上千要改成懒探测（现状漫剧规模不需要）。
 - 授权 token 与画布资产目录 token 同 store 混存，story 只认自己注册表里的 token；`removeProject` 只删自己那条。
