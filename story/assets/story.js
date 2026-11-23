@@ -1,21 +1,35 @@
 (() => {
   "use strict";
 
-  // 剧情导演台外壳：项目卡片（外层）→ 项目内三阶段 tab（原文与剧本 / 分镜工作台 / 资产列表）。
-  // 一个授权目录 = 一部剧（方案①），文件约定不变，只读复用画布共享的 IndexedDB。
-  // 生成（小说→剧本等）不在这一批：本文件只做浏览 / 查看地基。
-  // 所有失败走 toast 中文报错，不静默、不放假数据。
+  // 剧情导演台外壳：项目卡片（外层）→ 项目内「制作流水线 / 剧集浏览」两个 tab。
+  // 流水线：导入小说 → 小说转剧本 → 资产提取 → 剧本转分镜，生成复用画布文本 API 配置
+  // 与 SKILL 骨架（story-gen.js + skill-templates-data.js），产出先落预览、确认后才写盘——
+  // 对应 skills 的「确认卡先于成稿」硬门禁，界面里就是「预览→保存到本集」。
+  // 一个授权目录 = 一部剧（方案①），文件约定不变。所有失败中文报错，不静默、不放假数据。
 
   const FS = window.__MS_STORY_FS__;
   const RENDER = window.__MS_STORY_RENDER__;
+  const GEN = window.__MS_STORY_GEN__;
 
   const body = document.getElementById("storyBody");
   const topTitle = document.getElementById("topTitle");
   const backBtn = document.getElementById("backBtn");
   const backLabel = document.getElementById("backLabel");
   const toastEl = document.getElementById("storyToast");
+  const apiChip = document.getElementById("apiChip");
+  const apiLabel = document.getElementById("apiLabel");
 
-  // 三个阶段 tab；files=该阶段展示的规范文件（顺序即标签顺序）
+  const EP_FILE_CHOICES = ["原文.md", "剧本.md", "视觉设定.md", "资产生图提示词.md", "H3分镜.md"];
+
+  // 流水线任务卡定义：template=默认骨架 id，input/output=默认文件
+  const TASKS = [
+    { id: "import", label: "导入小说", icon: "s-icon-folder" },
+    { id: "to-script", label: "小说转剧本", icon: "s-icon-script", input: "原文.md", output: "剧本.md", template: "builtin-screenplay" },
+    { id: "assets", label: "资产提取", icon: "s-icon-plus", input: "剧本.md", output: "视觉设定.md", template: "builtin-visual-assets" },
+    { id: "to-storyboard", label: "剧本转分镜", icon: "s-icon-refresh", input: "剧本.md", output: "H3分镜.md", template: "builtin-h3-storyboard", reference: "视觉设定.md" },
+  ];
+
+  // 剧集浏览的阶段 tab；files=该阶段展示的规范文件（顺序即标签顺序）
   const STAGES = [
     {
       id: "script",
@@ -42,13 +56,12 @@
     },
   ];
 
-  const ALL_FILE_NAMES = STAGES.flatMap((stage) => stage.files.map((f) => f.name));
-
   const state = {
     view: "grid", // grid | project
     token: "",
     projectName: "",
     episodes: [], // [{ name, files:Set }]
+    projectTab: "pipeline", // pipeline | browse
     activeEp: "",
     activeStage: "script",
     activeFile: "",
@@ -90,17 +103,30 @@
     if (inProject) backLabel.textContent = "项目列表";
   }
 
+  function refreshApiChip() {
+    if (!apiChip) return;
+    apiChip.hidden = state.view !== "project";
+    if (!GEN) { apiChip.classList.add("is-error"); apiLabel.textContent = "生成层未加载"; return; }
+    const info = GEN.previewConfig();
+    apiChip.classList.toggle("is-ready", info.ready);
+    apiChip.classList.toggle("is-error", !info.ready);
+    apiLabel.textContent = info.ready
+      ? `文本 API：${info.name}${info.model ? " · " + info.model : ""}`
+      : "文本 API 未就绪：" + (info.missing[0] || "请到设置·API设置配置");
+  }
+
   /* ===== 外层：项目卡片 ===== */
   async function renderGrid() {
     state.view = "grid";
     setChrome();
+    refreshApiChip();
     body.replaceChildren();
     const wrap = el("div", "wrap");
 
     const head = el("div", "grid-head");
     const headCopy = el("div");
     headCopy.appendChild(el("h2", null, "项目"));
-    headCopy.appendChild(el("p", null, "一个授权目录＝一部剧。打开后按集走「原文与剧本 → 分镜工作台 → 资产列表」。"));
+    headCopy.appendChild(el("p", null, "一个授权目录＝一部剧。打开后走「导入小说 → 小说转剧本 → 资产提取 → 剧本转分镜」。"));
     head.appendChild(headCopy);
     const addBtn = el("button", "btn-primary", '<svg class="icon"><use href="#s-icon-plus"></use></svg>添加项目');
     addBtn.type = "button";
@@ -124,7 +150,7 @@
 
     if (!projects.length) {
       grid.replaceChildren(
-        el("div", "pc-empty", "<strong>还没有项目</strong>点「添加项目」，选择存放 剧集/EPxxx/ 的本地目录即可。"),
+        el("div", "pc-empty", "<strong>还没有项目</strong>点「添加项目」，选择存放 剧集/EPxxx/ 的本地目录；空目录也可以，导入小说会自动建。"),
       );
       return;
     }
@@ -184,64 +210,391 @@
     }
   }
 
-  /* ===== 内层：剧集树 + 阶段 tab ===== */
+  /* ===== 内层：项目壳（流水线 / 浏览） ===== */
   async function openProject(token, name) {
     state.view = "project";
     state.token = token;
     state.projectName = name;
     state.episodes = [];
     state.activeEp = "";
+    state.projectTab = "pipeline";
     state.activeStage = "script";
     state.activeFile = "";
     setChrome();
+    refreshApiChip();
 
     body.replaceChildren();
+    const tabs = el("div", "proj-tabs");
+    const host = el("div", "proj-host");
+    body.append(tabs, host);
+
+    TAB_BUTTONS.forEach((def) => {
+      const tab = el("button", "proj-tab" + (def.id === state.projectTab ? " is-active" : ""));
+      tab.type = "button";
+      tab.dataset.tab = def.id;
+      tab.textContent = def.label;
+      tab.addEventListener("click", () => {
+        state.projectTab = def.id;
+        tabs.querySelectorAll(".proj-tab").forEach((b) => b.classList.toggle("is-active", b.dataset.tab === def.id));
+        renderProjectTab(host);
+      });
+      tabs.appendChild(tab);
+    });
+
+    host.replaceChildren(el("div", "pipe-loading", "正在扫描 剧集/ 目录…"));
+    await scanEpisodes();
+    renderProjectTab(host);
+  }
+
+  const TAB_BUTTONS = [
+    { id: "pipeline", label: "制作流水线" },
+    { id: "browse", label: "剧集浏览" },
+  ];
+
+  async function scanEpisodes() {
+    state.episodes = [];
+    let dirs;
+    try {
+      dirs = await FS.listDir(state.token, "剧集");
+    } catch (error) {
+      state.scanError = error;
+      return;
+    }
+    state.scanError = null;
+    const eps = dirs.dirs.filter((d) => /^EP\d+/i.test(d.name));
+    for (const ep of eps) {
+      const entry = { name: ep.name, files: new Set() };
+      try {
+        const listed = await FS.listDir(state.token, "剧集/" + ep.name);
+        listed.files.forEach((f) => entry.files.add(f.name));
+      } catch (_) { /* 单集读失败按空处理 */ }
+      state.episodes.push(entry);
+    }
+    state.episodes.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  }
+
+  async function rescanEpisodeFiles(epName) {
+    const entry = state.episodes.find((ep) => ep.name === epName);
+    if (!entry) return;
+    try {
+      const listed = await FS.listDir(state.token, "剧集/" + epName);
+      entry.files = new Set(listed.files.map((f) => f.name));
+    } catch (_) { /* 保持旧状态 */ }
+  }
+
+  function nextEpName() {
+    let max = 0;
+    state.episodes.forEach((ep) => {
+      const m = /^EP(\d+)/i.exec(ep.name);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return "EP" + String(max + 1).padStart(3, "0");
+  }
+
+  function epSelect(selected, allowNew = false) {
+    const select = el("select");
+    state.episodes.forEach((ep) => {
+      const opt = el("option");
+      opt.value = ep.name;
+      opt.textContent = ep.name;
+      select.appendChild(opt);
+    });
+    if (allowNew) {
+      const next = nextEpName();
+      const opt = el("option");
+      opt.value = next;
+      opt.textContent = next + "（新建）";
+      select.appendChild(opt);
+      if (!state.episodes.length) select.value = next;
+    }
+    if (selected) select.value = selected;
+    if (!select.value && select.options.length) select.value = select.options[0].value;
+    return select;
+  }
+
+  function renderProjectTab(host) {
+    if (state.projectTab === "pipeline") renderPipeline(host);
+    else renderBrowse(host);
+  }
+
+  /* ===== 制作流水线 ===== */
+  function renderPipeline(host) {
+    host.replaceChildren();
+    const wrap = el("div", "wrap pipe-wrap");
+
+    if (!state.episodes.length && state.scanError) {
+      wrap.appendChild(el("p", "pipe-note", "还没有 剧集/ 目录——先从「导入小说」开始，会自动创建 剧集/EP001/。"));
+    }
+
+    TASKS.forEach((task) => wrap.appendChild(taskCard(task)));
+
+    const flow = el("div", "pipe-flow");
+    flow.innerHTML = "流程：<b>导入小说</b> → 原文.md → <b>小说转剧本</b> → 剧本.md → <b>资产提取</b> → 视觉设定.md / 资产生图提示词.md → <b>剧本转分镜</b> → H3分镜.md";
+    wrap.appendChild(flow);
+    host.appendChild(wrap);
+  }
+
+  function taskCard(task) {
+    const card = el("div", "task-card");
+    const head = el("div", "task-head");
+    head.innerHTML = `<svg class="icon"><use href="#${task.icon}"></use></svg><strong>${escapeHtml(task.label)}</strong>`;
+    card.appendChild(head);
+
+    if (task.id === "import") {
+      const row = el("div", "task-row");
+      row.appendChild(el("label", "task-label", "目标集"));
+      const ep = epSelect(null, true);
+      row.appendChild(ep);
+      const fileBtn = el("label", "btn-ghost task-file-btn", "选择小说文件（.txt / .md）");
+      fileBtn.style.cursor = "pointer";
+      const fileInput = el("input");
+      fileInput.type = "file";
+      fileInput.accept = ".txt,.md";
+      fileInput.hidden = true;
+      fileBtn.appendChild(fileInput);
+      row.appendChild(fileBtn);
+      card.appendChild(row);
+      const info = el("p", "task-info", "未选择文件");
+      card.appendChild(info);
+      let picked = null;
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) { picked = null; info.textContent = "未选择文件"; return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          picked = { name: file.name, text: String(reader.result || "") };
+          info.textContent = `已读取 ${file.name} · ${picked.text.length.toLocaleString()} 字`;
+        };
+        reader.onerror = () => toast("读取文件失败：" + file.name, true);
+        reader.readAsText(file, "utf-8");
+      });
+      const save = el("button", "btn-primary", "写入 原文.md");
+      save.type = "button";
+      save.addEventListener("click", async () => {
+        if (!picked?.text.trim()) { toast("先选择并读取一个小说文件", true); return; }
+        const target = ep.value;
+        if (picked.text.length > 60000) {
+          toast("原文超过 6 万字：建议按剧情分段拆成多集 原文.md 再逐集转剧本，单次生成放不下。", true);
+          return;
+        }
+        const exists = state.episodes.some((x) => x.name === target && x.files.has("原文.md"));
+        if (exists && !window.confirm(`${target}/原文.md 已存在，覆盖？`)) return;
+        try {
+          await FS.writeText(state.token, `剧集/${target}/原文.md`, picked.text);
+          await ensureEpisode(target);
+          await rescanEpisodeFiles(target);
+          toast(`已写入 剧集/${target}/原文.md`);
+          const hostEl = card.closest(".proj-host");
+          if (hostEl) renderPipeline(hostEl);
+        } catch (error) {
+          toast("写入失败：" + (error?.message || error), true);
+        }
+      });
+      card.appendChild(save);
+      return card;
+    }
+
+    /* 生成类任务卡 */
+    const row = el("div", "task-row");
+    row.appendChild(el("label", "task-label", "集"));
+    const ep = epSelect(state.activeEp);
+    row.appendChild(ep);
+    row.appendChild(el("label", "task-label", "输入"));
+    const inputSel = el("select");
+    row.appendChild(inputSel);
+    if (task.reference) {
+      row.appendChild(el("label", "task-label", "参考（可选）"));
+      const refSel = el("select");
+      refSel.dataset.role = "ref";
+      row.appendChild(refSel);
+    }
+    card.appendChild(row);
+
+    const row2 = el("div", "task-row");
+    row2.appendChild(el("label", "task-label", "骨架"));
+    const tplSel = el("select");
+    (GEN ? GEN.templates() : []).forEach((tpl) => {
+      const opt = el("option");
+      opt.value = tpl.id;
+      opt.textContent = tpl.name;
+      tplSel.appendChild(opt);
+    });
+    if ([...tplSel.options].some((o) => o.value === task.template)) tplSel.value = task.template;
+    row2.appendChild(tplSel);
+    row2.appendChild(el("label", "task-label", "输出"));
+    const outSel = el("select");
+    EP_FILE_CHOICES.forEach((name) => {
+      const opt = el("option");
+      opt.value = name;
+      opt.textContent = name;
+      outSel.appendChild(opt);
+    });
+    outSel.value = task.output;
+    row2.appendChild(outSel);
+    card.appendChild(row2);
+
+    const note = el("p", "task-info", "");
+    card.appendChild(note);
+
+    const extra = el("textarea", "task-extra");
+    extra.placeholder = "补充要求（可选）：目标时长、必须保留的设定、风格…";
+    extra.rows = 2;
+    card.appendChild(extra);
+
+    const actions = el("div", "task-actions");
+    const runBtn = el("button", "btn-primary", "生成");
+    runBtn.type = "button";
+    const stopBtn = el("button", "btn-ghost", "停止");
+    stopBtn.type = "button";
+    stopBtn.hidden = true;
+    const saveBtn = el("button", "btn-ghost", "保存到本集");
+    saveBtn.type = "button";
+    saveBtn.disabled = true;
+    actions.append(runBtn, stopBtn, saveBtn);
+    card.appendChild(actions);
+
+    const preview = el("textarea", "task-preview");
+    preview.placeholder = "生成结果先落在这里预览——确认（可直接编辑）后点「保存到本集」才写盘。对应 skills「确认卡先于成稿」的门禁。";
+    preview.rows = 10;
+    card.appendChild(preview);
+
+    let controller = null;
+
+    function refreshInputOptions() {
+      const entry = state.episodes.find((x) => x.name === ep.value);
+      const choices = EP_FILE_CHOICES.filter((name) => entry?.files.has(name));
+      [inputSel, card.querySelector('[data-role="ref"]')].forEach((sel) => {
+        if (!sel) return;
+        sel.replaceChildren();
+        if (!choices.length) {
+          const opt = el("option");
+          opt.value = "";
+          opt.textContent = "（本集还没有文件）";
+          sel.appendChild(opt);
+          return;
+        }
+        choices.forEach((name) => {
+          const opt = el("option");
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+        });
+      });
+      if (task.input && [...inputSel.options].some((o) => o.value === task.input)) inputSel.value = task.input;
+      const refSel = card.querySelector('[data-role="ref"]');
+      if (refSel && task.reference && [...refSel.options].some((o) => o.value === task.reference)) refSel.value = task.reference;
+      note.textContent = entry && entry.files.has(task.input)
+        ? `输入 ${task.input} 就绪`
+        : `缺 ${task.input}——先完成上游任务（导入/转剧本/资产提取）。`;
+    }
+
+    ep.addEventListener("change", refreshInputOptions);
+    refreshInputOptions();
+
+    runBtn.addEventListener("click", async () => {
+      if (!GEN) { toast("生成层未加载", true); return; }
+      const info = GEN.previewConfig();
+      if (!info.ready) { toast("文本 API 未就绪：" + (info.missing[0] || ""), true); return; }
+      if (!inputSel.value) { toast("没有可用输入文件", true); return; }
+      let inputText;
+      try {
+        inputText = (await FS.readText(state.token, `剧集/${ep.value}/${inputSel.value}`)).text;
+      } catch (error) {
+        toast("读取输入失败：" + (error?.message || error), true);
+        return;
+      }
+      if (!inputText.trim()) { toast("输入文件是空的", true); return; }
+      if (inputText.length > 40000) {
+        toast(`输入 ${inputText.length.toLocaleString()} 字过长：单次生成放不下，请先拆分（如按场次切 原文.md）。`, true);
+        return;
+      }
+      let refText = "";
+      const refSel = card.querySelector('[data-role="ref"]');
+      if (refSel && refSel.value && refSel.value !== inputSel.value) {
+        try {
+          refText = (await FS.readText(state.token, `剧集/${ep.value}/${refSel.value}`)).text;
+        } catch (_) { refText = ""; }
+      }
+      const tpl = GEN.templateById(tplSel.value);
+      if (!tpl) { toast("骨架模板缺失", true); return; }
+
+      const userParts = [];
+      if (extra.value.trim()) userParts.push("【补充要求】\n" + extra.value.trim());
+      userParts.push(`【输入：${ep.value}/${inputSel.value}】\n${inputText}`);
+      if (refText.trim()) userParts.push(`【参考：${ep.value}/${refSel.value}】\n${refText}`);
+      userParts.push("请按骨架格式输出完整成稿，只输出成稿正文本身。");
+
+      controller = new AbortController();
+      runBtn.disabled = true;
+      stopBtn.hidden = false;
+      note.textContent = `正在生成（${info.model || ""}）… 输入 ${inputText.length.toLocaleString()} 字`;
+      try {
+        const result = await GEN.generate({ system: tpl.content, user: userParts.join("\n\n"), signal: controller.signal });
+        preview.value = result.content;
+        saveBtn.disabled = false;
+        note.textContent = `生成完成（${result.model}）——检查/编辑后点「保存到本集」`;
+      } catch (error) {
+        if (error?.name === "AbortError") note.textContent = "已停止，未写入任何内容。";
+        else note.textContent = "生成失败：" + (error?.message || error);
+        if (error?.name !== "AbortError") toast("生成失败：" + (error?.message || error), true);
+      } finally {
+        controller = null;
+        runBtn.disabled = false;
+        stopBtn.hidden = true;
+      }
+    });
+
+    stopBtn.addEventListener("click", () => { if (controller) controller.abort(); });
+
+    saveBtn.addEventListener("click", async () => {
+      const content = preview.value.trim();
+      if (!content) { toast("预览是空的，没有可保存的内容", true); return; }
+      const outName = outSel.value;
+      const entry = state.episodes.find((x) => x.name === ep.value);
+      if (entry?.files.has(outName) && !window.confirm(`剧集/${ep.value}/${outName} 已存在，覆盖？`)) return;
+      try {
+        await FS.writeText(state.token, `剧集/${ep.value}/${outName}`, content + "\n");
+        await ensureEpisode(ep.value);
+        await rescanEpisodeFiles(ep.value);
+        toast(`已保存 剧集/${ep.value}/${outName}`);
+        note.textContent = `已保存到 ${outName}。下一步可在「剧集浏览」查看渲染结果。`;
+        refreshInputOptions();
+      } catch (error) {
+        toast("保存失败：" + (error?.message || error), true);
+      }
+    });
+
+    return card;
+  }
+
+  async function ensureEpisode(epName) {
+    if (!state.episodes.some((ep) => ep.name === epName)) {
+      state.episodes.push({ name: epName, files: new Set() });
+      state.episodes.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    }
+    state.activeEp = epName;
+  }
+
+  /* ===== 剧集浏览（原有三阶段视图） ===== */
+  function renderBrowse(host) {
+    host.replaceChildren();
+    if (!state.episodes.length) {
+      host.appendChild(
+        el("div", "wrap", '<div class="file-note"><strong>还没有剧集</strong>先在「制作流水线」导入小说，或把 剧集/EPxxx/ 放进授权目录后回项目列表重进。</div>'),
+      );
+      return;
+    }
     const layout = el("div", "project-layout");
     const rail = el("aside", "ep-rail");
     const view = el("section", "file-view");
     layout.append(rail, view);
-    body.appendChild(layout);
-
-    rail.replaceChildren(el("p", "rail-empty", "正在扫描 剧集/ 目录…"));
-    view.replaceChildren();
-
-    try {
-      await FS.touchProject(token);
-    } catch (_) { /* 更新最近打开失败不阻断浏览 */ }
-
-    let dirs;
-    try {
-      dirs = await FS.listDir(token, "剧集");
-    } catch (error) {
-      rail.replaceChildren(el("p", "rail-empty", "这个项目里还没有 剧集/ 目录。"));
-      view.replaceChildren(
-        el("div", "file-body", '<div class="file-note"><strong>读不到 剧集/ 目录</strong>确认这个目录里有 剧集/EP001/ 这样的结构。</div>'),
-      );
-      void error;
-      return;
+    host.appendChild(layout);
+    if (!state.activeEp || !state.episodes.some((ep) => ep.name === state.activeEp)) {
+      state.activeEp = state.episodes[0].name;
     }
-
-    const eps = dirs.dirs.filter((d) => /^EP\d+/i.test(d.name));
-    if (!eps.length) {
-      rail.replaceChildren(el("p", "rail-empty", "这个项目里还没有 EPxxx 剧集目录。"));
-      view.replaceChildren(
-        el("div", "file-body", '<div class="file-note"><strong>暂无剧集</strong>把剧本放进 剧集/EP001/剧本.md 后点左上角刷新。</div>'),
-      );
-      return;
-    }
-
-    const episodes = [];
-    for (const ep of eps) {
-      const entry = { name: ep.name, files: new Set() };
-      try {
-        const listed = await FS.listDir(token, "剧集/" + ep.name);
-        listed.files.forEach((f) => entry.files.add(f.name));
-      } catch (_) { /* 单集读失败按空处理，不阻断其它集 */ }
-      episodes.push(entry);
-    }
-    state.episodes = episodes;
     renderRail(rail);
-    selectEpisode(episodes[0].name);
+    renderStages();
+    selectEpisode(state.activeEp);
   }
 
   function renderRail(rail) {
@@ -253,7 +606,10 @@
     const refresh = el("button", null, '<svg class="icon"><use href="#s-icon-refresh"></use></svg>');
     refresh.type = "button";
     refresh.title = "重新扫描剧集";
-    refresh.addEventListener("click", () => openProject(state.token, state.projectName));
+    refresh.addEventListener("click", async () => {
+      await scanEpisodes();
+      renderProjectTab(body.querySelector(".proj-host"));
+    });
     title.appendChild(refresh);
     rail.appendChild(title);
 
@@ -390,16 +746,16 @@
   }
 
   function missingHint(kind) {
-    if (kind === "screenplay") return "先在「原文与剧本」放入原文，剧本由写作阶段产出后落在这里。";
-    if (kind === "h3") return "分镜由「剧本转分镜」生成批次产出（H3-UNIT 结构），产出后自动按单元渲染。";
-    if (kind === "visual") return "视觉设定由「资产提取」生成批次产出，产出后按人物/地点/道具分组显示。";
-    if (kind === "prompts") return "生图提示词由「资产提取」生成批次产出，每条 IMG- 项带可复制正文。";
+    if (kind === "screenplay") return "在「制作流水线」导入原文后跑「小说转剧本」。";
+    if (kind === "h3") return "在「制作流水线」跑「剧本转分镜」，产出后自动按 H3-UNIT 渲染。";
+    if (kind === "visual") return "在「制作流水线」跑「资产提取」，产出后按人物/地点/道具分组显示。";
+    if (kind === "prompts") return "「资产提取」用图片提示词骨架跑一次，产出 IMG 项与可复制正文。";
     return "把文件放进本集目录后点左上角刷新。";
   }
 
   function renderRaw(content, text, lastModified) {
     content.replaceChildren();
-    const meta = el("p", "gen-hint", "纯文本预览 · 最后修改 " + fmtTime(lastModified) + "（编辑与生成在后续批次接入）");
+    const meta = el("p", "gen-hint", "纯文本预览 · 最后修改 " + fmtTime(lastModified));
     content.appendChild(meta);
     content.appendChild(el("div", "file-raw", escapeHtml(text)));
   }
