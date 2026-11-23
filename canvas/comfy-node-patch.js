@@ -1171,6 +1171,12 @@
 
   const POSITIVE_RE = /(^|[^a-z])(text|prompt|positive)|prompt$/i;
   const NEGATIVE_RE = /negative|nagative|bad|unwant/i;
+  // 「输入文本」类节点：字段 key 常是通用的 value（不含 text/prompt），
+  // 只按 POSITIVE_RE 会漏掉、导致卡片提示词写不进去、按工作流自带模板生成。
+  // 这些节点的自由文本字段即便 key=value 也应接受；expression 等公式节点不在列，
+  // 不会误写。
+  const TEXT_INPUT_CLASS_RE =
+    /^(PrimitiveStringMultiline|PrimitiveString|StringLiteralEvalPrimitive|Comfy__StringPrimitive|TextMultiline|StringFunction)$/i;
 
   // combo 自愈：工作流在别人机器上存的模型路径可能带子目录（qwen_image/x.safetensors），
   // 本机却放在根目录（x.safetensors）。值不在合法列表、但去掉目录前缀后唯一匹配时自动改写。
@@ -1460,7 +1466,10 @@
     // 不再自动分组：全部标量参数平铺，用户自己把常用的置顶（按工作流全局持久化）
     const items = [];
     for (const f of fields) {
-      if (typeof f.value === "string" && POSITIVE_RE.test(f.key) && !NEGATIVE_RE.test(f.key)) continue; // 提示词归卡片顶部，不进参数
+      // 提示词归卡片顶部，不进参数：key 命中正向正则的，或「输入文本」类节点
+      // （key=value，卡片提示词会写它）——两边都露出同一字段会误导用户改参数面板
+      if (typeof f.value === "string" && !NEGATIVE_RE.test(f.key)
+        && (POSITIVE_RE.test(f.key) || TEXT_INPUT_CLASS_RE.test(f.classType))) continue;
       items.push(fieldMeta(f));
     }
 
@@ -2215,7 +2224,10 @@
         for (const field of helper.editableFields(basePrompt)) {
           if (typeof field.value !== "string") continue;
           if (NEGATIVE_RE.test(field.key)) continue; // 反向提示词绝不覆盖
-          if (!POSITIVE_RE.test(field.key)) continue;
+          if (/expression/i.test(field.key)) continue; // 公式节点（ComfyMathExpression 等）不是提示词
+          // key 命中正向正则，或节点本身就是「输入文本」类（key 常为 value）
+          const isTextNode = TEXT_INPUT_CLASS_RE.test(field.classType);
+          if (!isTextNode && !POSITIVE_RE.test(field.key)) continue;
           const kind = promptFieldKind(types, field.classType, field.key);
           if (kind === "combo") { comboHits += 1; continue; }
           if (kind !== "free") continue;
