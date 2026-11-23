@@ -97,24 +97,53 @@ button { color: inherit; font: inherit; cursor: pointer; }
 .story-body { flex: 1 1 auto; overflow: auto; display: flex; flex-direction: column; }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; width: 100%; }
 
-/* ===== 项目级 tab（制作流水线 / 剧集浏览） ===== */
-.proj-tabs { display: flex; gap: 8px; padding: 14px 24px 0; max-width: 1180px; margin: 0 auto; }
-.proj-tab {
-  padding: 9px 22px; border: 1px solid var(--border-strong); border-bottom: none; border-radius: 14px 14px 0 0;
-  background: var(--bg-soft); color: var(--text-soft); font-weight: 800; font-size: 14px;
+/* ===== 导演台布局（参考桶老师 H3 导演台） ===== */
+/* 顶栏项目下拉 → 01/02/03 阶段大卡 → 本集下拉 → 阶段面板 */
+.desk-bar, .ep-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  max-width: 1180px; margin: 0 auto; padding: 16px 24px 0; width: 100%;
 }
-.proj-tab:hover { color: var(--primary); }
-.proj-tab.is-active { background: var(--surface); color: var(--primary); box-shadow: 0 -2px 10px rgba(0,0,0,0.04); }
-.proj-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-top: 1px solid var(--border); overflow: auto; }
-.proj-host > .wrap { width: 100%; }
-.proj-host .project-layout { flex: 1 1 auto; height: auto; min-height: 0; }
-.pipe-loading { padding: 32px 24px; color: var(--muted); font-size: 13px; }
+.ep-row { padding-top: 10px; }
+.db-label { font: 600 11px/1 var(--font-latin); letter-spacing: 0.14em; color: var(--muted); }
+.db-select {
+  min-width: 220px; padding: 9px 14px; border-radius: 12px; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 600;
+}
+.db-btn { padding: 8px 16px; font-size: 13px; }
+.db-remove:hover { border-color: var(--danger); color: var(--danger); }
+.ep-count { font-size: 12px; color: var(--muted); margin-left: 4px; }
 
-/* ===== 制作流水线 ===== */
-.pipe-wrap { display: flex; flex-direction: column; gap: 16px; padding-top: 22px; }
+/* 阶段大卡 01/02/03 */
+.phase-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  max-width: 1180px; margin: 0 auto; padding: 18px 24px 4px; width: 100%;
+}
+.phase-card {
+  display: flex; flex-direction: column; gap: 8px; text-align: left;
+  padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--shadow-glow);
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+.phase-card:hover { transform: translateY(-2px); }
+.phase-card.is-active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary) inset, var(--shadow-lg); }
+.phase-card .ph-num { font: 800 26px/1 var(--font-latin); color: var(--muted-deep); letter-spacing: 0.04em; }
+.phase-card.is-active .ph-num { color: var(--secondary); }
+.phase-card .ph-main strong { display: block; font-size: 15px; font-weight: 800; color: var(--primary); }
+.phase-card .ph-main small { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.phase-card .ph-state { align-self: flex-start; font-size: 11px; font-weight: 700; color: var(--muted-deep); padding: 2px 10px; border-radius: 999px; background: var(--surface-raised); }
+.phase-card .ph-state.is-on { color: var(--success); background: rgba(22, 138, 91, 0.1); }
+
+/* 阶段面板 */
+.panel {
+  display: flex; flex-direction: column; gap: 16px;
+  max-width: 1180px; margin: 0 auto; padding: 20px 24px 60px; width: 100%;
+}
+.view-section { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-soft); }
+.view-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.view-host { min-height: 40px; }
+
+/* ===== 制作流水线（阶段面板内任务卡） ===== */
 .pipe-note { margin: 0; color: var(--muted); font-size: 13px; }
-.pipe-flow { padding: 12px 16px; border-radius: var(--radius-md); background: var(--bg-soft); border: 1px dashed var(--border-strong); color: var(--muted); font-size: 12px; }
-.pipe-flow b { color: var(--text-soft); }
 .task-card {
   padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--surface); box-shadow: var(--shadow-glow);
@@ -184,48 +213,16 @@ button { color: inherit; font: inherit; cursor: pointer; }
 }
 .pc-empty strong { display: block; color: var(--text-soft); font-size: 16px; margin-bottom: 6px; }
 
-/* ===== 项目内：剧集树 + 文件视图 ===== */
-.project-layout { display: grid; grid-template-columns: 288px minmax(0, 1fr); gap: 0; height: 100%; }
-.ep-rail { border-right: 1px solid var(--border); background: var(--bg-soft); overflow: auto; padding: 16px 12px; }
-.ep-rail .rail-title { display: flex; align-items: center; justify-content: space-between; margin: 0 6px 10px; font: 600 11px/1 var(--font-latin); letter-spacing: 0.14em; color: var(--muted); }
-.ep-rail .rail-title button { border: none; background: none; color: var(--muted); display: inline-flex; padding: 4px; border-radius: 8px; }
-.ep-rail .rail-title button:hover { color: var(--primary); background: var(--surface); }
-.ep-item {
-  width: 100%; text-align: left; border: 1px solid transparent; border-radius: var(--radius-md);
-  background: none; padding: 10px 12px; margin-bottom: 4px;
-}
-.ep-item:hover { background: var(--surface); }
-.ep-item.is-active { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-glow); }
-.ep-item .ep-id { font: 700 13px/1.4 var(--font-latin); color: var(--primary); }
-.ep-item .ep-name { font-size: 13px; color: var(--text-soft); margin-top: 1px; }
-.ep-item .ep-dots { display: flex; gap: 5px; margin-top: 8px; }
-.ep-item .ep-dots .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
-.ep-item .ep-dots .dot.on { background: var(--success); }
-.ep-item .ep-dots .dot.script.on { background: var(--secondary); }
-.rail-empty { padding: 16px 10px; color: var(--muted); font-size: 13px; line-height: 1.7; }
-
-.file-view { overflow: auto; height: 100%; }
-
-/* 阶段 tab：原文与剧本 / 分镜工作台 / 资产列表 */
-.stage-tabs { display: flex; gap: 6px; padding: 14px 20px 4px; background: var(--surface); }
-.stage-tab {
-  padding: 8px 18px; border: 1px solid var(--border-strong); border-radius: 999px;
-  background: var(--surface); color: var(--text-soft); font-weight: 700; font-size: 13px;
-}
-.stage-tab:hover { border-color: var(--primary); color: var(--primary); }
-.stage-tab.is-active { background: var(--primary); border-color: var(--primary); color: #fff; }
-
-.file-tabs { display: flex; gap: 4px; padding: 10px 20px 0; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+/* ===== 文件视图通用 ===== */
 .file-tab {
   border: none; background: none; padding: 9px 16px; border-radius: 12px 12px 0 0;
   color: var(--muted); font-weight: 700; font-size: 13px; position: relative;
 }
 .file-tab:hover { color: var(--primary); }
-.file-tab.is-active { color: var(--primary); background: var(--bg-soft); }
+.file-tab.is-active { color: var(--primary); background: var(--surface); }
 .file-tab.is-active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; background: var(--secondary); border-radius: 2px; }
 .file-tab .missing { color: var(--muted-deep); font-weight: 500; }
 
-.file-body { padding: 22px 26px 80px; }
 .file-note { padding: 40px 24px; text-align: center; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); background: var(--bg-soft); }
 .file-note strong { display: block; color: var(--text-soft); margin-bottom: 6px; font-size: 15px; }
 .file-raw { white-space: pre-wrap; word-break: break-word; font: 400 14px/1.85 var(--font-body); color: var(--text-soft); }
