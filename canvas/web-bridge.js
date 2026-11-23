@@ -1497,8 +1497,67 @@
     return detail;
   }
 
+  // bundle 诊断日志（Ib→本函数）前缀硬编码「云雾 <家族>」，model-patch 劫持改走
+  // grsai 等第三方后前缀失真，且每请求转储 headers/body + 30s 心跳。bundle 只读，
+  // 统一在此降噪纠偏：进行中/成功类丢弃；失败只留 method/url/status/durationMs/
+  // responsePreview/截断 bodyPreview；「云雾 <家族>」按日志内 url host 改写为实际
+  // 服务名（openlux 保持云雾）。家族词描述 bundle 原生流程，剥掉避免误导。
+  // 丢弃进行中/成功类；「请求已返回」与「请求返回错误」不互为子串，错误类不会误吞。
+  const DIAG_DROP_RE =
+    /(请求已发出|请求已返回|请求仍在等待|准备完成|解析完成|事件摘要|读取开始|读取完成)/;
+
+  function diagnosticBrand(text) {
+    const host = String(
+      text.match(/url:\s*https?:\/\/([^/?\s]+)/i)?.[1] || "",
+    ).toLowerCase();
+    if (!host || /openlux\.ai/.test(host)) return "";
+    const labels = host
+      .split(".")
+      .filter((label) => !/^(api|www|app|cdn|proxy|v\d+)$/.test(label));
+    const name = labels[0] || host;
+    return /^[a-z][a-z0-9-]{1,19}$/.test(name)
+      ? name[0].toUpperCase() + name.slice(1)
+      : host;
+  }
+
+  function compactDiagnostic(message) {
+    const text = String(message || "");
+    if (!/^runtime\b/.test(text)) return text;
+    if (DIAG_DROP_RE.test(text.split("\n")[0])) return "";
+    const kept = [];
+    let inHeaders = false;
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (/^headers:/.test(trimmed)) {
+        inHeaders = true;
+        continue;
+      }
+      if (inHeaders) {
+        if (/^\}/.test(trimmed)) inHeaders = false;
+        continue;
+      }
+      if (/^bodyBytes:/.test(trimmed)) continue;
+      if (/^bodyPreview:/.test(trimmed)) {
+        kept.push(trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed);
+        continue;
+      }
+      kept.push(line);
+    }
+    const compacted = kept.join("\n");
+    const brand = diagnosticBrand(text);
+    if (!brand) return compacted;
+    return compacted.replace(
+      /^runtime 云雾(?: Banana| GPT Image 2| Responses| 图生图| 直连)*/,
+      `runtime ${brand}`,
+    );
+  }
+
   function appendDiagnosticLog(message) {
-    console.info(`[画布 ${new Date().toISOString()}]`, message);
+    const text = compactDiagnostic(message);
+    if (!text) return;
+    const stamp = `[画布 ${new Date().toISOString()}]`;
+    if (/错误|失败|超时|异常/.test(text.split(/\r?\n/)[0])) console.error(stamp, text);
+    else console.info(stamp, text);
   }
 
   function getUserDataPath() {
