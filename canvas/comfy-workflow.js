@@ -402,25 +402,44 @@
     return next;
   }
 
+  // ComfyUI 新版（0.45+）把 mp4 等视频放进 outputs.images 键、VHS 的 webm/gif
+  // 放 outputs.gifs，键名不再等于媒体类型；必须按文件名扩展名判定，
+  // 否则视频被当图片渲染成 <img src=….mp4>，节点里显示空白。
+  const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv|avi|flv|3gp)\b/i;
+  const AUDIO_EXT_RE = /\.(mp3|wav|flac|ogg|oga|m4a|aac|opus)\b/i;
+  const mediaKind = (item) => {
+    const name = String(item?.filename || "");
+    if (item?.video === true || VIDEO_EXT_RE.test(name)) return "video";
+    if (item?.audio === true || AUDIO_EXT_RE.test(name)) return "audio";
+    return "image";
+  };
+
   function collectOutputs(historyEntry) {
     const images = [];
     const videos = [];
     const audios = [];
     const texts = [];
+    const seen = new Set();
+    const pushMedia = (item) => {
+      if (!item?.filename) return;
+      const key = `${item.subfolder || ""}/${item.filename}|${item.type || ""}`;
+      if (seen.has(key)) return; // 同一文件可能同时出现在 images 与 gifs 键
+      seen.add(key);
+      const kind = mediaKind(item);
+      (kind === "video" ? videos : kind === "audio" ? audios : images).push({
+        ...item,
+        __kind: kind,
+      });
+    };
     const pushText = value => {
       const text = typeof value === "string" ? value.trim() : "";
       if (text && !texts.includes(text)) texts.push(text);
     };
     for (const nodeOutput of Object.values(historyEntry?.outputs || {})) {
-      for (const image of nodeOutput?.images || []) {
-        if (image?.filename) images.push({ ...image, __kind: "image" });
-      }
-      for (const video of nodeOutput?.videos || []) {
-        if (video?.filename) videos.push({ ...video, __kind: "video" });
-      }
-      // SaveAudio 等音频节点把结果放在 outputs.audio（标准键，部分自定义节点用 audios）
-      for (const audio of nodeOutput?.audio || nodeOutput?.audios || []) {
-        if (audio?.filename) audios.push({ ...audio, __kind: "audio" });
+      // 媒体键统一收集后按扩展名分类：images/videos/gifs/audios/audio 都可能出现任意类型
+      for (const key of ["images", "videos", "gifs", "audio", "audios"]) {
+        const list = nodeOutput?.[key];
+        if (Array.isArray(list)) list.forEach(pushMedia);
       }
       // 提示词反推类节点（ShowText/PreviewString 等）把结果放在 outputs.text / outputs.strings
       const rawText = nodeOutput?.text;
