@@ -8,6 +8,7 @@
 | 画布 / 工作流 / ComfyUI / 图片·文本 API 配置 / 设置整页（API设置分区） / 素材上传 / 视频节点 | `docs/画布.md` | `canvas/*.js`（各补丁头注释）、`canvas/settings.html`+`settings-page-patch.js`、`web-bridge.js` |
 | 图片工坊 / 资产库 / 姿势·服装·人像 / 嵌入 | `docs/gallery.md` | `gallery/assets/gallery.js`、`gallery.css` |
 | 工作台 / studio / 目录授权 / 工作区 | `docs/studio.md` | `studio/assets/studio.js` |
+| 剧情导演台 / 项目管理 / 剧集树 / 剧本查看渲染 | `docs/story.md` | `story/assets/story*.js`、`story/index.html` |
 | 看背影识人 / 小游戏 / 背影素材 / 战绩榜 | `docs/game.md` | `game/assets/game.js`、`game/data/roster.json` |
 | 主站 / 首页 / 番剧 / 收藏 / 导航 | （无 docs，直接） | `index.html` + `assets/app.js` + `assets/styles.css` |
 | 回归验收项 | `docs/acceptance.md` | — |

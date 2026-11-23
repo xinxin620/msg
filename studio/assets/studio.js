@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "20261122-4";
+  const VERSION = "20261123-2";
   const BRIDGE_DB = "manshiguang-canvas-bridge";
   const DB_VERSION = 1;
   const STORE = "directoryHandles";
@@ -40,22 +40,9 @@
       tagline: "大纲、剧本、分镜脚本",
       kicker: "STORY DESK",
       icon: "icon-story",
-      type: "soon",
-      state: "规划中",
-      purpose:
-        "把一部漫剧从选题到可拍摄脚本的全过程收在一处：维护故事大纲与分集结构，编写并修订单集剧本，再把确认后的剧本拆成分镜脚本。它负责“文字到结构”，产出的分镜直接喂给数字人视频工作区。",
-      inputs: [
-        "选题与人物小传",
-        "分集大纲（EP001、EP002…）",
-        "已有剧本 Markdown",
-      ],
-      outputs: [
-        "可拍摄单集剧本",
-        "场景与对白修订记录",
-        "分镜脚本（含镜头顺序与时长）",
-      ],
-      relation:
-        "沿用你现有的剧本与分镜产出格式（剧集/EPxxx/ 目录下的 Markdown），工作台只做集中查看与修订，不改变文件约定。",
+      type: "frame",
+      url: "../story/index.html?v=" + VERSION + "&host=story",
+      state: "在线",
     },
     {
       id: "imagelab",
@@ -222,9 +209,10 @@
   }
 
   function renderBar(workspace) {
-    // 画布与设置自带整页标题栏，外壳这一行是重复信息：整行收起，
+    // 画布/设置/剧情导演台自带整页标题栏，外壳这一行是重复信息：整行收起，
     // 舞台区用 flex:1 自动占满，其它 tab（图片工坊/占位区）保持原样。
-    if (studioBar) studioBar.hidden = workspace.id === "canvas" || workspace.id === "settings";
+    // story 顶栏自带「返回项目列表 + 首页」，重载走 Ctrl+R，与 settings 同口径。
+    if (studioBar) studioBar.hidden = workspace.id === "canvas" || workspace.id === "settings" || workspace.id === "story";
     barKicker.textContent = workspace.kicker;
     barTitle.textContent = workspace.label;
     barDesc.textContent = workspace.tagline;
@@ -464,6 +452,45 @@
     return record;
   }
 
+  // 剧情导演台的项目目录：与资产目录共用同库同 store，但只写 token 记录，
+  // 绝不覆盖 bridge:default（画布资产目录），否则换项目会把画布落盘目录一起改掉。
+  async function authorizeProjectDirectory() {
+    if (typeof window.showDirectoryPicker !== "function") {
+      throw new Error("当前浏览器不支持选择本地目录，请使用最新版 Chrome 或 Edge");
+    }
+    const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    const token = makeToken(handle);
+    const record = { token, name: handle.name || "项目目录", handle, createdAt: Date.now() };
+    const db = await openBridgeDb();
+    try {
+      await putRecords(db, [{ key: token, value: record }]);
+    } finally {
+      db.close();
+    }
+    return record;
+  }
+
+  // story iframe 请求授权项目目录：顶层完成选择后把 token/name 回传，
+  // handle 留在同源 IndexedDB，iframe 自己按 token 取用。取消不报错回 ok:false。
+  async function handleStoryDirectoryRequest(requestId, source) {
+    let result;
+    try {
+      const record = await authorizeProjectDirectory();
+      result = { ok: true, token: record.token, name: record.name };
+    } catch (error) {
+      const cancelled = error && (error.name === "AbortError" || error.name === "NotAllowedError");
+      result = cancelled
+        ? { ok: false, cancelled: true }
+        : { ok: false, error: error?.message || String(error) };
+    }
+    try {
+      source.postMessage(
+        { source: "manshiguang-story-host", type: "directory-result", requestId, ...result },
+        window.location.origin,
+      );
+    } catch (_) { /* iframe 已卸载 */ }
+  }
+
   async function requestDirectory() {
     try {
       dirChip.classList.remove("is-error");
@@ -523,6 +550,14 @@
       data.type === "apply-to-canvas"
     ) {
       applyCanvasSettings();
+      return;
+    }
+    // 剧情导演台 iframe 请求授权项目目录：顶层选完把 token 回传，不动资产目录。
+    if (
+      data.source === "manshiguang-story-embed" &&
+      data.type === "request-directory"
+    ) {
+      handleStoryDirectoryRequest(data.requestId, event.source);
       return;
     }
     if (data.source !== "manshiguang-asset-embed") return;

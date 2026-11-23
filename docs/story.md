@@ -1,0 +1,37 @@
+# 剧情导演台（story/）
+
+> 域记忆。AGENTS.md 路由到这里；改动前先读本文件，再进 `story/assets/*.js` 头注释与代码。
+> 零依赖静态页（IIFE 无构建），工作台 `story` 工作区的 frame 目标页（`?host=story` 嵌入，也可独立打开）。
+> 定位：**项目/剧集管理 + 剧本专用查看**，不重实现写作——生成能力（小说→剧本、剧本→分镜、资产提取）归 `liang-drama-prompts` 等 skills 与后续「生成」批次，本域只读写文件、渲染、组织。
+
+## 组成
+- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`）+ 图标 sprite + 版本守卫（`20261123-2`）。脚本顺序：`story-fs.js` → `story-render.js` → `story.js`（defer）。
+- `story/assets/story-fs.js`：文件层。直连共享 IndexedDB `manshiguang-canvas-bridge`/`directoryHandles`（同 game.js 先例，**不加载 web-bridge.js**，避免画布 fetch/图片 src 补丁副作用）。挂 `window.__MS_STORY_FS__`。
+- `story/assets/story-render.js`：剧本专用渲染器。挂 `window.__MS_STORY_RENDER__`（`parseScreenplay`/`speakerColors`/`countStats`）。
+- `story/assets/story.js`：外壳路由与视图（项目卡片 → 剧集树 + 文件标签页）。
+- `story/assets/story.css`：主题。**与 studio 外壳同一套浅色 token**（`--bg:#eeecea` 等，抄自 `studio.css` :root）——外壳不是夜航星海深色，别按深色做。
+- `story/assets/story-gen.js`：生成层（复用画布文本 API 配置 + skill 骨架），**已写好但本批未挂进页面**，随「生成」批次启用。
+
+## 实体与键位
+- 项目注册表：同 store 键 `story:projects` = `[{token,name,createdAt,lastOpened}]`。一个授权目录＝一部剧（方案①，用户 2026-11-23 拍板）。
+- 项目 handle 记录：键 `webdir:<uuid>:<encoded-name>`，**只写 token 记录、绝不覆盖 `bridge:default`**——否则换项目会把画布资产目录一起改掉。
+- 移除项目＝删注册表行 + 删 token 记录，不碰本地文件、不碰画布授权。
+- 剧集目录约定：`<root>/剧集/EPxxx/{剧本.md,视觉设定.md,资产生图提示词.md,H3分镜.md}`，文件名精确匹配（大小写敏感），缺失显示「缺」不放假数据。
+
+## 消息契约
+- story iframe → 外壳：`{source:"manshiguang-story-embed",type:"request-directory",requestId}`（iframe 内点「添加项目」时，`showDirectoryPicker` 必须顶层窗口，同资产授权先例）。
+- 外壳 → story：`{source:"manshiguang-story-host",type:"directory-result",requestId,ok,token,name|error}`；取消回 `ok:false,cancelled:true`，story 侧静默返回。外壳处理器在 `studio/assets/studio.js` `handleStoryDirectoryRequest()`。
+- story 独立标签页打开时不走 postMessage，直接顶层 `showDirectoryPicker`（`FS.isEmbedded()` 判别）。
+
+## 剧本渲染器口径（story-render.js）
+- 格式契约跟 `liang-drama-prompts`：`# EPxxx 集名`、`## EPxxx-SCxxx 内/外/内外 · 地点 · 时间`（**内外 必须排 alternation 最前**）、`角色（提示）：台词`、六个生产标签 `[VO][OS][SFX][画面文字][连续性][转场]`。
+- **注释块必须整段吞掉（含跨行）**：模板示意注释（`<!-- ... -->`）不吞会污染视图；`inComment` 状态机，解析与名册预扫两处各一份，改动要同改。
+- **对白消歧＝两遍名册法**（对齐 skills 索引脚本的 `--speaker` 名册思路）：预扫收集「带括注对白行 + VO/OS 行」的说话者名册；裸 `X：` 行只有 X 在名册、或（≤3 字且不含虚词 NON_NAME_RE）才判对白，否则算动作。「她有个习惯：数台阶」这类含冒号动作靠这条不跑偏。**纯正则永远无法完全消歧，别退回单遍判定**。
+- 时长是粗估（可发声字÷4.1，VO 计入），页面明写「权威估算以 skills 的 duration_estimate 为准」——导演台不做门禁。
+- 未知结构降级为动作段落原样显示，正文一字不丢。
+
+## 已知边界与坑
+- `fileMeta` 的 `lastModified` 是浏览器缓存的元数据，可能滞后于磁盘；显示文案别写成「实时」。
+- 逐集探测文件存在性 = 每集一次 `listDir`，几十集会有一串 IO；剧集数上千要改成懒探测（现状漫剧规模不需要）。
+- 授权 token 与画布资产目录 token 同 store 混存，story 只认自己注册表里的 token；`removeProject` 只删自己那条。
+- 生成批次（story-gen.js 挂页 + 任务面板 + 确认表单）是下一批；启用时把 `skill-templates-data.js` 一并挂进 `story/index.html`（它无 DOM 无副作用，可安全直载）。
