@@ -197,9 +197,12 @@
     ));
     const contentW = ratio >= 1 ? 280 : 210;
     const bodyH = Math.min(FRAME_MAX_H, Math.max(FRAME_MIN_H, contentW / ratio));
-    node.style = { width: contentW + "px", height: Math.round(headerH + bodyH) + "px" };
-    node.data.comfyFrameRatio = ratio;
-    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    // React Flow 按节点对象引用 memo：原地改 node.style 再回传同一数组不会重渲染，
+    // 框高要等下一次外部变化（点空白选中态变更）才被动生效。必须克隆节点+新数组。
+    const frame = { width: contentW + "px", height: Math.round(headerH + bodyH) + "px" };
+    const nodes = st.nodes.map(n => n && n.id === nodeId
+      ? { ...n, style: frame, data: { ...n.data, comfyFrameRatio: ratio } } : n);
+    try { st.replaceCanvasState(nodes, st.edges || [], st.groups || []); } catch (_) { return; }
     // React Flow 自带 ResizeObserver 会在新尺寸渲染后重测 handleBounds；
     // 这里再延迟补一次强制测量，防个别情况下重测漏跑（连线点停在旧框）。
     const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
@@ -213,9 +216,14 @@
     if (!st) return;
     const node = (st.nodes || []).find(n => n && n.id === nodeId);
     if (!node || !node.style) return;
-    node.style = undefined;
-    if (node.data && typeof node.data.comfyFrameRatio === "number") delete node.data.comfyFrameRatio;
-    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    // 同 applyFrameRatio：克隆节点+新数组，否则 React Flow 不重渲染、缩不回
+    const nodes = st.nodes.map(n => {
+      if (!n || n.id !== nodeId) return n;
+      const d = { ...n.data };
+      delete d.comfyFrameRatio;
+      return { ...n, style: undefined, data: d };
+    });
+    try { st.replaceCanvasState(nodes, st.edges || [], st.groups || []); } catch (_) { return; }
     const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
     if (typeof measure === "function") { try { measure(nodeId); } catch (_) {} }
   }
