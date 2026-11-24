@@ -9,12 +9,19 @@
   //  - 前端虚拟节点无法安全展开，直接判为不可运行
   //  - widget 取 widgets_values_named，剔除只在前端生效的控件
   const SUBGRAPH_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  // 纯前端节点：官方 graphToPrompt 不会写进 API 格式，忽略即可
+  // 纯前端节点：官方 graphToPrompt 不会写进 API 格式，忽略即可。
+  // 只放本机 object_info 里查不到的类（真·前端节点）。ShowText|pysssss、
+  // Display Int (rgthree) 曾被误列这里——它们是服务端节点且 output_node=true，
+  // 列进来会让「靠它们出文本」的工作流转出 0 个输出节点，提交必报 Prompt has no outputs。
   const IGNORED = new Set([
     "Note", "MarkdownNote", "Reroute",
     "Fast Groups Muter (rgthree)", "Fast Groups Bypasser (rgthree)", "Label (rgthree)",
-    "Display Int (rgthree)", "ShowText|pysssss",
   ]);
+  // object_info 里存在的类绝不按前端节点跳过（第三方包同名/改名时以服务端为准）
+  function isFrontendOnly(type, types) {
+    if (!IGNORED.has(String(type || ""))) return false;
+    return !(types && Object.prototype.hasOwnProperty.call(types, String(type)));
+  }
   // 跨节点取值的虚拟节点：官方会改写成连线/常量，画布不做还原，判为不可转换
   const VIRTUAL = new Set([
     "PrimitiveNode", "GetNode", "SetNode", "Int", "Float", "String", "Boolean",
@@ -309,16 +316,44 @@
     return { ok: !blockers.length, blockers: [...seen.values()], nodeCount: nodes.length };
   }
 
-  function convert(workflow) {
+  function convert(workflow, options) {
     // API 格式已是提交格式，深拷贝一份返回（避免后续 combo 自愈改到缓存原文）
     if (isApiFormat(workflow)) return scalarValue(workflow);
     workflow = flatten(workflow);
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const links = Array.isArray(workflow?.links) ? workflow.links : [];
+    // 关组开关：offGroups 命中的分组内节点按「静音」处理（不进 API 格式）。
+    // 归属用「节点中心点落在 group.bounding 内」判定（与 rgthree 一致，实测与左上角/全包含同结果）
+    const offGroups = Array.isArray(options?.offGroups) ? options.offGroups : [];
+    const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
+    const groupOf = node => {
+      if (!offGroups.length || !groups.length) return null;
+      const p = node?.pos || [0, 0], s = node?.size || [0, 0];
+      const cx = p[0] + s[0] / 2, cy = p[1] + s[1] / 2;
+      for (const g of groups) {
+        const b = g?.bounding; if (!b) continue;
+        if (cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3] && offGroups.includes(String(g.title || ""))) return String(g.title || "");
+      }
+      return null;
+    };
     const byId = new Map();
     for (const node of nodes) if (Number.isFinite(node?.id)) byId.set(node.id, node);
     const linkById = new Map();
     for (const link of links) if (Array.isArray(link) && link.length >= 5) linkById.set(link[0], link);
+
+    // 某节点最终是否进 API 格式（关组/静音/旁路/前端节点都不进）。
+    // resolve 用它判断上游是否还在：上游被关，下游对该上游的连线必须丢弃，
+    // 否则引用一个不在 prompt 里的节点 id，ComfyUI 校验直接报错。
+    function nodeKept(node) {
+      if (!node) return false;
+      const type = String(node?.type || "");
+      if (!type || isSubgraph(type) || VIRTUAL.has(type)) return false;
+      if (isFrontendOnly(type, options?.types)) return false;
+      const mode = Number(node?.mode || 0);
+      if (mode === 2 || mode === 4) return false;
+      if (groupOf(node)) return false;
+      return true;
+    }
 
     // 穿透 Reroute 与旁路节点，找到真正提供数据的上游节点与输出槽
     function resolve(linkId, depth = 0) {
@@ -342,6 +377,8 @@
         const matched = connected.find(item => String(item.type || "").toUpperCase() === wanted);
         return resolve((matched || connected[0])?.link ?? null, depth + 1);
       }
+      // 上游被关组/静音 → 该连线作废（返回 null，调用方保留自身 widget 默认值）
+      if (!nodeKept(source)) return null;
       return { id: String(originId), slot: Number(originSlot) || 0 };
     }
 
@@ -349,9 +386,10 @@
     for (const node of nodes) {
       const type = String(node?.type || "");
       if (!type) continue;
-      if (IGNORED.has(type) || isSubgraph(type) || VIRTUAL.has(type)) continue;
+      if (isFrontendOnly(type, options?.types) || isSubgraph(type) || VIRTUAL.has(type)) continue;
       const mode = Number(node?.mode || 0);
       if (mode === 2 || mode === 4) continue;
+      if (groupOf(node)) continue; // 关组开关命中的分组内节点：按静音处理
 
       const inputs = {};
       const named = node.widgets_values_named;
@@ -450,7 +488,24 @@
     return { images, videos, audios, texts };
   }
 
-  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat };
+  // API 格式 prompt 里是否存在「输出节点」：ComfyUI 要求至少一个 output_node=true 的节点，
+  // 否则 /prompt 直接 400「Prompt has no outputs」。types = object_info 全量。
+  // 判不准就不拦（返回 true 交给 ComfyUI 报准确错）：拿不到 types，或任一节点 class 在 object_info
+  // 里查不到（自定义节点没加载，本就该由 ComfyUI 报「节点不存在」；且未知类本身可能就是输出节点）。
+  // 只有「全部节点 class 都已知、且都不是输出节点」才判定无输出。
+  function hasOutputNode(prompt, types) {
+    if (!prompt || !types) return true;
+    const nodes = Object.values(prompt);
+    if (!nodes.length) return true;
+    for (const node of nodes) {
+      const def = types[node && node.class_type];
+      if (!def) return true; // 有查不到的类 → 判不准，不拦
+      if (def.output_node === true) return true;
+    }
+    return false;
+  }
+
+  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode };
   if (typeof window !== "undefined") window.__MS_COMFY_WORKFLOW__ = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

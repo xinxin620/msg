@@ -723,6 +723,21 @@
         color: #fff; background: var(--accent, #e8a33d); border-color: var(--accent, #e8a33d);
       }
       .${CARD_CLASS}__ppin.is-on:hover { filter: brightness(1.08); }
+      .${CARD_CLASS}__groups { margin-bottom: 2px; }
+      .${CARD_CLASS}__pgroup {
+        display: inline-flex; align-items: center; gap: 5px;
+        height: 26px; padding: 0 11px; cursor: pointer;
+        border-radius: 999px; font-family: inherit; font-size: 12px; line-height: 1;
+        border: 1px solid var(--panel-border-strong);
+        transition: background 130ms ease, border-color 130ms ease, color 130ms ease, opacity 130ms ease;
+      }
+      .${CARD_CLASS}__pgroup.is-on {
+        color: #fff; background: var(--accent, #e8a33d); border-color: var(--accent, #e8a33d);
+      }
+      .${CARD_CLASS}__pgroup:not(.is-on) {
+        color: var(--text-tertiary); background: var(--panel-bg-strong); text-decoration: line-through; opacity: .7;
+      }
+      .${CARD_CLASS}__pgroup:hover { filter: brightness(1.06); }
       .${CARD_CLASS}__pnum, .${CARD_CLASS}__psel, .${CARD_CLASS}__ptext {
         width: 100%; height: 30px; padding: 0 8px; box-sizing: border-box;
         color: var(--text-primary); background: var(--panel-bg-strong);
@@ -1495,17 +1510,22 @@
     const path = node.data.comfyWorkflowPath || "";
     if (!helper || !profile || !normalizeComfyUrl(profile.baseUrl)) return { error: "请先配置 ComfyUI 服务地址并选择工作流。" };
     if (!path) return { error: "请先在上方选择一个 ComfyUI 工作流。" };
+    // 关组开关：分组成员按静音处理（不进参数列表），组名列表供面板渲染开关
+    const offGroups = Array.isArray(node.data.comfyOffGroups) ? node.data.comfyOffGroups : [];
+    const url = normalizeComfyUrl(profile.baseUrl);
+    const types = await ensureObjectInfo(url, profile); // convert 要靠它区分「真前端节点 vs 服务端同名类」
     let basePrompt = null;
+    let groups = [];
     try {
       const raw = await ensureWorkflowRaw(profile, path);
       const verdict = helper.analyze(raw);
       if (!verdict.ok) return { error: "该工作流不可直接编辑：" + blockerText(verdict.blockers) };
-      basePrompt = helper.convert(raw);
+      groups = (Array.isArray(raw.groups) ? raw.groups : [])
+        .map(g => String(g?.title || "").trim()).filter(Boolean);
+      basePrompt = helper.convert(raw, { offGroups, types });
     } catch (error) {
       return { error: "读取工作流失败：" + ((error && error.message) || "未知错误") };
     }
-    const url = normalizeComfyUrl(profile.baseUrl);
-    const types = await ensureObjectInfo(url, profile);
     const fields = helper.editableFields(basePrompt);
     const saved = node.data.comfyParams || {};
 
@@ -1547,7 +1567,7 @@
       items.push(fieldMeta(f));
     }
 
-    return { items };
+    return { items, groups };
   }
 
   function paramSheetKey(node) {
@@ -1684,6 +1704,8 @@
   function paintParamSheet(sheet, model) {
     const wasOpen = !!(sheet.querySelector("." + CARD_CLASS + "__pall") || {}).open;
     sheet.innerHTML = "";
+    const groups = model.groups || [];
+    if (groups.length) sheet.appendChild(buildGroupSwitches(groups));
     const items = model.items || [];
     items.forEach(it => { it.value = currentParamValue(it); });
     if (!items.length) { sheet.appendChild(paramNote("该工作流没有可编辑的标量参数。")); return; }
@@ -1871,6 +1893,40 @@
     return wrap;
   }
 
+  // 分组开关：等价于 ComfyUI 里 rgthree「开关」/手动静音整组——关掉的组内节点不进 API 格式，
+  // 引用它们的连线自动作废（下游退回自身 widget 值）。按节点存 comfyOffGroups，切工作流清空。
+  function buildGroupSwitches(groups) {
+    const node = getSelectedComfyNode();
+    const off = (node && Array.isArray(node.data.comfyOffGroups)) ? node.data.comfyOffGroups : [];
+    const grp = document.createElement("div"); grp.className = CARD_CLASS + "__group " + CARD_CLASS + "__groups";
+    const lab = document.createElement("div"); lab.className = CARD_CLASS + "__group-label"; lab.textContent = "分组开关（关掉的组不参与生成）";
+    grp.appendChild(lab);
+    const row = document.createElement("div"); row.className = CARD_CLASS + "__prow";
+    groups.forEach(name => {
+      const on = !off.includes(name);
+      const b = document.createElement("button");
+      b.type = "button"; b.className = CARD_CLASS + "__pgroup" + (on ? " is-on" : "");
+      b.setAttribute("aria-pressed", String(on));
+      b.textContent = (on ? "启用 " : "关闭 ") + name;
+      b.title = on ? "点击关闭该分组（组内节点本次生成不执行）" : "点击重新启用该分组";
+      b.addEventListener("click", ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        const n = getSelectedComfyNode(); if (!n) return;
+        const cur = Array.isArray(n.data.comfyOffGroups) ? n.data.comfyOffGroups.slice() : [];
+        const i = cur.indexOf(name);
+        if (i >= 0) cur.splice(i, 1); else cur.push(name);
+        if (!patchNodeData(n.id, { comfyOffGroups: cur })) return;
+        paramsModel = null; // 参数结构随开关变化，强制重算
+        renderParamSheet(n);
+        refreshModelLine();
+        showToast(i >= 0 ? `已启用「${name}」` : `已关闭「${name}」，该组节点不参与本次生成`, "info");
+      }, true);
+      row.appendChild(b);
+    });
+    grp.appendChild(row);
+    return grp;
+  }
+
   // 宽高对：只有两者都置顶时才显示横竖屏按钮（对调写回 comfyParams）
   function resolutionPair() {
     const items = paramsModel && paramsModel.items;
@@ -2005,6 +2061,7 @@
         patchNodeData(node.id, {
           comfyWorkflowPath: item.path,
           comfyParams: {},
+          comfyOffGroups: [], // 分组名按工作流走，切流后旧开关无意义
           comfyPinnedParams: Array.isArray(seed) ? seed.slice() : null,
         });
         paramsModel = null;
@@ -2203,6 +2260,10 @@
   // 把 ComfyUI /prompt 校验失败（尤其 Value not in list）的 node_errors 翻成人话：哪个节点、哪个字段、非法值 vs 合法列表
   function describeSubmitError(payload, status) {
     const top = payload?.error?.message || payload?.error?.details || payload?.error?.type || "";
+    // 兜底：预检放行但 ComfyUI 仍报无输出节点（如本机 object_info 与运行时不一致）→ 中文化
+    if (/no outputs/i.test(top)) {
+      return "这个工作流没有任何输出节点（SaveImage / PreviewText / ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。（原始报错：" + top + "）";
+    }
     const nodeErrors = payload?.node_errors || {};
     const parts = [];
     const fmt = x => (typeof x === "string" ? `"${x}"` : JSON.stringify(x));
@@ -2276,7 +2337,9 @@
       const raw = await ensureWorkflowRaw(profile, path, true);
       const verdict = helper.analyze(raw);
       if (!verdict.ok) throw new Error(blockerText(verdict.blockers));
-      const basePrompt = helper.convert(raw);
+      const types = await ensureObjectInfo(url, profile); // convert/预检/combo 自愈共用一份
+      const offGroups = Array.isArray(data.comfyOffGroups) ? data.comfyOffGroups : [];
+      const basePrompt = helper.convert(raw, { offGroups, types });
       // 1) 工作流参数：节点上存过的标量覆盖（applyEdits 自动跳过工作流里不存在的 nodeId/key）
       const edits = {};
       const savedParams = data.comfyParams && typeof data.comfyParams === "object" ? data.comfyParams : {};
@@ -2293,7 +2356,6 @@
       const ups = upstreamInputs(node.id).texts.filter(t => !String(promptText || "").includes(t));
       const promptValue = [String(promptText || "").trim(), ...ups].filter(Boolean).join("\n\n");
       if (promptValue) {
-        const types = await ensureObjectInfo(url, profile);
         let writable = 0; let comboHits = 0;
         for (const field of helper.editableFields(basePrompt)) {
           if (typeof field.value !== "string") continue;
@@ -2328,6 +2390,12 @@
       const upstream = upstreamInputs(node.id);
       const warnings = await injectUpstreamMedia(profile, url, finalPrompt, upstream);
       if (warnings.length) showToast(warnings.join("；"), "error");
+
+      // 无输出节点预检：ComfyUI 对没有任何 output_node=true 的 prompt 直接 400「Prompt has no outputs」，
+      // 这里提前拦下并给中文根因，别让用户对着英文报错猜
+      if (!helper.hasOutputNode(finalPrompt, types)) {
+        throw new Error("这个工作流没有任何输出节点（SaveImage / PreviewText / ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。");
+      }
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
         method: "POST", cache: "no-store", headers, body: JSON.stringify({ prompt: finalPrompt }),
