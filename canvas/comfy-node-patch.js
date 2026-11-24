@@ -2386,7 +2386,7 @@
     const top = payload?.error?.message || payload?.error?.details || payload?.error?.type || "";
     // 兜底：预检放行但 ComfyUI 仍报无输出节点（如本机 object_info 与运行时不一致）→ 中文化
     if (/no outputs/i.test(top)) {
-      return "这个工作流没有任何输出节点（SaveImage / PreviewText / ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。（原始报错：" + top + "）";
+      return "这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。（原始报错：" + top + "）";
     }
     const nodeErrors = payload?.node_errors || {};
     const parts = [];
@@ -2530,9 +2530,11 @@
       if (warnings.length) showToast(warnings.join("；"), "error");
 
       // 无输出节点预检：ComfyUI 对没有任何 output_node=true 的 prompt 直接 400「Prompt has no outputs」，
-      // 这里提前拦下并给中文根因，别让用户对着英文报错猜
+      // 这里提前拦下并给中文根因，别让用户对着英文报错猜。判定含类名兜底（VHS_VideoCombine 等
+      // 在部分版本 object_info 里不标 output_node，只看标志位会误拦补帧/合成类工作流）。
       if (!helper.hasOutputNode(finalPrompt, types)) {
-        throw new Error("这个工作流没有任何输出节点（SaveImage / PreviewText / ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。");
+        const sinks = helper.sinkClasses(finalPrompt);
+        throw new Error("这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。" + (sinks.length ? `当前末端节点：${sinks.join("、")}。` : ""));
       }
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {

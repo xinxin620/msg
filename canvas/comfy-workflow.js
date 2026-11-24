@@ -493,6 +493,9 @@
   // 判不准就不拦（返回 true 交给 ComfyUI 报准确错）：拿不到 types，或任一节点 class 在 object_info
   // 里查不到（自定义节点没加载，本就该由 ComfyUI 报「节点不存在」；且未知类本身可能就是输出节点）。
   // 只有「全部节点 class 都已知、且都不是输出节点」才判定无输出。
+  // 名称兜底：VHS_VideoCombine 等自定义产出节点在部分版本 object_info 里不标 output_node，
+  // 只看标志位会把补帧/合成类工作流误拦成「无输出节点」。
+  const OUTPUT_NAME_RE = /(save|combine|preview|show|display|export)/i;
   function hasOutputNode(prompt, types) {
     if (!prompt || !types) return true;
     const nodes = Object.values(prompt);
@@ -502,10 +505,23 @@
       if (!def) return true; // 有查不到的类 → 判不准，不拦
       if (def.output_node === true) return true;
     }
-    return false;
+    return nodes.some(node => OUTPUT_NAME_RE.test(String((node && node.class_type) || "")));
   }
 
-  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode };
+  // 提交图里没有输出节点时，给出末端节点（不被任何输入引用）的 class 列表，报错能指名道姓
+  function sinkClasses(prompt) {
+    const refs = new Set();
+    for (const node of Object.values(prompt || {})) {
+      for (const value of Object.values((node && node.inputs) || {})) {
+        if (Array.isArray(value)) refs.add(String(value[0]));
+      }
+    }
+    return [...new Set(Object.entries(prompt || {})
+      .filter(([id]) => !refs.has(id))
+      .map(([, node]) => node && node.class_type).filter(Boolean))];
+  }
+
+  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode, sinkClasses };
   if (typeof window !== "undefined") window.__MS_COMFY_WORKFLOW__ = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();
