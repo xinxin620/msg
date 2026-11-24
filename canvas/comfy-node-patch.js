@@ -954,25 +954,34 @@
   function upstreamStats(nodeId) {
     const r = getStateReader(); const st = r && r();
     if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return null;
-    const stats = { images: 0, texts: 0, audios: 0 };
+    const stats = { images: 0, texts: 0, audios: 0, videos: 0 };
     st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
       const src = st.nodes.find(n => n && n.id === edge.source);
       if (!src || !src.data) return;
       const c = src.data.category;
-      if (c === "image" || (c === "upload" && src.data.assetType === "image")) stats.images += 1;
-      else if (c === "text") stats.texts += 1;
-      else if (c === "audio") stats.audios += 1;
+      // 归类与 upstreamInputs 严格一致：upload 按 assetType 分流，其余归图片
+      const kind = c === "text" ? "text"
+        : c === "audio" ? "audio"
+        : c === "video" ? "video"
+        : c === "upload" ? (String(src.data.assetType || "").toLowerCase() === "audio" ? "audio"
+            : String(src.data.assetType || "").toLowerCase() === "video" ? "video" : "image")
+        : c === "image" ? "image" : "";
+      if (kind === "text") stats.texts += 1;
+      else if (kind === "audio") stats.audios += 1;
+      else if (kind === "video") stats.videos += 1;
+      else if (kind === "image") stats.images += 1;
     });
     return stats;
   }
 
   function statsText(stats) {
     if (!stats) return "画布状态不可用";
-    if (!stats.images && !stats.texts && !stats.audios) return "暂无上游参考（可从文本/图片/音频节点连线）";
+    if (!stats.images && !stats.texts && !stats.audios && !stats.videos) return "暂无上游参考（可从文本/图片/音频/视频节点连线）";
     const parts = [];
     if (stats.images) parts.push("图片 " + stats.images + " 张");
     if (stats.texts) parts.push("文本 " + stats.texts + " 段");
     if (stats.audios) parts.push("音频 " + stats.audios + " 条（文稿进提示词 · 文件进 LoadAudio）");
+    if (stats.videos) parts.push("视频 " + stats.videos + " 个（进 VHS_LoadVideo/LoadVideo）");
     return "已引用：" + parts.join(" · ");
   }
 
