@@ -406,6 +406,7 @@
         comfyPrompt: "",
         comfyWorkflowPath: "",
         comfyParams: {},
+        comfyCanvasAuthoritative: true, // 以画布连线为准清理工作流自带媒体/文本模板（默认开）
         status: "idle",
         results: [],
       },
@@ -723,6 +724,13 @@
         color: #fff; background: var(--accent, #e8a33d); border-color: var(--accent, #e8a33d);
       }
       .${CARD_CLASS}__ppin.is-on:hover { filter: brightness(1.08); }
+      .${CARD_CLASS}__auth-row {
+        display: flex; align-items: center; gap: 6px; margin: 6px 2px 0; cursor: pointer;
+        user-select: none;
+      }
+      .${CARD_CLASS}__auth-chk { width: 14px; height: 14px; accent-color: var(--accent, #e8a33d); cursor: pointer; }
+      .${CARD_CLASS}__auth-text { color: var(--text-primary); font-size: 12px; }
+      .${CARD_CLASS}__auth-hint { color: var(--text-tertiary); font-size: 11px; }
       .${CARD_CLASS}__groups { margin-bottom: 2px; }
       .${CARD_CLASS}__pgroup {
         display: inline-flex; align-items: center; gap: 5px;
@@ -1172,19 +1180,83 @@
     return mapping;
   }
 
+  // 该 kind 是否存在 autogrow 展平槽族（owner.inputs 里有 family.base_N 键引用该 kind 加载节点）。
+  // autogrow 族交 resizeAutogrowSlots 配平，普通加载节点走 balanceLoaders，二者互斥，避免双重删除。
+  function detectAutogrow(promptObj, kind) {
+    const isLoader = node => node && MEDIA_LOADERS[node.class_type] && MEDIA_LOADERS[node.class_type].kind === kind;
+    for (const node of Object.values(promptObj)) {
+      for (const [key, value] of Object.entries(node?.inputs || {})) {
+        if (!Array.isArray(value) || value.length !== 2) continue;
+        if (!AUTOGROW_SLOT_RE.test(key)) continue;
+        if (isLoader(promptObj[String(value[0])])) return true;
+      }
+    }
+    return false;
+  }
+
+  // 某消费槽是否必填（object_info input.required 含该 key）
+  function slotIsRequired(types, classType, slotKey) {
+    const req = types?.[classType]?.input?.required;
+    if (!req) return false;
+    if (Array.isArray(req)) return req.some(p => Array.isArray(p) && p[0] === slotKey);
+    return Object.prototype.hasOwnProperty.call(req, slotKey);
+  }
+
+  // 以画布为准配平「普通加载节点」：保留前 count 个，多余的删除；
+  // 但喂必填槽的多余加载节点保留（删了 ComfyUI 报 Required input missing，且仍带工作流自带脏文件）。
+  // 删除后清掉指向被删节点的悬空连线（下游退回自身 widget）。返回因必填保留的多余数。
+  function balanceLoaders(promptObj, kind, count, types) {
+    const ids = Object.entries(promptObj)
+      .filter(([, node]) => node && MEDIA_LOADERS[node.class_type] && MEDIA_LOADERS[node.class_type].kind === kind)
+      .map(([id]) => id);
+    const keep = ids.slice(0, Math.max(0, count));
+    const feedsRequired = id => {
+      for (const [cid, node] of Object.entries(promptObj)) {
+        if (cid === id) continue;
+        for (const [key, value] of Object.entries(node.inputs || {})) {
+          if (Array.isArray(value) && String(value[0]) === id && slotIsRequired(types, node.class_type, key)) return true;
+        }
+      }
+      return false;
+    };
+    const removed = []; let keptRequired = 0;
+    for (const id of ids.slice(keep.length)) {
+      if (feedsRequired(id)) { keptRequired += 1; continue; }
+      delete promptObj[id]; removed.push(id);
+    }
+    if (removed.length) {
+      const rm = new Set(removed);
+      for (const node of Object.values(promptObj)) {
+        for (const [key, value] of Object.entries(node.inputs || {})) {
+          if (Array.isArray(value) && rm.has(String(value[0]))) delete node.inputs[key];
+        }
+      }
+    }
+    return { keptRequired };
+  }
+
   // 把上游图/音/视按序上传并写进工作流对应加载节点：autogrow 族（H3 参考槽位）
-  // 先配平到媒体数、按槽序一一对应；普通加载节点不足复用最后一个。返回告警文案数组
-  async function injectUpstreamMedia(profile, url, promptObj, sources) {
+  // 先配平到媒体数、按槽序一一对应；普通加载节点不足复用最后一个。
+  // authoritative=true 时「以画布连线为准」：多余/未传的加载节点删除（必填槽保护）。返回告警文案数组
+  async function injectUpstreamMedia(profile, url, promptObj, sources, opts) {
+    const { authoritative = false, types = null } = opts || {};
     const warnings = [];
-    const entries = Object.entries(promptObj).filter(([, node]) => node && MEDIA_LOADERS[node.class_type]);
     for (const kind of ["image", "audio", "video"]) {
       const list = (sources && sources[kind + "s"]) || [];
-      if (!list.length) continue;
       const label = MEDIA_LABEL[kind];
-      const loaders = entries.filter(([, node]) => MEDIA_LOADERS[node.class_type].kind === kind);
+      const hasAutogrow = detectAutogrow(promptObj, kind);
+      // autogrow 族（H3 参考槽）交 resizeAutogrowSlots 配平；普通加载节点交 balanceLoaders，二者互斥
+      let slotRefs = null;
+      if (hasAutogrow && (authoritative || list.length)) slotRefs = resizeAutogrowSlots(promptObj, kind, list.length);
+      if (!hasAutogrow && authoritative) {
+        const before = Object.entries(promptObj).filter(([, n]) => n && MEDIA_LOADERS[n.class_type]?.kind === kind).length;
+        const bal = balanceLoaders(promptObj, kind, list.length, types);
+        if (bal.keptRequired) warnings.push(`工作流要求至少 ${before} 个${label}（必填输入），画布只传 ${list.length} 个，多出的沿用工作流自带`);
+      }
+      if (!list.length) continue;
+      const loaders = Object.entries(promptObj).filter(([, node]) => node && MEDIA_LOADERS[node.class_type] && MEDIA_LOADERS[node.class_type].kind === kind);
       if (!loaders.length) { warnings.push(`工作流里没有${label}加载节点，${list.length} 个上游${label}未注入`); continue; }
-      // autogrow 族先把槽位配平到 list.length，注入按槽序一一对应
-      const slotRefs = resizeAutogrowSlots(promptObj, kind, list.length);
+      if (!slotRefs && list.length > loaders.length) warnings.push(`工作流只有 ${loaders.length} 个${label}加载节点，画布传了 ${list.length} 个，多余的未注入`);
       for (let i = 0; i < list.length; i++) {
         const target = slotRefs ? promptObj[slotRefs[i][0]] : loaders[Math.min(i, loaders.length - 1)][1];
         const field = MEDIA_LOADERS[target.class_type].field;
@@ -1260,12 +1332,35 @@
 
   const POSITIVE_RE = /(^|[^a-z])(text|prompt|positive)|prompt$/i;
   const NEGATIVE_RE = /negative|nagative|bad|unwant/i;
+  // 系统/角色/指令类消费槽：画布提示词绝不覆盖（它是工作流的角色定义，如 MOSS system_prompt），
+  // 「以画布为准」清理时也保留。判定用消费端槽位名，不用文本节点自身 key（CR Text 的 key 恒为 text）
+  const SYSTEM_SLOT_RE = /(^|_)(system|role|instruction|persona)(_|$)/i;
+  const isSystemSlotKey = key => SYSTEM_SLOT_RE.test(String(key || ""));
+  // producerId -> 它输出连入的消费端槽位名数组（从 API prompt 反推：消费端 inputs 里值为 [id,slot] 的键）
+  function buildFeedsTo(prompt) {
+    const map = {};
+    for (const node of Object.values(prompt || {})) {
+      for (const [key, value] of Object.entries(node?.inputs || {})) {
+        if (Array.isArray(value)) (map[String(value[0])] = map[String(value[0])] || []).push(key);
+      }
+    }
+    return map;
+  }
+  // 该文本字段是否属于「系统/角色」：自身 key 命中，或它连入的消费槽命中
+  function isSystemTextField(feedsTo, field) {
+    if (isSystemSlotKey(field.key)) return true;
+    return (feedsTo[field.nodeId] || []).some(isSystemSlotKey);
+  }
   // 「输入文本」类节点：字段 key 常是通用的 value（不含 text/prompt），
   // 只按 POSITIVE_RE 会漏掉、导致卡片提示词写不进去、按工作流自带模板生成。
   // 这些节点的自由文本字段即便 key=value 也应接受；expression 等公式节点不在列，
   // 不会误写。
   const TEXT_INPUT_CLASS_RE =
     /^(PrimitiveStringMultiline|PrimitiveString|StringLiteralEvalPrimitive|Comfy__StringPrimitive|TextMultiline|StringFunction)$/i;
+  // 「专用文本节点」＝纯存文本的模板节点（脏模板常烧在这）。清空模板只针对它们；
+  // CLIPTextEncode 等编码节点绝不空清——文生图工作流依赖其自带默认 prompt。
+  const TEMPLATE_TEXT_CLASS_RE =
+    /^(CR Text( Multiline)?|PrimitiveStringMultiline|PrimitiveString|StringLiteralEvalPrimitive|Comfy__StringPrimitive|TextMultiline|StringFunction)$/i;
 
   // combo 自愈：工作流在别人机器上存的模型路径可能带子目录（qwen_image/x.safetensors），
   // 本机却放在根目录（x.safetensors）。值不在合法列表、但去掉目录前缀后唯一匹配时自动改写。
@@ -1432,6 +1527,18 @@
     const ctrlRow = document.createElement("div"); ctrlRow.className = CARD_CLASS + "__model-flex";
     ctrlRow.style.marginBottom = "0";
     ctrlRow.append(workflowRow, reloadBtn, paramsBtn); c.appendChild(ctrlRow);
+
+    // 「以画布连线为准」开关：默认开。关掉＝完全按工作流原样（自带媒体/文本模板都不动）
+    const authRow = document.createElement("label"); authRow.className = CARD_CLASS + "__auth-row";
+    const authChk = document.createElement("input"); authChk.type = "checkbox"; authChk.className = CARD_CLASS + "__auth-chk";
+    authChk.checked = node.data.comfyCanvasAuthoritative !== false;
+    authChk.addEventListener("change", () => patchNodeData(node.id, { comfyCanvasAuthoritative: authChk.checked }));
+    const authTxt = document.createElement("span"); authTxt.className = CARD_CLASS + "__auth-text";
+    authTxt.textContent = "以画布连线为准";
+    authTxt.title = "开：清理工作流自带的多余媒体/文本模板，只认画布连入的图/音/文（系统/角色提示词与必填输入保留）。关：完全按工作流原样生成。";
+    const authHint = document.createElement("span"); authHint.className = CARD_CLASS + "__auth-hint";
+    authHint.textContent = "清理工作流自带媒体/模板";
+    authRow.append(authChk, authTxt, authHint); c.appendChild(authRow);
 
     const ml = document.createElement("div"); ml.className = CARD_CLASS + "__model-line";
     c.appendChild(ml);
@@ -2353,6 +2460,8 @@
         if (any) edits[nodeId] = clean;
       }
       // 2) 卡片提示词 + 上游连线文本（与参数键互斥：参数面板不暴露正向提示词字段）
+      const authoritative = data.comfyCanvasAuthoritative !== false; // 默认开
+      const feedsTo = buildFeedsTo(basePrompt);
       const ups = upstreamInputs(node.id).texts.filter(t => !String(promptText || "").includes(t));
       const promptValue = [String(promptText || "").trim(), ...ups].filter(Boolean).join("\n\n");
       if (promptValue) {
@@ -2361,6 +2470,7 @@
           if (typeof field.value !== "string") continue;
           if (NEGATIVE_RE.test(field.key)) continue; // 反向提示词绝不覆盖
           if (/expression/i.test(field.key)) continue; // 公式节点（ComfyMathExpression 等）不是提示词
+          if (isSystemTextField(feedsTo, field)) continue; // 系统/角色槽保留工作流自带（如 MOSS system_prompt）
           // key 命中正向正则，或节点本身就是「输入文本」类（key 常为 value）
           const isTextNode = TEXT_INPUT_CLASS_RE.test(field.classType);
           if (!isTextNode && !POSITIVE_RE.test(field.key)) continue;
@@ -2376,6 +2486,17 @@
             ? "工作流里的提示词字段是下拉选项（写入会报 Value not in list），已按工作流原样生成；提示词请改用工作流自带的输入。"
             : "工作流里没有可写入的文本提示词字段，已按工作流原样生成。", "error");
         }
+      } else if (authoritative) {
+        // 画布没给提示词：清空「专用文本节点」里烧死的模板（FIFA/示例那种），别让它干扰。
+        // 只清 TEMPLATE_TEXT_CLASS_RE（CR Text/PrimitiveString…），绝不动 CLIPTextEncode 等编码默认 prompt；
+        // 系统/角色槽（喂 system_prompt）保留。
+        for (const field of helper.editableFields(basePrompt)) {
+          if (typeof field.value !== "string" || !field.value) continue;
+          if (!TEMPLATE_TEXT_CLASS_RE.test(field.classType)) continue;
+          if (isSystemTextField(feedsTo, field)) continue;
+          if (!edits[field.nodeId]) edits[field.nodeId] = {};
+          edits[field.nodeId][field.key] = "";
+        }
       }
       const hasEdits = Object.keys(edits).length > 0;
       const finalPrompt = hasEdits ? helper.applyEdits(basePrompt, edits) : basePrompt;
@@ -2388,7 +2509,7 @@
       fillRequiredSocketless(comboTypes, finalPrompt);
 
       const upstream = upstreamInputs(node.id);
-      const warnings = await injectUpstreamMedia(profile, url, finalPrompt, upstream);
+      const warnings = await injectUpstreamMedia(profile, url, finalPrompt, upstream, { authoritative, types });
       if (warnings.length) showToast(warnings.join("；"), "error");
 
       // 无输出节点预检：ComfyUI 对没有任何 output_node=true 的 prompt 直接 400「Prompt has no outputs」，
