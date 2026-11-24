@@ -340,11 +340,37 @@
     }
   }
 
+  // ======= 关闭上传视频节点自动播放 =======
+  // bundle 原生 upload 视频渲染写死 controls autoPlay muted loop（只读），
+  // 且 React 每次重渲染/刷新恢复都会带着 autoplay 重建元素、浏览器立刻起播
+  // （用户实测「一刷新又开始播放」）。DOM 层双保险：
+  // ① sync 里见着带 autoplay 的节点 video 就摘属性+暂停；
+  // ② 捕获阶段听 play 事件——属性还在＝自动播放刚起，当场暂停；
+  //    手动点播放时属性早被摘掉，不受影响。
+  // 只处理「autoplay 还在」的元素，绝不碰用户手动播放的视频。
+  function killVideoAutoplay(v) {
+    v.autoplay = false;
+    v.removeAttribute("autoplay");
+    if (!v.paused) { try { v.pause(); } catch (_) {} }
+  }
+
+  function nodeVideoWantsAutoplay(el) {
+    return el instanceof HTMLVideoElement
+      && el.closest(".react-flow__node")
+      && (el.autoplay || el.hasAttribute("autoplay"));
+  }
+
+  function disableNodeVideoAutoplay() {
+    for (const v of document.querySelectorAll(".react-flow__node video")) {
+      if (nodeVideoWantsAutoplay(v)) killVideoAutoplay(v);
+    }
+  }
+
   let queued = false;
   function scheduleSync() {
     if (queued) return;
     queued = true;
-    window.requestAnimationFrame(() => { queued = false; patchInputs(); });
+    window.requestAnimationFrame(() => { queued = false; patchInputs(); disableNodeVideoAutoplay(); });
   }
 
   function injectStyles() {
@@ -373,12 +399,16 @@
 
     const host = document.getElementById("root") || document.documentElement;
     new MutationObserver(scheduleSync).observe(host, { childList: true, subtree: true });
+    // play 不冒泡，但捕获阶段仍能收到；比下一拍 sync 早一步掐掉自动播放
+    document.addEventListener("play", ev => {
+      if (nodeVideoWantsAutoplay(ev.target)) killVideoAutoplay(ev.target);
+    }, true);
     patchInputs();
   }
 
   window.__MS_UPLOAD_MEDIA_PATCH__ = {
     isReady: () => !!findCanvasStore(),
-    version: "20261124-1",
+    version: "20261124-3",
   };
 
   if (document.readyState === "loading") {
