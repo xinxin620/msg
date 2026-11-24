@@ -197,9 +197,12 @@
     ));
     const contentW = ratio >= 1 ? 280 : 210;
     const bodyH = Math.min(FRAME_MAX_H, Math.max(FRAME_MIN_H, contentW / ratio));
-    node.style = { width: contentW + "px", height: Math.round(headerH + bodyH) + "px" };
-    node.data.comfyFrameRatio = ratio;
-    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    // React Flow 按节点对象引用 memo：原地改 node.style 再回传同一数组不会重渲染，
+    // 框高要等下一次外部变化（点空白选中态变更）才被动生效。必须克隆节点+新数组。
+    const frame = { width: contentW + "px", height: Math.round(headerH + bodyH) + "px" };
+    const nodes = st.nodes.map(n => n && n.id === nodeId
+      ? { ...n, style: frame, data: { ...n.data, comfyFrameRatio: ratio } } : n);
+    try { st.replaceCanvasState(nodes, st.edges || [], st.groups || []); } catch (_) { return; }
     // React Flow 自带 ResizeObserver 会在新尺寸渲染后重测 handleBounds；
     // 这里再延迟补一次强制测量，防个别情况下重测漏跑（连线点停在旧框）。
     const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
@@ -213,9 +216,14 @@
     if (!st) return;
     const node = (st.nodes || []).find(n => n && n.id === nodeId);
     if (!node || !node.style) return;
-    node.style = undefined;
-    if (node.data && typeof node.data.comfyFrameRatio === "number") delete node.data.comfyFrameRatio;
-    try { st.replaceCanvasState(st.nodes, st.edges || [], st.groups || []); } catch (_) { return; }
+    // 同 applyFrameRatio：克隆节点+新数组，否则 React Flow 不重渲染、缩不回
+    const nodes = st.nodes.map(n => {
+      if (!n || n.id !== nodeId) return n;
+      const d = { ...n.data };
+      delete d.comfyFrameRatio;
+      return { ...n, style: undefined, data: d };
+    });
+    try { st.replaceCanvasState(nodes, st.edges || [], st.groups || []); } catch (_) { return; }
     const measure = window.__MS_VIDEO_NODE_PATCH__ && window.__MS_VIDEO_NODE_PATCH__.measureNode;
     if (typeof measure === "function") { try { measure(nodeId); } catch (_) {} }
   }
@@ -954,25 +962,34 @@
   function upstreamStats(nodeId) {
     const r = getStateReader(); const st = r && r();
     if (!st || !Array.isArray(st.edges) || !Array.isArray(st.nodes)) return null;
-    const stats = { images: 0, texts: 0, audios: 0 };
+    const stats = { images: 0, texts: 0, audios: 0, videos: 0 };
     st.edges.filter(e => e && e.target === nodeId).forEach(edge => {
       const src = st.nodes.find(n => n && n.id === edge.source);
       if (!src || !src.data) return;
       const c = src.data.category;
-      if (c === "image" || (c === "upload" && src.data.assetType === "image")) stats.images += 1;
-      else if (c === "text") stats.texts += 1;
-      else if (c === "audio") stats.audios += 1;
+      // 归类与 upstreamInputs 严格一致：upload 按 assetType 分流，其余归图片
+      const kind = c === "text" ? "text"
+        : c === "audio" ? "audio"
+        : c === "video" ? "video"
+        : c === "upload" ? (String(src.data.assetType || "").toLowerCase() === "audio" ? "audio"
+            : String(src.data.assetType || "").toLowerCase() === "video" ? "video" : "image")
+        : c === "image" ? "image" : "";
+      if (kind === "text") stats.texts += 1;
+      else if (kind === "audio") stats.audios += 1;
+      else if (kind === "video") stats.videos += 1;
+      else if (kind === "image") stats.images += 1;
     });
     return stats;
   }
 
   function statsText(stats) {
     if (!stats) return "画布状态不可用";
-    if (!stats.images && !stats.texts && !stats.audios) return "暂无上游参考（可从文本/图片/音频节点连线）";
+    if (!stats.images && !stats.texts && !stats.audios && !stats.videos) return "暂无上游参考（可从文本/图片/音频/视频节点连线）";
     const parts = [];
     if (stats.images) parts.push("图片 " + stats.images + " 张");
     if (stats.texts) parts.push("文本 " + stats.texts + " 段");
     if (stats.audios) parts.push("音频 " + stats.audios + " 条（文稿进提示词 · 文件进 LoadAudio）");
+    if (stats.videos) parts.push("视频 " + stats.videos + " 个（进 VHS_LoadVideo/LoadVideo）");
     return "已引用：" + parts.join(" · ");
   }
 
@@ -2369,7 +2386,7 @@
     const top = payload?.error?.message || payload?.error?.details || payload?.error?.type || "";
     // 兜底：预检放行但 ComfyUI 仍报无输出节点（如本机 object_info 与运行时不一致）→ 中文化
     if (/no outputs/i.test(top)) {
-      return "这个工作流没有任何输出节点（SaveImage / PreviewText / ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。（原始报错：" + top + "）";
+      return "这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。（原始报错：" + top + "）";
     }
     const nodeErrors = payload?.node_errors || {};
     const parts = [];
@@ -2513,9 +2530,11 @@
       if (warnings.length) showToast(warnings.join("；"), "error");
 
       // 无输出节点预检：ComfyUI 对没有任何 output_node=true 的 prompt 直接 400「Prompt has no outputs」，
-      // 这里提前拦下并给中文根因，别让用户对着英文报错猜
+      // 这里提前拦下并给中文根因，别让用户对着英文报错猜。判定含类名兜底（VHS_VideoCombine 等
+      // 在部分版本 object_info 里不标 output_node，只看标志位会误拦补帧/合成类工作流）。
       if (!helper.hasOutputNode(finalPrompt, types)) {
-        throw new Error("这个工作流没有任何输出节点（SaveImage / PreviewText / ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。");
+        const sinks = helper.sinkClasses(finalPrompt);
+        throw new Error("这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。" + (sinks.length ? `当前末端节点：${sinks.join("、")}。` : ""));
       }
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
