@@ -2535,7 +2535,7 @@
       // 在部分版本 object_info 里不标 output_node，只看标志位会误拦补帧/合成类工作流）。
       if (!helper.hasOutputNode(finalPrompt, types)) {
         const sinks = helper.sinkClasses(finalPrompt);
-        throw new Error("这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。" + (sinks.length ? `当前末端节点：${sinks.join("、")}。` : ""));
+        throw new Error("这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。" + `（提交图 ${Object.keys(finalPrompt).length} 个节点，末端：${sinks.join("、") || "无"}；若刚在 ComfyUI 里加了节点，先 Ctrl+S 保存覆盖原文件，并检查该节点是否被静音/所在分组被画布关闭）`);
       }
 
       const submitResp = await fetch(`${PROXY_PREFIX}prompt?base=${encodeURIComponent(url)}`, {
