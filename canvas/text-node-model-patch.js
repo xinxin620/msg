@@ -87,7 +87,7 @@
       }
       .ms-txt-ref-strip {
         display: flex; align-items: center; gap: 6px;
-        flex-wrap: wrap; padding: 6px 10px 0;
+        flex-wrap: wrap; padding: 6px 10px;
       }
       .ms-txt-ref-strip:empty { display: none; }
       .ms-txt-ref-chip {
@@ -297,12 +297,20 @@
     const images = isTextNode ? orderedUpstreamImages(selectedId) : [];
     let strip = panel.querySelector(".ms-txt-ref-strip");
     if (!images.length) { if (strip) strip.remove(); return; }
+    // 放在提示词区上方：插到「提示词 / 文本」label 前（label↔textarea 相邻关系不动，
+    // 不与 image-inspector 的 ensureTextPromptLabel 重插逻辑抢位），兜底 textarea/壳前
+    const anchor = panel.querySelector(".ms-text-prompt-label")
+      || panel.querySelector(".ms-image-prompt-label")
+      || panel.querySelector(".action-panel__prompt-input")
+      || panel.querySelector(".action-panel__prompt-shell");
     if (!strip) {
       strip = document.createElement("div");
       strip.className = "ms-txt-ref-strip";
-      const ta = panel.querySelector(".action-panel__prompt-input");
-      if (ta && ta.parentNode === panel) panel.insertBefore(strip, ta.nextSibling);
-      else panel.insertBefore(strip, panel.firstChild);
+    }
+    if (anchor && anchor.parentNode && (strip.nextSibling !== anchor || strip.parentNode !== anchor.parentNode)) {
+      anchor.parentNode.insertBefore(strip, anchor);
+    } else if (!anchor && strip.parentNode !== panel) {
+      panel.insertBefore(strip, panel.firstChild);
     }
     const sig = images.join("\n");
     if (strip.dataset.sig === sig) return;
