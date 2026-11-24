@@ -283,6 +283,19 @@
     event.stopImmediatePropagation();
     event.preventDefault();
 
+    // 原生 onChange 末尾会关菜单（contextmenu setOpen(false) / 侧栏 t(!1)），
+    // 被我们整批拦掉后必须自己关，否则「上传完成菜单还挂着」（浏览器实测）。
+    if (input.closest(".canvas-context-menu")) {
+      document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    } else if (input.closest(".sidebar")) {
+      const btn = [...document.querySelectorAll(".sidebar__icon-btn")].find(b => b.title === "添加节点");
+      const section = btn && btn.closest(".sidebar__section");
+      if (section) {
+        section.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, cancelable: true }));
+        section.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false, cancelable: false }));
+      }
+    }
+
     const read = findCanvasStore();
     const state = read ? read() : null;
     if (!state) {
