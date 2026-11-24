@@ -170,22 +170,6 @@
       white-space: nowrap;
     }
 
-    .inspector.${EDITOR_CLASS} .ms-image-ref-strip {
-      display: flex; align-items: center; gap: 6px;
-      flex-wrap: wrap; margin: 4px 0 0;
-    }
-    .inspector.${EDITOR_CLASS} .ms-image-ref-strip:empty { display: none; }
-    .inspector.${EDITOR_CLASS} .ms-image-ref-chip {
-      position: relative; width: 40px; height: 50px; flex: none;
-      border-radius: 6px; overflow: hidden; background: #000;
-      border: 1px solid var(--panel-border-strong, #333);
-    }
-    .inspector.${EDITOR_CLASS} .ms-image-ref-chip img { width: 100%; height: 100%; object-fit: contain; display: block; }
-    .inspector.${EDITOR_CLASS} .ms-image-ref-chip__idx {
-      position: absolute; left: 2px; top: 2px; padding: 1px 5px;
-      border-radius: 999px; background: #000000c0; color: #fff; font-size: 10px;
-    }
-
     .inspector.${EDITOR_CLASS} .inspector__tools {
       display: none !important;
     }
@@ -1152,67 +1136,7 @@
       line.dataset.msImageReference = "1";
       titleWrap.appendChild(line);
     }
-    let strip = titleWrap.querySelector(".ms-image-ref-strip");
-    if (!strip) {
-      strip = createElement("div", "ms-image-ref-strip");
-      titleWrap.appendChild(strip);
-    }
     return line;
-  }
-
-  // 上游图按实发顺序渲染成「图N」缩略图带：连线图（按 edges 顺序）在前、
-  // 手动 referenceImages 在后，与 bundle 组装 reference_images 的顺序一致。
-  function orderedReferenceSources(state, node) {
-    const out = [];
-    if (!state || !node) return out;
-    const incoming = (state.edges || []).filter((edge) => edge.target === node.id);
-    for (const edge of incoming) {
-      const source = (state.nodes || []).find((item) => item.id === edge.source);
-      if (!source || !source.data) continue;
-      const category = String(source.data.category || "");
-      const hasImage =
-        category === "image" ||
-        category === "imageAsset" ||
-        category.toLowerCase().includes("image") ||
-        (Array.isArray(source.data.results) && source.data.results.length > 0);
-      if (!hasImage) continue;
-      const result = pickResult(source.data);
-      const url = String(
-        (result && (result.localPath || result.mediaUrl || result.url || result.imageUrl || result.dataUrl)) ||
-        source.data.mediaUrl || source.data.localPath || source.data.referenceImage || "",
-      );
-      if (url) out.push(url);
-    }
-    const manual = Array.isArray(node.data.referenceImages) ? node.data.referenceImages : [];
-    for (const ref of manual) {
-      const url = String((ref && (ref.localPath || ref.mediaUrl || ref.url)) || "");
-      if (url) out.push(url);
-    }
-    return out;
-  }
-
-  function renderReferenceStrip(inspector, state, node) {
-    const strip = inspector.querySelector(".ms-image-ref-strip");
-    if (!strip) return;
-    const sources = orderedReferenceSources(state, node);
-    const sig = sources.join("\n");
-    if (strip.dataset.sig === sig) return;
-    strip.dataset.sig = sig;
-    strip.innerHTML = "";
-    sources.forEach((src, i) => {
-      const chip = document.createElement("div"); chip.className = "ms-image-ref-chip";
-      const idx = document.createElement("span"); idx.className = "ms-image-ref-chip__idx";
-      idx.textContent = "图" + (i + 1);
-      const img = document.createElement("img"); img.alt = "";
-      chip.append(img, idx); strip.appendChild(chip);
-      if (/^(data:|https?:)/i.test(src)) { img.src = src; }
-      else {
-        const api = window.electronAPI;
-        if (api && typeof api.readLocalMediaDataUrl === "function") {
-          api.readLocalMediaDataUrl(src).then((u) => { if (u && strip.contains(chip)) img.src = u; }).catch(() => {});
-        }
-      }
-    });
   }
 
   function ensurePromptLabel(inspector) {
@@ -1335,7 +1259,6 @@
           ? `已引用：${count} 张${REFERENCE_HINT}`
           : `已引用：无${REFERENCE_HINT}`;
     }
-    renderReferenceStrip(inspector, state, node);
 
     const modelLine = inspector.querySelector(".ms-image-model-line");
     if (modelLine) {
@@ -1944,7 +1867,7 @@
   function removeImageChrome(inspector) {
     inspector
       .querySelectorAll(
-        ".ms-image-reference, .ms-image-ref-strip, .ms-image-prompt-label, .ms-image-model-line, .ms-image-actions, .ms-navigator"
+        ".ms-image-reference, .ms-image-prompt-label, .ms-image-model-line, .ms-image-actions, .ms-navigator"
       )
       .forEach((element) => element.remove());
   }
