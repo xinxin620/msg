@@ -406,6 +406,19 @@
     const linkById = new Map();
     for (const link of links) if (Array.isArray(link) && link.length >= 5) linkById.set(link[0], link);
 
+    // 纯前端注释/展示节点（如「孤海注释」这类第三方注释卡）：object_info 查不到该类，
+    // 且没有任何连线 → 服务端执行时它本来就不参与，官方 graphToPrompt 也不会写进 API 格式。
+    // 逐个点名 IGNORED 永远列不全，这里按结构判定统一剔除；否则会被缺节点预检误拦。
+    // 有连线的未知类不剔除（真没装的自定义节点要交给 missingClasses 报出来）。
+    function isUnwiredUnknown(node, types) {
+      if (!types) return false;
+      const type = String(node?.type || "");
+      if (!type || (types && Object.prototype.hasOwnProperty.call(types, type))) return false;
+      const hasIn = (node.inputs || []).some(s => s && s.link != null);
+      const hasOut = (node.outputs || []).some(o => o && Array.isArray(o.links) && o.links.length);
+      return !hasIn && !hasOut;
+    }
+
     // 某节点最终是否进 API 格式（关组/静音/旁路/前端节点都不进）。
     // 画布开关优先：节点在「启用」的组里时，工作流里的旁路(mode=4)被无视（救活）。
     // resolve 用它判断上游是否还在：上游被关，下游对该上游的连线必须丢弃，
@@ -415,6 +428,7 @@
       const type = String(node?.type || "");
       if (!type || isSubgraph(type) || VIRTUAL.has(type)) return false;
       if (isFrontendOnly(type, options?.types)) return false;
+      if (isUnwiredUnknown(node, options?.types)) return false;
       if (Number(node?.mode || 0) === 2) return false; // 静音始终尊重
       if (inOffGroup(node)) return false;              // 画布关闭的组：整体排除
       if (isBypassed(node)) return false;              // 真旁路（不在启用组里）
