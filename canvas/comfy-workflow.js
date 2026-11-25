@@ -423,13 +423,15 @@
         const upstream = (source.inputs || []).find(item => item?.link != null);
         return resolve(upstream?.link ?? null, depth + 1);
       }
-      // 旁路(BYPASS) 节点按「与被请求槽位相同的类型」透传，与官方一致；
-      // 找不到同类型时才退化为首个有连线的输入。
+      // 旁路(BYPASS) 节点按「与被请求槽位相同的类型」透传，与官方一致：
+      // 只有当它有一个与被请求类型同类型的输入连线时才往上追；否则判定它提供不了该数据，
+      // 连线作废返回 null（调用方保留自身 widget 默认值）。绝不退化去钻第一个有连线的输入——
+      // 那样会把旁路节点 LATENT 上游的 INT（如 ResolutionSelector.width）当成 IMAGE 吐给
+      // SaveImage，运行时报 'int' object is not subscriptable（liang-moss 文生图实测踩中）。
       if (Number(source.mode || 0) === 4) {
         const wanted = String(link[5] || "").toUpperCase();
-        const connected = (source.inputs || []).filter(item => item?.link != null);
-        const matched = connected.find(item => String(item.type || "").toUpperCase() === wanted);
-        return resolve((matched || connected[0])?.link ?? null, depth + 1);
+        const matched = (source.inputs || []).find(item => item?.link != null && String(item.type || "").toUpperCase() === wanted);
+        return matched ? resolve(matched.link, depth + 1) : null;
       }
       // 上游被关组/静音 → 该连线作废（返回 null，调用方保留自身 widget 默认值）
       if (!nodeKept(source)) return null;
