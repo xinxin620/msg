@@ -1,8 +1,9 @@
 (() => {
   "use strict";
 
-  // 文本模板分区（历史名 SKILL模板，DOM 类/存储键未改）：设置整页顶栏 TOP_TABS 的第二个分区（settings-page-patch 负责切分区与裁剪侧栏，
-  // 本补丁负责侧栏项、内容区、存储与导入导出）。机制复刻 text-api-patch：
+  // 文本模板分区（历史名 SKILL模板，DOM 类/存储键未改）：画布设置弹窗与设置整页（TOP_TABS 第二分区，settings-page-patch 负责切分区与裁剪侧栏，
+  // 本补丁负责侧栏项、内容区、存储与导入导出）共用同一份代码：index.html 与 settings.html 都加载，
+  // 侧栏项注入在 ComfyUI设置 之后；sync() 在弹窗未开时直接返回，画布常态零开销。机制复刻 text-api-patch：
   // 注入 .settings-sidebar__item + 独立 section + body 挂 VIEW_CLASS 遮罩，document 捕获阶段拦 click。
   // 存储：localStorage["manshiguang:canvas-skill-templates"] 只存自定义模板；
   // 内置七张来自 skill-templates-data.js（window.__MS_SKILL_TEMPLATES_BUILTIN__），不落盘、不可删不可改，
