@@ -1594,18 +1594,10 @@
   }
 
   function previewTextResult(inspector) {
-    let state = readCanvasState();
-    let node = getSelectedNodeByCategory(state, "text");
-    // 缓存 reader 可能停在冻结快照：刚推理/手输的 results 读成空。
-    // 与图片 getResultInfo 同一兜底——读到空就丢缓存重扫一次。
-    if (node && !textResultText(node)) {
-      const fresh = refreshCanvasState();
-      const freshNode = getSelectedNodeByCategory(fresh, "text");
-      if (freshNode && textResultText(freshNode)) {
-        state = fresh;
-        node = freshNode;
-      }
-    }
+    // 每次现读活状态，不用缓存快照：缓存 reader 可能停在冻结 state，
+    // 第二次推理后的新 results 读不到 → 预览停在旧内容（实测：再推理一次仍是第一次的）。
+    const state = refreshCanvasState();
+    const node = getSelectedNodeByCategory(state, "text");
     if (!node) {
       showToast("预览失败：当前没有选中的文本节点。", "error");
       return;
