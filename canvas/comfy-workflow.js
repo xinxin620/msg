@@ -575,7 +575,20 @@
       .map(([, node]) => node && node.class_type).filter(Boolean))];
   }
 
-  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode, sinkClasses };
+  // 本机 object_info 里查不到的 class_type（＝自定义节点没装）。ComfyUI /prompt 按同一份注册表
+  // 校验并抛 missing_node_type（英文 400），这里提前列出缺哪几个，报错能指名道姓并给出路。
+  // types 取不到时返回空（判不准不拦，交给 ComfyUI 报准确错）。
+  function missingClasses(prompt, types) {
+    if (!prompt || !types) return [];
+    const out = [];
+    for (const node of Object.values(prompt)) {
+      const cls = node && node.class_type;
+      if (cls && !types[cls] && !out.includes(cls)) out.push(cls);
+    }
+    return out;
+  }
+
+  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode, sinkClasses, missingClasses };
   if (typeof window !== "undefined") window.__MS_COMFY_WORKFLOW__ = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

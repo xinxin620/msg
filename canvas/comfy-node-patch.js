@@ -2455,6 +2455,11 @@
     if (/no outputs/i.test(top)) {
       return "这个工作流没有任何输出节点（图片用 SaveImage、视频用 VHS_VideoCombine/SaveVideo、文本用 ShowText 这类），ComfyUI 不会返回结果。请在 ComfyUI 里把要的结果接到一个输出节点后重新保存工作流。（原始报错：" + top + "）";
     }
+    // 兜底：缺自定义节点（missing_node_type）。正常应在提交前预检拦下，这里防缓存时序漏网。
+    const missCls = payload?.error?.extra_info?.class_type || "";
+    if (payload?.error?.type === "missing_node_type" || /custom node may not be installed|node .*not found/i.test(top)) {
+      return `当前 ComfyUI 没有安装工作流用到的自定义节点${missCls ? `「${missCls}」` : ""}。请在本机装对应自定义节点包后重启，或到「ComfyUI 设置」把服务地址切到已装该节点的后端。（原始报错：${top}）`;
+    }
     const nodeErrors = payload?.node_errors || {};
     const parts = [];
     const fmt = x => (typeof x === "string" ? `"${x}"` : JSON.stringify(x));
@@ -2595,6 +2600,20 @@
       const upstream = upstreamInputs(node.id);
       const warnings = await injectUpstreamMedia(profile, url, finalPrompt, upstream, { authoritative, types });
       if (warnings.length) showToast(warnings.join("；"), "error");
+
+      // 缺节点预检：工作流用了本机没装的自定义节点（如在 RunningHub 云端做的工作流拿到本地跑），
+      // ComfyUI /prompt 会按同一份注册表抛英文 400「missing_node_type」。这里提前用 object_info 列出
+      // 缺哪几个 class，并给出可操作出路（装节点包 / 切到装了该节点的后端），别把英文报错原样甩给用户。
+      let missing = helper.missingClasses(finalPrompt, types);
+      if (missing.length) {
+        // object_info 最多缓存 5 分钟，命中缺失先强制重拉一次再判，避免误拦「刚装好」的节点
+        objectInfoCache.delete(url);
+        missing = helper.missingClasses(finalPrompt, await ensureObjectInfo(url, profile));
+      }
+      if (missing.length) {
+        throw new Error(`这个工作流用到的自定义节点，当前 ComfyUI（${url}）没有安装：${missing.join("、")}。` +
+          "常见原因是工作流在别的机器/RunningHub 云端做的，那边装了对应节点包。解决：①在本机 ComfyUI 装缺的自定义节点包后重启；②或到「ComfyUI 设置」把服务地址切到已装这些节点的后端（如该工作流来源的云端）。");
+      }
 
       // 无输出节点预检：ComfyUI 对没有任何 output_node=true 的 prompt 直接 400「Prompt has no outputs」，
       // 这里提前拦下并给中文根因，别让用户对着英文报错猜。判定含类名兜底（VHS_VideoCombine 等
