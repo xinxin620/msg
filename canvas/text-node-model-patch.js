@@ -253,7 +253,15 @@
             continue;
           }
           if (cand && Array.isArray(cand.nodes) && typeof cand.replaceCanvasState === "function" && !fallbackReader) {
-            fallbackReader = () => cand;
+            // 绝不能冻结捕获时的 cand：useState 每次更新都换新对象，冻结会让缩略图带
+            // 停在扫描那一刻（实测：新连第 4 张不显示，刷新页面才变 4）。按 hook 现取。
+            const hookRef = hook;
+            fallbackReader = () => {
+              const ms = hookRef.memoizedState;
+              if (ms && Array.isArray(ms.nodes)) return ms;
+              const lr = hookRef.queue && hookRef.queue.lastRenderedState;
+              return lr && Array.isArray(lr.nodes) ? lr : null;
+            };
           }
         }
         hook = hook.next;
