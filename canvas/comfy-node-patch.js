@@ -1113,6 +1113,37 @@
   };
   const MEDIA_DEFAULT_EXT = { image: "png", audio: "mp3", video: "mp4" };
 
+  // 「素材包」加载节点（大桶 dt统一素材加载 DT_MediaLoader）：一个 media_state widget
+  // 用 JSON 同时存多张图/音/视，再经 DT_MediaSplitter 拆成 image_1..9 等喂下游。
+  // 它不是单文件加载节点，不在 MEDIA_LOADERS 表里，必须单独识别注入；否则「以画布连线为准」
+  // 时工作流里烧死的旧文件名不会被清掉，提交必报「素材文件不存在」。
+  const DT_BUNDLE_CLASS = "DT_MediaLoader";
+  const DT_BUNDLE_MAX = { image: 9, audio: 3, video: 3 }; // 与 dt_media_loader.py 上限一致
+  const DT_GROUP_KEY = { image: "images", audio: "audios", video: "videos" };
+  // media_state 可能是字符串 JSON 或已是对象；统一解析成 { image:[文件名], audio:[...], video:[...] }
+  function parseMediaState(value) {
+    let obj = value;
+    if (typeof value === "string") { try { obj = value.trim() ? JSON.parse(value) : {}; } catch (_) { obj = {}; } }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) obj = {};
+    const out = {};
+    for (const kind of ["image", "audio", "video"]) {
+      const arr = Array.isArray(obj[DT_GROUP_KEY[kind]]) ? obj[DT_GROUP_KEY[kind]] : [];
+      out[kind] = arr.map(e => (typeof e === "string" ? e : (e && typeof e === "object" && typeof e.filename === "string" ? e.filename : ""))).filter(Boolean);
+    }
+    return out;
+  }
+  // 把某 kind 的文件名列表写回 media_state（其余 kind 原样保留），按服务端格式 {filename:...}
+  function writeMediaState(node, kind, filenames) {
+    if (!node.inputs || typeof node.inputs !== "object") node.inputs = {};
+    const st = parseMediaState(node.inputs.media_state);
+    st[kind] = filenames;
+    node.inputs.media_state = JSON.stringify({
+      images: st.image.map(f => ({ filename: f })),
+      audios: st.audio.map(f => ({ filename: f })),
+      videos: st.video.map(f => ({ filename: f })),
+    });
+  }
+
   // 保留原文件名（仅当扩展名与该媒体类型匹配），否则生成带类型默认扩展名的临时名
   function mediaFileName(src, index, kind) {
     const clean = String(src).split("?")[0].split("#")[0];
@@ -1253,6 +1284,26 @@
     return { keptRequired };
   }
 
+  // 上传单个上游媒体到 ComfyUI input，返回服务端文件名（含 subfolder），失败推 warning 返回 null
+  async function uploadMedia(profile, url, src, index, kind, warnings) {
+    const label = MEDIA_LABEL[kind];
+    const blob = await fetchMediaBlob(src);
+    if (!blob) { warnings.push(`第 ${index + 1} 个上游${label}本地路径读不到或被 CORS 拦截，无法自动上传`); return null; }
+    const form = new FormData();
+    form.append("image", blob, mediaFileName(src, index, kind));
+    const resp = await fetch(PROXY_PREFIX + "upload/image?base=" + encodeURIComponent(url), {
+      method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
+    });
+    const text = await resp.text();
+    let payload = null;
+    try { payload = JSON.parse(text); } catch (_) { payload = null; }
+    if (!resp.ok || !payload?.name) {
+      warnings.push(`上游${label}上传失败：` + (payload?.error || ("HTTP " + resp.status)));
+      return null;
+    }
+    return payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
+  }
+
   // 把上游图/音/视按序上传并写进工作流对应加载节点：autogrow 族（H3 参考槽位）
   // 先配平到媒体数、按槽序一一对应；普通加载节点不足复用最后一个。
   // authoritative=true 时「以画布连线为准」：多余/未传的加载节点删除（必填槽保护）。返回告警文案数组
@@ -1271,30 +1322,45 @@
         const bal = balanceLoaders(promptObj, kind, list.length, types);
         if (bal.keptRequired) warnings.push(`工作流要求至少 ${before} 个${label}（必填输入），画布只传 ${list.length} 个，多出的沿用工作流自带`);
       }
-      if (!list.length) continue;
-      const loaders = Object.entries(promptObj).filter(([, node]) => node && MEDIA_LOADERS[node.class_type] && MEDIA_LOADERS[node.class_type].kind === kind);
-      if (!loaders.length) { warnings.push(`工作流里没有${label}加载节点，${list.length} 个上游${label}未注入`); continue; }
-      if (!slotRefs && list.length > loaders.length) warnings.push(`工作流只有 ${loaders.length} 个${label}加载节点，画布传了 ${list.length} 个，多余的未注入`);
-      for (let i = 0; i < list.length; i++) {
-        const target = slotRefs ? promptObj[slotRefs[i][0]] : loaders[Math.min(i, loaders.length - 1)][1];
+      if (!list.length && !authoritative) continue;
+      const normalLoaders = Object.entries(promptObj).filter(([, node]) => node && MEDIA_LOADERS[node.class_type] && MEDIA_LOADERS[node.class_type].kind === kind);
+      const bundleNodes = Object.entries(promptObj).filter(([, node]) => node && node.class_type === DT_BUNDLE_CLASS);
+      const hasBundle = bundleNodes.length > 0;
+      if (!normalLoaders.length && !hasBundle) {
+        if (list.length) warnings.push(`工作流里没有${label}加载节点，${list.length} 个上游${label}未注入`);
+        continue;
+      }
+      // 分配：普通加载节点按序各吃一张；有素材包时，剩余的全进素材包（第一个包节点）。
+      // 无素材包时沿用旧「不足复用最后一个」轮转。
+      const primaryCount = hasBundle ? Math.min(normalLoaders.length, list.length) : normalLoaders.length;
+      const bundleImages = hasBundle ? list.slice(primaryCount) : [];
+      if (!hasBundle && !slotRefs && list.length > normalLoaders.length) warnings.push(`工作流只有 ${normalLoaders.length} 个${label}加载节点，画布传了 ${list.length} 个，多余的未注入`);
+      // 1) 普通加载节点：吃前 primaryCount 张
+      for (let i = 0; i < (hasBundle ? primaryCount : list.length); i++) {
+        const target = slotRefs ? promptObj[slotRefs[i][0]] : normalLoaders[Math.min(i, normalLoaders.length - 1)][1];
+        if (!target) continue;
         const field = MEDIA_LOADERS[target.class_type].field;
-        const blob = await fetchMediaBlob(list[i]);
-        if (!blob) { warnings.push(`第 ${i + 1} 个上游${label}本地路径读不到或被 CORS 拦截，无法自动上传`); continue; }
-        const form = new FormData();
-        form.append("image", blob, mediaFileName(list[i], i, kind));
-        const resp = await fetch(PROXY_PREFIX + "upload/image?base=" + encodeURIComponent(url), {
-          method: "POST", cache: "no-store", headers: { ...comfyHeaders(profile) }, body: form,
-        });
-        const text = await resp.text();
-        let payload = null;
-        try { payload = JSON.parse(text); } catch (_) { payload = null; }
-        if (!resp.ok || !payload?.name) {
-          warnings.push(`上游${label}上传失败：` + (payload?.error || ("HTTP " + resp.status)));
-          continue;
-        }
-        const name = payload.subfolder ? payload.subfolder + "/" + payload.name : payload.name;
+        const name = await uploadMedia(profile, url, list[i], i, kind, warnings);
+        if (!name) continue;
         if (target.inputs && typeof target.inputs === "object") target.inputs[field] = name;
         else target.inputs = { [field]: name };
+      }
+      // 2) 素材包：连线为准整组重写为画布剩余（清掉烧死的旧文件）；非连线为准则在原列表后追加去重
+      if (hasBundle) {
+        const bundleTarget = bundleNodes[0][1];
+        const names = [];
+        for (let j = 0; j < bundleImages.length; j++) {
+          const name = await uploadMedia(profile, url, bundleImages[j], primaryCount + j, kind, warnings);
+          if (name) names.push(name);
+        }
+        if (authoritative) {
+          writeMediaState(bundleTarget, kind, names.slice(0, DT_BUNDLE_MAX[kind]));
+        } else {
+          const prev = parseMediaState(bundleTarget.inputs && bundleTarget.inputs.media_state)[kind];
+          const merged = [...prev];
+          for (const nm of names) if (!merged.includes(nm) && merged.length < DT_BUNDLE_MAX[kind]) merged.push(nm);
+          writeMediaState(bundleTarget, kind, merged);
+        }
       }
     }
     return warnings;
