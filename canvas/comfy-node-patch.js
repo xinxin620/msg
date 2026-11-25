@@ -2249,16 +2249,28 @@
         const profile = activeComfyProfile();
         const gKey = (profile ? profile.id : "local") + "::" + item.path;
         const seed = readPinStore()[gKey];
-        patchNodeData(node.id, {
-          comfyWorkflowPath: item.path,
-          comfyParams: {},
-          comfyOffGroups: [], // 分组名按工作流走，切流后旧开关无意义
-          comfyPinnedParams: Array.isArray(seed) ? seed.slice() : null,
-        });
-        paramsModel = null;
-        closeMenu(); refreshCard();
-        if (modeSheetOpen) { const n = getSelectedComfyNode(); if (n) renderParamSheet(n); }
-        showToast("已选择工作流：" + item.name, "success");
+        // 先按工作流真实旁路态算分组开关初值（首次启用/关闭与工作流里面保持一致），
+        // 再一次性写入：raw 多半已缓存，读不到就退回空（全部启用）。
+        const helper = window.__MS_COMFY_WORKFLOW__;
+        const apply = (offGroups) => {
+          patchNodeData(node.id, {
+            comfyWorkflowPath: item.path,
+            comfyParams: {},
+            comfyOffGroups: offGroups, // 分组名按工作流走，切流后旧开关无意义
+            comfyPinnedParams: Array.isArray(seed) ? seed.slice() : null,
+          });
+          paramsModel = null;
+          closeMenu(); refreshCard();
+          if (modeSheetOpen) { const n = getSelectedComfyNode(); if (n) renderParamSheet(n); }
+          showToast("已选择工作流：" + item.name, "success");
+        };
+        if (helper?.seedOffGroups && profile && normalizeComfyUrl(profile.baseUrl)) {
+          ensureWorkflowRaw(profile, item.path)
+            .then(raw => { const s = helper.seedOffGroups(raw); apply(Array.isArray(s) ? s : []); })
+            .catch(() => apply([]));
+        } else {
+          apply([]);
+        }
       }, true);
       menu.appendChild(btn);
     });

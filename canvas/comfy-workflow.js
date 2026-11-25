@@ -376,19 +376,30 @@
     workflow = resolveSetGet(flatten(workflow));
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const links = Array.isArray(workflow?.links) ? workflow.links : [];
-    // 关组开关：offGroups 命中的分组内节点按「静音」处理（不进 API 格式）。
-    // 归属用「节点中心点落在 group.bounding 内」判定（与 rgthree 一致，实测与左上角/全包含同结果）
+    // 分组开关：画布说了算。offGroups 是被关闭的组名。
+    // 归属用「节点中心点落在 group.bounding 内」判定（与 rgthree 一致）。
+    // 关键：节点在「启用」的组里时，即使它在工作流文件里被旁路(mode=4)也强制纳入本次生成
+    //（画布开关盖过工作流自带的 rgthree 旁路）；在「关闭」的组里则整体排除。
     const offGroups = Array.isArray(options?.offGroups) ? options.offGroups : [];
     const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
-    const groupOf = node => {
-      if (!offGroups.length || !groups.length) return null;
+    const offSet = new Set(offGroups.map(String));
+    const groupTitleOf = node => {
+      if (!groups.length) return null;
       const p = node?.pos || [0, 0], s = node?.size || [0, 0];
       const cx = p[0] + s[0] / 2, cy = p[1] + s[1] / 2;
       for (const g of groups) {
         const b = g?.bounding; if (!b) continue;
-        if (cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3] && offGroups.includes(String(g.title || ""))) return String(g.title || "");
+        if (cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3]) return String(g.title || "");
       }
       return null;
+    };
+    const inOffGroup = node => { const t = groupTitleOf(node); return !!t && offSet.has(t); };
+    // mode=4 是否算「旁路」：在未关闭的分组里 → 画布已启用，不算旁路（救活）；
+    // 无分组或在被关闭的分组里 → 按原样（后者反正会被整体排除）。mute(2) 始终尊重。
+    const isBypassed = node => {
+      if (Number(node?.mode || 0) !== 4) return false;
+      const t = groupTitleOf(node);
+      return !(t && !offSet.has(t));
     };
     const byId = new Map();
     for (const node of nodes) if (Number.isFinite(node?.id)) byId.set(node.id, node);
@@ -396,6 +407,7 @@
     for (const link of links) if (Array.isArray(link) && link.length >= 5) linkById.set(link[0], link);
 
     // 某节点最终是否进 API 格式（关组/静音/旁路/前端节点都不进）。
+    // 画布开关优先：节点在「启用」的组里时，工作流里的旁路(mode=4)被无视（救活）。
     // resolve 用它判断上游是否还在：上游被关，下游对该上游的连线必须丢弃，
     // 否则引用一个不在 prompt 里的节点 id，ComfyUI 校验直接报错。
     function nodeKept(node) {
@@ -403,9 +415,9 @@
       const type = String(node?.type || "");
       if (!type || isSubgraph(type) || VIRTUAL.has(type)) return false;
       if (isFrontendOnly(type, options?.types)) return false;
-      const mode = Number(node?.mode || 0);
-      if (mode === 2 || mode === 4) return false;
-      if (groupOf(node)) return false;
+      if (Number(node?.mode || 0) === 2) return false; // 静音始终尊重
+      if (inOffGroup(node)) return false;              // 画布关闭的组：整体排除
+      if (isBypassed(node)) return false;              // 真旁路（不在启用组里）
       return true;
     }
 
@@ -423,12 +435,13 @@
         const upstream = (source.inputs || []).find(item => item?.link != null);
         return resolve(upstream?.link ?? null, depth + 1);
       }
-      // 旁路(BYPASS) 节点按「与被请求槽位相同的类型」透传，与官方一致：
+      // 真·旁路节点按「与被请求槽位相同的类型」透传，与官方一致：
       // 只有当它有一个与被请求类型同类型的输入连线时才往上追；否则判定它提供不了该数据，
       // 连线作废返回 null（调用方保留自身 widget 默认值）。绝不退化去钻第一个有连线的输入——
       // 那样会把旁路节点 LATENT 上游的 INT（如 ResolutionSelector.width）当成 IMAGE 吐给
       // SaveImage，运行时报 'int' object is not subscriptable（liang-moss 文生图实测踩中）。
-      if (Number(source.mode || 0) === 4) {
+      // 注意：在「启用」组里的 mode=4 节点已被画布救活，不走这里（isBypassed=false → 落到 nodeKept）。
+      if (isBypassed(source)) {
         const wanted = String(link[5] || "").toUpperCase();
         const matched = (source.inputs || []).find(item => item?.link != null && String(item.type || "").toUpperCase() === wanted);
         return matched ? resolve(matched.link, depth + 1) : null;
@@ -442,10 +455,7 @@
     for (const node of nodes) {
       const type = String(node?.type || "");
       if (!type) continue;
-      if (isFrontendOnly(type, options?.types) || isSubgraph(type) || VIRTUAL.has(type)) continue;
-      const mode = Number(node?.mode || 0);
-      if (mode === 2 || mode === 4) continue;
-      if (groupOf(node)) continue; // 关组开关命中的分组内节点：按静音处理
+      if (!nodeKept(node)) continue; // 前端/子图/虚拟/静音/关闭组/真旁路 统一由 nodeKept 判定（画布开关优先）
 
       const inputs = {};
       const named = node.widgets_values_named;
@@ -461,6 +471,8 @@
         if (!resolved) continue;
         inputs[slot.name] = [resolved.id, resolved.slot];
       }
+      // 被画布救活的旁路节点：ComfyUI 端它仍是 bypass 模式会自己透传，但我们已把它当普通节点
+      // 连好输入输出，这里按原 class_type 提交即可（mode 不进 API 格式，ComfyUI 只看 prompt 结构）。
       prompt[String(node.id)] = { class_type: type, inputs };
     }
     return prompt;
@@ -590,7 +602,27 @@
     return out;
   }
 
-  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode, sinkClasses, missingClasses };
+  // 按工作流真实旁路态算「首次加载时该显示为关闭」的组名：
+  // 组内中心点命中的节点里只要存在 mode=4（被 rgthree 旁路），就判定这组当前是关的。
+  // 用于选工作流时给画布分组开关播种初值，做到「首次启用/关闭与工作流里面保持一致」。
+  function seedOffGroups(workflow) {
+    const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+    const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
+    const off = [];
+    for (const g of groups) {
+      const b = g?.bounding; if (!b) continue;
+      const title = String(g.title || "").trim(); if (!title || off.includes(title)) continue;
+      const bypassed = nodes.some(n => {
+        const p = n?.pos || [0, 0], s = n?.size || [0, 0];
+        const cx = p[0] + s[0] / 2, cy = p[1] + s[1] / 2;
+        return cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3] && Number(n?.mode || 0) === 4;
+      });
+      if (bypassed) off.push(title);
+    }
+    return off;
+  }
+
+  const api = { analyze, convert, editableFields, applyEdits, collectOutputs, isSubgraph, isApiFormat, hasOutputNode, sinkClasses, missingClasses, seedOffGroups };
   if (typeof window !== "undefined") window.__MS_COMFY_WORKFLOW__ = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();
