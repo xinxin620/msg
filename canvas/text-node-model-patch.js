@@ -215,9 +215,7 @@
   // 文本面板是浮动面板、无 data-id，但 bundle 保证它对应「当前唯一选中文本节点」，
   // 用 selectedNodeId 定位，再复刻 bundle qv 的上游图收集顺序（入边顺序→图片类→当前结果url）。
   // 注意：本 bundle 的 store（Jh）是闭包局部变量，window.Jh 不存在，必须像
-  // comfy/video/image 补丁一样走 fiber 扫描；reader 缓存，快照失效再重扫。
-  let storeReader = null;
-
+  // comfy/video/image 补丁一样走 fiber 扫描。
   function findCanvasStore() {
     let fallbackReader = null;
     const rootEl = document.getElementById("root");
@@ -272,14 +270,12 @@
     return fallbackReader;
   }
 
+  // 每次现扫，绝不缓存 reader：React Fiber 成对轮换（current/alternate），缓存到的
+  // fiber/hook 一旦变成被弃用的 alternate 就再也不更新，缩略图带会停在旧快照
+  // （实测：连线后不涨，刷新页面才对）。comfy/video 卡片实时正是因为它每拍重扫。
   function canvasState() {
-    if (storeReader) {
-      const cached = storeReader();
-      if (cached && Array.isArray(cached.nodes)) return cached;
-      storeReader = null;
-    }
-    storeReader = findCanvasStore();
-    return storeReader ? storeReader() : null;
+    const reader = findCanvasStore();
+    return reader ? reader() : null;
   }
 
   // 口径与 bundle Nv 一致：localPath 优先（blob:/http 的 mediaUrl 刷新即失效，
