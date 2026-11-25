@@ -96,6 +96,14 @@
         border: 1px solid var(--node-border, rgba(0, 0, 0, 0.18));
       }
       .ms-txt-ref-chip img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .ms-txt-ref-chip.is-missing {
+        display: flex; align-items: center; justify-content: center;
+        background: #2a1f1e; border-color: #d15a4a;
+      }
+      .ms-txt-ref-chip__miss {
+        padding: 2px 4px; font-size: 9px; line-height: 1.25; text-align: center;
+        color: #ff9a8d; cursor: help;
+      }
       .ms-txt-ref-chip__idx {
         position: absolute; left: 2px; top: 2px; padding: 1px 5px;
         border-radius: 999px; background: #000000c0; color: #fff; font-size: 10px;
@@ -266,13 +274,17 @@
     return storeReader ? storeReader() : null;
   }
 
+  // 口径与 bundle Nv 一致：localPath 优先（blob:/http 的 mediaUrl 刷新即失效，
+  // 若让它赢过已落盘的 localPath，这张图就永远读不出来）
   function nodeImageUrl(node) {
     const d = (node && node.data) || {};
     const results = Array.isArray(d.results) ? d.results : [];
     const res = results[d.activeResultIndex || 0] || results[0] || null;
-    return String((res && (res.mediaUrl || res.localPath || res.url)) || d.mediaUrl || d.localPath || "");
+    return String((res && (res.localPath || res.mediaUrl || res.url)) || d.localPath || d.mediaUrl || "");
   }
 
+  // 返回 [{url, node}]：url 为空表示该上游图当前取不到地址（bundle 实发同样会丢它），
+  // 调用方必须画成占位格而不是静默跳过——否则「没连线」与「连了但读不到」看着一样。
   function orderedUpstreamImages(nodeId) {
     const st = canvasState();
     const out = [];
@@ -283,8 +295,7 @@
       const c = String(src.data.category || "");
       const isImg = c === "image" || (c === "upload" && src.data.assetType === "image");
       if (!isImg) return;
-      const url = nodeImageUrl(src);
-      if (url) out.push(url);
+      out.push({ url: nodeImageUrl(src), node: src });
     });
     return out;
   }
@@ -312,22 +323,54 @@
     } else if (!anchor && strip.parentNode !== panel) {
       panel.insertBefore(strip, panel.firstChild);
     }
-    const sig = images.join("\n");
+    const sig = images.map(x => x.url || "!" + (x.node && x.node.id)).join("\n");
     if (strip.dataset.sig === sig) return;
     strip.dataset.sig = sig;
     strip.innerHTML = "";
-    images.forEach((src, i) => {
+    images.forEach((item, i) => {
+      const src = item.url;
       const chip = document.createElement("div"); chip.className = "ms-txt-ref-chip";
       const idx = document.createElement("span"); idx.className = "ms-txt-ref-chip__idx";
       idx.textContent = "图" + (i + 1);
+      chip.appendChild(idx);
+      strip.appendChild(chip);
+      if (!src) {
+        // 连了线但读不到地址：占位格 + 原因，绝不静默少一张
+        chip.classList.add("is-missing");
+        const tip = document.createElement("span");
+        tip.className = "ms-txt-ref-chip__miss";
+        const d = (item.node && item.node.data) || {};
+        const why = /^(blob:|file:)/i.test(String(d.mediaUrl || d.localPath || ""))
+          ? "地址失效"
+          : "读不到图片地址";
+        tip.textContent = why;
+        tip.title = "节点 " + (item.node && item.node.id) + "\nmediaUrl=" + String(d.mediaUrl || "") + "\nlocalPath=" + String(d.localPath || "") + "\nresults=" + (Array.isArray(d.results) ? d.results.length : 0);
+        chip.appendChild(tip);
+        return;
+      }
       const img = document.createElement("img"); img.alt = "";
-      chip.append(img, idx); strip.appendChild(chip);
-      if (/^(data:|https?:)/i.test(src)) { img.src = src; }
+      chip.appendChild(img);
+      // blob: 地址刷新后必失效，加载失败要说出来而不是留个黑格
+      img.addEventListener("error", () => {
+        if (!strip.contains(chip)) return;
+        chip.classList.add("is-missing");
+        img.remove();
+        const tip = document.createElement("span");
+        tip.className = "ms-txt-ref-chip__miss";
+        tip.textContent = /^(blob:|file:)/i.test(src) ? "地址失效" : "读不到";
+        tip.title = src;
+        chip.appendChild(tip);
+      });
+      if (/^(data:|https?:|blob:)/i.test(src)) { img.src = src; }
       else {
         const api = window.electronAPI;
         if (api && typeof api.readLocalMediaDataUrl === "function") {
-          api.readLocalMediaDataUrl(src).then((u) => { if (u && strip.contains(chip)) img.src = u; }).catch(() => {});
-        }
+          api.readLocalMediaDataUrl(src).then((u) => {
+            if (!strip.contains(chip)) return;
+            if (u) { img.src = u; return; }
+            img.dispatchEvent(new Event("error"));
+          }).catch(() => { if (strip.contains(chip)) img.dispatchEvent(new Event("error")); });
+        } else if (strip.contains(chip)) img.dispatchEvent(new Event("error"));
       }
     });
   }
