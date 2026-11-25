@@ -1331,7 +1331,7 @@
       row.setAttribute(
         "title",
         presetButton
-          ? "点击选择文本模板（提示词预设）"
+          ? "点击选择文本模板（内置 + 自定义，在 设置 › 文本模板 管理）"
           : "模板入口未就绪，请稍候重试"
       );
       row.setAttribute("aria-expanded", open ? "true" : "false");
@@ -2403,6 +2403,11 @@
     event.preventDefault();
     event.stopPropagation();
 
+    // 优先委托文本模板补丁（数据=设置页「文本模板」体系：内置+自定义）。
+    // 补丁没加载/没选中文本节点时，回退原生「预」按钮下拉。
+    const ext = window.__MS_TEXT_TEMPLATES__;
+    if (ext && typeof ext.openFromRow === "function" && ext.openFromRow(inspector, row)) return;
+
     if (!openTextPresetDropdown(inspector)) {
       showToast("模板列表尚未就绪，请稍后再试。", "error");
       return;
@@ -2455,11 +2460,18 @@
     window.addEventListener("resize", handleLayoutChange);
 
     window.__MS_IMAGE_EDITOR__ = {
-      version: "20261123-1",
+      version: "20261125-2",
       refresh: decorate,
       reposition: schedulePosition,
       // 供其它补丁复用「跳到 API 来源设置并定位模型列表」
       openApiSettings,
+      // 文本模板补丁套用模板后回显模板名（templateNamesByNode 在本闭包内，只能走 setter）
+      setTemplateName(nodeId, name) {
+        if (!nodeId) return;
+        templateNamesByNode.set(nodeId, name || "选择模板");
+        const inspector = document.querySelector(".inspector." + EDITOR_CLASS + "." + TEXT_MODE_CLASS);
+        if (inspector) ensureTemplateRow(inspector);
+      },
       // 当前浮动卡片服务的节点类别；没有卡片时为 null
       mode: () => activeCategory,
       // 最近一次 decorate 的判定结果，供回归脚本定位「面板没出来」的原因

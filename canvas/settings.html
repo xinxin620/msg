@@ -2,7 +2,7 @@
 <!--
   ⚠ 本页脚本清单镜像自 canvas/index.html，但只保留「设置」需要的部分：
     bundle + web-bridge + branding + 5 个 API 补丁（图片/文本/视频/语音/ComfyUI）+ comfy-workflow + model-patch
-    + SKILL模板（skill-templates-data + settings-skill-patch，仅本页使用）。
+    + 文本模板（skill-templates-data + settings-skill-patch，仅本页管理；画布页也加载 skill-templates-data 供 text-template-patch 消费内置模板）。
   刻意不加载：storage-migration（避免重载抖动）、gallery-patch（避免加入素材广播通道）、
     以及所有节点/检视器/小地图补丁（本页不画节点，省掉双份 150ms 轮询）。
   相对加载顺序必须与 index.html 一致：model-patch 早于 text/video/voice-api（fetch 劫持链依赖）。
@@ -90,7 +90,7 @@
     </style>
     <script>
       (() => {
-        const currentVersion = "20261123-1";
+        const currentVersion = "20261125-1";
         const url = new URL(window.location.href);
         if (url.searchParams.get("v") === currentVersion) return;
         url.searchParams.set("v", currentVersion);
@@ -108,9 +108,9 @@
     <script defer src="./text-api-patch.js?v=20261116-15"></script>
     <script defer src="./video-api-patch.js?v=20261119-24"></script>
     <script defer src="./voice-api-patch.js?v=20261123-1"></script>
-    <script defer src="./skill-templates-data.js?v=20261123-1"></script>
-    <script defer src="./settings-skill-patch.js?v=20261123-1"></script>
-    <script defer src="./settings-page-patch.js?v=20261123-1"></script>
+    <script defer src="./skill-templates-data.js?v=20261125-1"></script>
+    <script defer src="./settings-skill-patch.js?v=20261125-1"></script>
+    <script defer src="./settings-page-patch.js?v=20261125-1"></script>
   </head>
   <body>
     <div id="root"></div>

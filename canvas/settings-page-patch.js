@@ -3,7 +3,7 @@
 
   // ⚠ 仅由 canvas/settings.html 加载，切勿加进 canvas/index.html。
   // 作用：把画布 bundle 的「模型与接口设置」弹窗铺成独立整页，作为工作台「设置」工作区；
-  //   顶栏 `TOP_TABS` 是设置分区切换器（「API设置」侧栏只保留 5 个 API 分区；「SKILL模板」侧栏只保留注入项），
+  //   顶栏 `TOP_TABS` 是设置分区切换器（「API设置」侧栏只保留 5 个 API 分区；「文本模板」侧栏只保留注入项），
   //   后续新增设置分区（如「常规」）往 TOP_TABS 加项并在 trimSections 按分区裁剪即可。
   // 原则：纯 CSS + 程序化打开弹窗，不改只读 bundle、不删 bundle 的 DOM 结构、不碰画布节点。
   //   经核实 isSettingsOpen 不在 bundle persist 的 partialize 白名单内，
@@ -19,7 +19,7 @@
   // 顶栏分区 tab（工作台左栏为「设置」，本页按分区切换）；后续新增设置分区往这里加一项。
   const TOP_TABS = [
     { id: "api", label: "API设置" },
-    { id: "skill", label: "SKILL模板" },
+    { id: "skill", label: "文本模板" },
   ];
   // 本页不属于「API设置」的原生分区（按 label 精确匹配，避免误伤补丁注入的 API tab）。
   const OFF_PAGE_LABELS = ["常规设置", "快捷键设置"];
@@ -207,7 +207,7 @@
     const visible = [];
     [...nav.querySelectorAll(".settings-sidebar__item")].forEach((item) => {
       const label = (item.textContent || "").trim();
-      // 「SKILL模板」不是 API 分区，停在 API设置 时一并隐藏。
+      // 「文本模板」不是 API 分区，停在 API设置 时一并隐藏。
       const offPage =
         item.id === "ms-skill-tab-btn" || offLabels.some((text) => label === text);
       item.hidden = offPage;
@@ -228,7 +228,7 @@
     target.click();
   }
 
-  // SKILL 分区：侧栏只剩 settings-skill-patch 注入的「SKILL模板」项。
+  // 文本模板分区：侧栏只剩 settings-skill-patch 注入的「文本模板」项。
   // 该项由补丁自己接管点击（不属 React 分区），所以这里只负责隐藏其余项 + 没激活时点它一次，
   // 同样用 1.2s 节流防 MutationObserver 成环。补丁尚未加载时不动侧栏，避免空白页。
   function trimSkillSections(nav) {
@@ -309,7 +309,7 @@
 
   const BAR_HINTS = {
     api: "与画布共用同一份本地配置；资产目录和「从本地恢复」仍在画布「常规设置」里",
-    skill: "提示词模板只在本页管理，自定义模板存当前浏览器，可导出 JSON 备份",
+    skill: "提示词模板在本页管理，画布文本节点卡片直接选用；自定义模板存当前浏览器，可导出 JSON 备份",
   };
 
   function sync() {
