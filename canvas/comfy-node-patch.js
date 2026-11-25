@@ -270,8 +270,13 @@
   // 启用配置的勾选集合（comfy-patch.js 多选契约 selectedWorkflows；兼容旧单选字段）
   function checkedPathsOf(profile) {
     if (!profile) return new Set();
+    // 与 comfy-patch selectedWorkflowsOf 对齐：条目带 baseUrl 时必须与当前配置同址才算勾选
+    // （换过服务地址后旧勾选不该继续出现在下拉；旧字符串条目无 baseUrl，视为当前址）
+    const url = normalizeComfyUrl(profile.baseUrl);
     const list = Array.isArray(profile.selectedWorkflows) ? profile.selectedWorkflows : [];
-    const paths = list.map(item => (typeof item === "string" ? item : item && item.path)).filter(Boolean);
+    const paths = list
+      .filter(item => !item || typeof item !== "object" || !item.baseUrl || normalizeComfyUrl(item.baseUrl) === url)
+      .map(item => (typeof item === "string" ? item : item && item.path)).filter(Boolean);
     if (!paths.length && profile.selectedWorkflow && typeof profile.selectedWorkflow.path === "string") {
       paths.push(profile.selectedWorkflow.path);
     }
@@ -1590,6 +1595,7 @@
     const reloadBtn = document.createElement("button");
     reloadBtn.type = "button"; reloadBtn.className = CARD_CLASS + "__params";
     reloadBtn.textContent = "刷新列表";
+    reloadBtn.title = "重新读取 ComfyUI 的 workflows 目录（检测新保存的工作流）。下拉只显示「ComfyUI 设置」里已勾选的工作流；勾选改动即时生效，不用按这个。";
     reloadBtn.addEventListener("click", ev => {
       ev.preventDefault(); ev.stopPropagation();
       const n = getSelectedComfyNode(); if (!n) return;
@@ -1598,8 +1604,11 @@
       if (!url) { showToast("当前配置没有 ComfyUI 服务地址", "error"); return; }
       workflowLists.delete(url);
       loadWorkflowList(url, profile.apiKey).then(cache => {
-        if (cache.error) showToast(cache.error, "error");
-        else showToast(`已读取 ${cache.items.length} 个工作流`, "success");
+        if (cache.error) { showToast(cache.error, "error"); return; }
+        const checked = checkedPathsOf(profile);
+        const shown = cache.items.filter(item => checked.has(item.path)).length;
+        const missing = checked.size - shown;
+        showToast(`目录共 ${cache.items.length} 个，已勾选 ${shown} 个${missing > 0 ? `（${missing} 个勾选的已不在目录里）` : ""}`, "info");
       });
     }, true);
     const paramsBtn = document.createElement("button");
@@ -2187,7 +2196,10 @@
     const cache = url ? workflowLists.get(url) : null;
     const chosen = node.data.comfyWorkflowPath || "";
     const checked = checkedPathsOf(profile);
-    const visible = (cache && Array.isArray(cache.items) ? cache.items : []).filter(item => checked.has(item.path) || item.path === chosen);
+    // 只列已勾选：取消勾选/移除必须立刻从下拉消失。曾用 `|| item.path === chosen`
+    // 给当前选中留位，结果在设置页取消勾选后下拉照旧显示，看起来像「没刷新」。
+    // 节点已绑定的路径存在 comfyWorkflowPath，不受下拉显隐影响。
+    const visible = (cache && Array.isArray(cache.items) ? cache.items : []).filter(item => checked.has(item.path));
     if (!url) {
       header.textContent = "工作流";
       const empty = document.createElement("div"); empty.className = CARD_CLASS + "__menu-empty is-error";
