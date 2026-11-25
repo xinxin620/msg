@@ -655,6 +655,9 @@
         flex: 1 1 auto; min-width: 0; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap;
       }
+      /* 节点绑定的工作流在设置里被取消勾选：名字保留（路径仍在节点数据里），
+         但标红提示，避免用户对着下拉里查不到的项以为还能正常生成 */
+      .${CARD_CLASS}__model-value.is-unchecked { color: #d15a4a; }
       .${CARD_CLASS}__model-chevron { flex: none; color: var(--text-tertiary); font-size: 11px; }
       .${CARD_CLASS}__model-flex {
         flex: 0 0 auto; display: flex; align-items: center; gap: 7px; width: 100%;
@@ -1663,9 +1666,18 @@
   function syncCardValues(root, node) {
     if (!root || !node) return;
     const wfValue = root.querySelector('[data-crow="workflow"] .' + CARD_CLASS + "__model-value");
-    if (wfValue) wfValue.textContent = node.data.comfyWorkflowPath
-      ? node.data.comfyWorkflowPath.split("/").filter(Boolean).pop()
-      : "未选择（点击选择）";
+    if (wfValue) {
+      const path = node.data.comfyWorkflowPath || "";
+      wfValue.textContent = path ? path.split("/").filter(Boolean).pop() : "未选择（点击选择）";
+      // 取消勾选：下拉里不再显示，但节点仍绑定此路径、照常生成（startRun 直接用
+      // comfyWorkflowPath 读盘，不查勾选集）。这里只做视觉提示，不清绑定、不丢参数。
+      const profile = activeComfyProfile();
+      const unchecked = !!path && !checkedPathsOf(profile).has(path);
+      wfValue.classList.toggle("is-unchecked", unchecked);
+      wfValue.title = unchecked
+        ? "该工作流已在「ComfyUI 设置」取消勾选：下拉里不再列出，但本节点仍按它生成。要换别的请从下拉另选，或回设置重新勾选。"
+        : path;
+    }
   }
 
   function refreshModelLine() {
@@ -1675,7 +1687,10 @@
     if (!ml) return;
     const results = Array.isArray(node.data.results) ? node.data.results.length : 0;
     const edited = node.data.comfyParams ? Object.keys(node.data.comfyParams).length : 0;
-    ml.innerHTML = '<strong>工作流:</strong> ' + escapeHtml(node.data.comfyWorkflowPath || "未选择")
+    const path = node.data.comfyWorkflowPath || "";
+    const unchecked = !!path && !checkedPathsOf(activeComfyProfile()).has(path);
+    ml.innerHTML = '<strong>工作流:</strong> ' + escapeHtml(path || "未选择")
+      + (unchecked ? ' · <strong style="color:#d15a4a">已取消勾选（本节点仍按它生成）</strong>' : "")
       + (edited ? ` · <strong>参数:</strong> ${edited} 节点已改` : "")
       + (results ? ` · <strong>结果:</strong> ${results} 个` : "");
   }
