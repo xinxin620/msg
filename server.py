@@ -106,6 +106,12 @@ def is_path_within(child: Path, parent: Path) -> bool:
 
 class ManshiguangHandler(SimpleHTTPRequestHandler):
     server_version = "ManshiguangLocal/1.0"
+    # 默认 HTTP/1.0 每个响应后强制关连接：浏览器对幂等 GET 会自动重连重试（看着正常），
+    # 对非幂等 POST 绝不重试（怕重复提交），撞上刚关的 socket 直接 ERR_CONNECTION_RESET
+    # → fetch 抛「Failed to fetch」。所有响应都已正确发 Content-Length，升 1.1 安全。
+    protocol_version = "HTTP/1.1"
+    # keep-alive 空闲连接读超时，防 ThreadingHTTPServer 线程被挂着的连接长期占用
+    timeout = 30
 
     # 浏览器带 nosniff 时，.webp 若被当成 application/octet-stream 会拒绝渲染，
     # 这里显式补齐资产库用到的图片类型。
@@ -246,6 +252,7 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             return
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length > 65536:
+            self.close_connection = True  # 未读 body，HTTP/1.1 keep-alive 下必须断开防连接污染
             self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "请求体过大"})
             return
         body = self.rfile.read(content_length) if content_length > 0 else b""
@@ -298,6 +305,7 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if method == "POST":
             length = int(self.headers.get("Content-Length", 0) or 0)
             if length > COMFY_MAX_BODY_BYTES:
+                self.close_connection = True  # 未读 body，HTTP/1.1 keep-alive 下必须断开防连接污染
                 self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "请求体过大"})
                 return
             body = self.rfile.read(length) if length > 0 else b""
@@ -358,6 +366,7 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if method == "POST":
             length = int(self.headers.get("Content-Length", 0) or 0)
             if length > TEXTAPI_MAX_BODY_BYTES:
+                self.close_connection = True  # 未读 body，HTTP/1.1 keep-alive 下必须断开防连接污染
                 self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "请求体过大"})
                 return
             body = self.rfile.read(length) if length > 0 else b""
