@@ -293,10 +293,64 @@
     return next;
   }
 
+  // KJNodes 的 Set/Get（前端成对取值，服务端无此类）：官方 graphToPrompt 把 Get 的全部消费者
+  // 改接到「同名 Set 的上游连线」，Set/Get 自身不进 API 格式。这里复刻同一规则：
+  //  名字取 widgets_values_named.Constant（旧存档回退 widgets_values[0]）；
+  //  只改写消费连线 [origin_id, origin_slot]，link id 不动（多条连线可共享同一上游）；
+  //  找不到同名 Set 的 Get 原样留下，交给 analyze() 按 VIRTUAL 拦截。
+  const SET_TYPE = "SetNode", GET_TYPE = "GetNode";
+  function setGetName(node) {
+    const named = node?.widgets_values_named;
+    if (named && typeof named === "object" && typeof named.Constant === "string" && named.Constant.trim()) {
+      return named.Constant.trim();
+    }
+    const v = (Array.isArray(node?.widgets_values) ? node.widgets_values : [])[0];
+    return typeof v === "string" && v.trim() ? v.trim() : "";
+  }
+  function resolveSetGet(workflow) {
+    if (!workflow || typeof workflow !== "object" || Array.isArray(workflow)) return workflow;
+    const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+    const sets = nodes.filter(n => String(n?.type || "") === SET_TYPE);
+    if (!sets.length) return workflow;
+    const srcOf = new Map();
+    for (const n of sets) {
+      if (Number(n?.mode || 0) !== 0) continue; // 静音/旁路的 Set 不作为来源
+      const k = setGetName(n);
+      const slot = (n.inputs || []).find(s => s && s.link != null);
+      if (!k || !slot || srcOf.has(k)) continue;
+      srcOf.set(k, slot.link);
+    }
+    const links = (Array.isArray(workflow.links) ? workflow.links : []).map(l => Array.isArray(l) ? [...l] : l);
+    const linkById = new Map();
+    for (const l of links) if (Array.isArray(l) && l.length >= 5) linkById.set(l[0], l);
+    const linked = new Set(); // 被改接命中的 Set，仅这些连同 Set 一起丢弃
+    for (const n of nodes) {
+      if (String(n?.type || "") !== GET_TYPE) continue;
+      const k = setGetName(n);
+      const srcLink = srcOf.has(k) ? linkById.get(srcOf.get(k)) : null;
+      if (!srcLink) continue; // 无同名 Set 的 Get：保留，交 analyze 拦
+      linked.add(k);
+      for (const lid of (n.outputs || []).flatMap(o => Array.isArray(o?.links) ? o.links : [])) {
+        const l = linkById.get(lid);
+        if (!Array.isArray(l) || l.length < 5) continue;
+        l[1] = srcLink[1]; l[2] = srcLink[2];
+        if (!l[5]) l[5] = srcLink[5];
+      }
+    }
+    return {
+      ...workflow,
+      links,
+      nodes: nodes.filter(n => {
+        const t = String(n?.type || "");
+        return !((t === SET_TYPE || t === GET_TYPE) && linked.has(setGetName(n)));
+      }),
+    };
+  }
+
   function analyze(workflow) {
     // API 格式没有前端节点概念，天然可运行
     if (isApiFormat(workflow)) return { ok: true, blockers: [], nodeCount: Object.keys(workflow).length };
-    workflow = flatten(workflow);
+    workflow = resolveSetGet(flatten(workflow));
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const blockers = [];
     for (const node of nodes) {
@@ -319,7 +373,7 @@
   function convert(workflow, options) {
     // API 格式已是提交格式，深拷贝一份返回（避免后续 combo 自愈改到缓存原文）
     if (isApiFormat(workflow)) return scalarValue(workflow);
-    workflow = flatten(workflow);
+    workflow = resolveSetGet(flatten(workflow));
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const links = Array.isArray(workflow?.links) ? workflow.links : [];
     // 关组开关：offGroups 命中的分组内节点按「静音」处理（不进 API 格式）。
