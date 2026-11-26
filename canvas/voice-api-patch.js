@@ -1695,6 +1695,13 @@
     document.addEventListener("click", handleClick, true);
     document.addEventListener("input", handleInput);
     document.addEventListener("change", handleChange);
+    // 跨同源 frame 同步：画布与「设置」各自缓存 voiceState，storage 事件让另一边重读生效。
+    window.addEventListener("storage", (event) => {
+      if (event.key !== VOICE_PROFILES_KEY) return;
+      voiceState = readVoiceState();
+      publishActiveVoice();
+      if (voiceActive) renderSection(true);
+    });
     new MutationObserver(queueSync).observe(document.body || document.documentElement, {
       childList: true,
       subtree: true,

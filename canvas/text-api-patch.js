@@ -1053,6 +1053,14 @@
     document.addEventListener("click", handleClick, true);
     document.addEventListener("input", handleInput);
     document.addEventListener("change", handleChange);
+    // 跨同源 frame 同步：画布与「设置」是两个独立 iframe，各自缓存 textState。
+    // 任一 frame 写 localStorage 时，其它 frame 收到 storage 事件重读，否则一边改另一边不生效。
+    window.addEventListener("storage", (event) => {
+      if (event.key !== TEXT_PROFILES_KEY) return;
+      textState = readTextState();
+      publishActiveText();
+      if (textActive) renderSection(true);
+    });
     new MutationObserver(queueSync).observe(document.body || document.documentElement, {
       childList: true,
       subtree: true,

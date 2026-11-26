@@ -2401,6 +2401,14 @@
     root.addEventListener("input", handleInput);
     root.addEventListener("change", handleChange);
     root.addEventListener("pointerdown", rememberModelScroll, true);
+    // 跨同源 frame 同步：画布与「设置」各自缓存 profileState（图片 API 管理器 UI）。
+    // storage 事件只在「非写入方」frame 触发，重读不会回写、不 ping-pong；
+    // 出图请求路径 model-patch 本就实时读 localStorage，这里只让管理器界面同步显示。
+    window.addEventListener("storage", (event) => {
+      if (event.key !== PROFILES_KEY) return;
+      profileState = loadProfileState(findNativeVendorCard());
+      renderManager(true);
+    });
     const observeTarget = document.body || document.documentElement;
     new MutationObserver(queueRender).observe(observeTarget, {
       childList: true,

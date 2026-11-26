@@ -858,6 +858,13 @@
     document.addEventListener("click", handleClick, true);
     document.addEventListener("input", handleInput);
     document.addEventListener("change", handleChange);
+    // 跨同源 frame 同步：画布与「设置」各自缓存 comfyState，storage 事件让另一边重读生效。
+    window.addEventListener("storage", (event) => {
+      if (event.key !== COMFY_KEY) return;
+      comfyState = readComfyState();
+      publishActiveComfy();
+      if (comfyActive) renderSection(true);
+    });
     new MutationObserver(queueSync).observe(document.body, { childList: true, subtree: true });
     queueSync();
   }
