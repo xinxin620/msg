@@ -3170,6 +3170,7 @@ input:focus-visible,
 }
 
 .episode-chip {
+  position: relative;
   display: grid;
   min-height: 50px;
   place-items: center;
@@ -3190,6 +3191,38 @@ input:focus-visible,
   border-color: rgba(124, 92, 255, 0.45);
   background: rgba(124, 92, 255, 0.08);
   color: var(--text);
+}
+
+.episode-chip.is-watched {
+  border-color: rgba(124, 92, 255, 0.28);
+  color: var(--text-soft);
+}
+
+.episode-chip.is-watched::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(124, 92, 255, 0.7);
+}
+
+.continue-empty {
+  display: grid;
+  grid-column: 1 / -1;
+  min-height: 150px;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 18px;
+  color: var(--muted-deep);
+  font-size: 12px;
+}
+
+.episode-chip:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* Toast */
@@ -3883,5 +3916,6 @@ input:focus-visible,
 /* Tab navigation layout */
 body { overflow: hidden; }
 #main { height: calc(100vh - 72px); overflow: hidden; }
-main > section { display: none; width: 100%; height: 100%; overflow-y: auto; padding-top: 20px; }
-main > section.is-visible { display: block; }
+main > .page { display: none; width: 100%; height: 100%; overflow-y: auto; }
+main > .page.is-visible { display: block; }
+main > .page .section-space { padding-bottom: 40px; }

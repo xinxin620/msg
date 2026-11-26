@@ -14,8 +14,8 @@
     <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png?v=20261114-7" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20261114-7" />
     <link rel="manifest" href="assets/site.webmanifest?v=20261114-7" />
-    <link rel="stylesheet" href="assets/styles.css" />
-    <script src="assets/app.js" defer></script>
+    <link rel="stylesheet" href="assets/styles.css?v=20261126-1" />
+    <script src="assets/app.js?v=20261126-1" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">跳到主要内容</a>
@@ -113,6 +113,7 @@
     </header>
 
     <main id="main">
+      <div class="page is-visible" id="page-top" data-page="top">
       <section class="hero" id="top" aria-labelledby="heroTitle">
         <div class="hero-aurora hero-aurora-one" aria-hidden="true"></div>
         <div class="hero-aurora hero-aurora-two" aria-hidden="true"></div>
@@ -133,17 +134,9 @@
             </h1>
             <p class="hero-english reveal">BEFORE THE STARS FALL</p>
 
-            <p class="hero-description reveal">
-              一间只在深夜营业的邮局，替无法再见的人寄出最后一封信。<br />
-              少年在第七个满月，等到了来自十年后的回音。
-            </p>
+            <p class="hero-description reveal" id="heroDescription"></p>
 
-            <div class="hero-tags reveal" aria-label="番剧标签">
-              <span>原创动画</span>
-              <span>奇幻</span>
-              <span>治愈</span>
-              <span>12 话</span>
-            </div>
+            <div class="hero-tags reveal" id="heroTags" aria-label="番剧标签"></div>
 
             <div class="hero-actions reveal">
               <button class="button button-primary watch-featured" type="button">
@@ -159,22 +152,7 @@
               </button>
             </div>
 
-            <div class="hero-meta reveal">
-              <div class="meta-item">
-                <strong>9.8</strong>
-                <span>观众评分</span>
-              </div>
-              <span class="meta-divider"></span>
-              <div class="meta-item">
-                <strong>08 / 12</strong>
-                <span>最新集数</span>
-              </div>
-              <span class="meta-divider"></span>
-              <div class="meta-item">
-                <strong>24:00</strong>
-                <span>每周五更新</span>
-              </div>
-            </div>
+            <div class="hero-meta reveal" id="heroMeta"></div>
           </div>
 
           <div class="hero-stage reveal" aria-label="番剧视觉海报">
@@ -188,16 +166,16 @@
               </div>
               <div class="poster-topline">
                 <span>MANSHIGUANG ORIGINAL</span>
-                <span>EP. 08</span>
+                <span id="heroEp"></span>
               </div>
               <div class="poster-side-copy" aria-hidden="true">星屑の郵便局</div>
               <div class="poster-caption">
-                <span class="caption-index">08</span>
+                <span class="caption-index" id="heroCaptionIndex"></span>
                 <span class="caption-copy">
                   <small>NEXT EPISODE</small>
-                  <strong>星之邮局</strong>
+                  <strong id="heroCaptionTitle"></strong>
                 </span>
-                <span class="caption-time">24:00</span>
+                <span class="caption-time" id="heroCaptionTime"></span>
               </div>
             </div>
 
@@ -205,7 +183,7 @@
               <svg class="icon star-icon"><use href="#icon-star"></use></svg>
               <span>
                 <small>本周口碑</small>
-                <strong>9.8 / 10</strong>
+                <strong id="heroScore"></strong>
               </span>
             </div>
 
@@ -213,7 +191,7 @@
               <span class="pulse-ring" aria-hidden="true"></span>
               <span>
                 <small>正在热映</small>
-                <strong>第 08 话已更新</strong>
+                <strong id="heroStatus"></strong>
               </span>
               <svg class="icon"><use href="#icon-arrow"></use></svg>
             </div>
@@ -251,67 +229,34 @@
           </button>
         </div>
 
-        <div class="continue-grid">
-          <article class="continue-card" data-anime-id="after-rain" tabindex="0">
-            <div class="continue-visual theme-rain">
-              <span class="cover-ghost">雨</span>
-              <span class="cover-orbit"></span>
-              <div class="continue-play">
-                <svg class="icon"><use href="#icon-play"></use></svg>
-              </div>
-              <div class="continue-progress">
-                <span style="width: 64%"></span>
-              </div>
-            </div>
-            <div class="continue-info">
-              <div>
-                <small>看到第 06 话</small>
-                <h3>雨停之后</h3>
-                <p>剩余 18 分钟</p>
-              </div>
-              <button class="round-action" type="button" aria-label="继续播放">
-                <svg class="icon"><use href="#icon-arrow"></use></svg>
-              </button>
-            </div>
-          </article>
-
-          <article class="continue-card" data-anime-id="midnight-line" tabindex="0">
-            <div class="continue-visual theme-train">
-              <span class="cover-ghost">列</span>
-              <span class="cover-orbit"></span>
-              <div class="continue-play">
-                <svg class="icon"><use href="#icon-play"></use></svg>
-              </div>
-              <div class="continue-progress">
-                <span style="width: 31%"></span>
-              </div>
-            </div>
-            <div class="continue-info">
-              <div>
-                <small>看到第 02 话</small>
-                <h3>零点列车</h3>
-                <p>剩余 13 分钟</p>
-              </div>
-              <button class="round-action" type="button" aria-label="继续播放">
-                <svg class="icon"><use href="#icon-arrow"></use></svg>
-              </button>
-            </div>
-          </article>
-
-          <article class="continue-note">
-            <span class="note-icon">
-              <svg class="icon"><use href="#icon-clock"></use></svg>
-            </span>
-            <div>
-              <small>今晚 24:00</small>
-              <h3>《星海回响》第 09 话</h3>
-              <p>开播提醒已开启</p>
-            </div>
-            <span class="note-glow" aria-hidden="true"></span>
-          </article>
-        </div>
+        <div class="continue-grid" id="continueGrid"></div>
       </section>
 
+      <section class="join-section">
+        <div class="page-shell">
+          <div class="join-panel">
+            <div class="join-glow" aria-hidden="true"></div>
+            <div class="join-copy">
+              <p class="section-kicker">YOUR STORY STARTS HERE</p>
+              <h2>今晚，留下一点<br /><span>属于你的光。</span></h2>
+              <p>收藏番剧、记录心情、认识同样热爱故事的人。</p>
+            </div>
+            <div class="join-actions">
+              <button class="button button-primary" type="button">
+                创建时光账户
+                <svg class="icon"><use href="#icon-arrow"></use></svg>
+              </button>
+              <button class="button button-ghost" type="button">先逛逛</button>
+            </div>
+            <div class="join-rings" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+      </section>
+      </div>
+
+      <div class="page" data-page="library">
       <section class="library-section section-space" id="library" aria-labelledby="libraryTitle">
         <div class="page-shell">
           <div class="section-heading">
@@ -341,7 +286,9 @@
           <div class="anime-grid" id="animeGrid" aria-live="polite"></div>
         </div>
       </section>
+      </div>
 
+      <div class="page" data-page="ranking">
       <section class="ranking-section section-space" id="ranking" aria-labelledby="rankingTitle">
         <div class="ranking-aurora" aria-hidden="true"></div>
         <div class="page-shell ranking-layout">
@@ -388,7 +335,9 @@
           </aside>
         </div>
       </section>
+      </div>
 
+      <div class="page" data-page="schedule">
       <section class="schedule-section section-space" id="schedule" aria-labelledby="scheduleTitle">
         <div class="page-shell">
           <div class="section-heading">
@@ -416,7 +365,9 @@
           <div class="schedule-board" id="scheduleBoard"></div>
         </div>
       </section>
+      </div>
 
+      <div class="page" data-page="community">
       <section class="community-section section-space" id="community" aria-labelledby="communityTitle">
         <div class="page-shell">
           <div class="section-heading">
@@ -479,7 +430,9 @@
           </div>
         </div>
       </section>
+      </div>
 
+      <div class="page" data-page="websites">
       <section class="websites-section section-space" id="websites" aria-labelledby="websitesTitle">
         <div class="page-shell">
           <div class="section-heading">
@@ -498,29 +451,7 @@
           <div class="websites-grid" id="websitesGrid" aria-live="polite"></div>
         </div>
       </section>
-
-      <section class="join-section">
-        <div class="page-shell">
-          <div class="join-panel">
-            <div class="join-glow" aria-hidden="true"></div>
-            <div class="join-copy">
-              <p class="section-kicker">YOUR STORY STARTS HERE</p>
-              <h2>今晚，留下一点<br /><span>属于你的光。</span></h2>
-              <p>收藏番剧、记录心情、认识同样热爱故事的人。</p>
-            </div>
-            <div class="join-actions">
-              <button class="button button-primary" type="button">
-                创建时光账户
-                <svg class="icon"><use href="#icon-arrow"></use></svg>
-              </button>
-              <button class="button button-ghost" type="button">先逛逛</button>
-            </div>
-            <div class="join-rings" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-          </div>
-        </div>
-      </section>
+      </div>
     </main>
 
     <footer class="site-footer" id="siteFooter">
@@ -599,28 +530,7 @@
       <span class="toast-dot"></span>
       <span id="toastText"></span>
     </div>
-  
+  </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

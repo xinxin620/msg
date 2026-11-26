@@ -14,8 +14,10 @@ const animeLibrary = [
     studio: "Aster Works",
     synopsis:
       "一间只在深夜营业的邮局，替无法再见的人寄出最后一封信。少年在第七个满月，等到了来自十年后的回音，也终于明白有些告别会穿过整片星海，迟到地抵达。",
-    day: "周五",
-    time: "24:00",
+    episodeTitles: [
+      "雨夜的邮戳", "深夜邮局", "第七个满月", "十年后的信", "空白的收件人",
+      "倒流的星轨", "旧寄件人", "星之邮局", "第二缕晨光", "回音原点", "满月告别", "星光坠落之前",
+    ],
     trend: "+218%",
     rank: 1,
   },
@@ -34,8 +36,6 @@ const animeLibrary = [
     studio: "Blue Hour",
     synopsis:
       "旧城进入漫长雨季，两个总在同一个屋檐下躲雨的人，开始交换彼此写了一半的日记。雨声盖住了秘密，也让靠近变得理所当然。",
-    day: "周四",
-    time: "22:30",
     trend: "+142%",
     rank: 2,
   },
@@ -54,8 +54,6 @@ const animeLibrary = [
     studio: "Nocturne Lab",
     synopsis:
       "零点之后，城市会多出一班没有终点站的列车。只有带着未完成愿望的人才能看见它，而每一位乘客都必须在第七站前决定，留下还是回去。",
-    day: "周六",
-    time: "23:00",
     trend: "+96%",
     rank: 3,
   },
@@ -74,8 +72,6 @@ const animeLibrary = [
     studio: "Orbit 9",
     synopsis:
       "月球背面的快递员每天送信、送种子、也替人送一句迟到的话。她驾驶旧式邮车穿过环形山，直到收到一封寄给自己的信。",
-    day: "周三",
-    time: "21:00",
     trend: "+61%",
     rank: 4,
   },
@@ -94,8 +90,6 @@ const animeLibrary = [
     studio: "Paper Sun",
     synopsis:
       "海边小镇的最后一届夏日祭，五个即将各奔东西的少年少女，决定为彼此留下一首只在前奏响起时才能想起来的歌。",
-    day: "周日",
-    time: "20:00",
     trend: "+72%",
     rank: 5,
   },
@@ -114,8 +108,6 @@ const animeLibrary = [
     studio: "Skyline",
     synopsis:
       "浮空城失去重力引擎后，一群少年驾驶自制滑翔机穿越云墙，寻找传说中的最后一块升力核心。逆着光飞，才看得见回家的方向。",
-    day: "周一",
-    time: "19:00",
     trend: "+49%",
     rank: 6,
   },
@@ -134,8 +126,6 @@ const animeLibrary = [
     studio: "Mint Hill",
     synopsis:
       "山顶的旧书店能把信寄给风。店主收留了一个不会说话的少女，两个人用一封封没有收件人的信，把小镇遗忘的故事重新找回来。",
-    day: "周二",
-    time: "23:30",
     trend: "+38%",
     rank: 7,
   },
@@ -154,8 +144,6 @@ const animeLibrary = [
     studio: "Below Zero",
     synopsis:
       "深海观测站接到一段来自海底的求救通话，声音却属于三年前失踪的站长。氧气还剩七十二小时，真相正在更深处等待。",
-    day: "周三",
-    time: "24:30",
     trend: "+53%",
     rank: 8,
   },
@@ -174,8 +162,6 @@ const animeLibrary = [
     studio: "Mellow",
     synopsis:
       "每到下午三点，整座城市会短暂进入同一个梦境。只有四名从不午睡的学生记得发生了什么，并决定在梦里寻找失踪的同学。",
-    day: "周四",
-    time: "22:00",
     trend: "+21%",
     rank: 9,
   },
@@ -194,8 +180,6 @@ const animeLibrary = [
     studio: "Honey Lamp",
     synopsis:
       "一间只在流星经过时出现的料理店，为每一位迷路的客人端上一道记忆里的味道。老板说，吃饱之后，路自然会出现在脚下。",
-    day: "周五",
-    time: "22:00",
     trend: "+88%",
     rank: 10,
   },
@@ -214,8 +198,6 @@ const animeLibrary = [
     studio: "Loop Engine",
     synopsis:
       "编号 RX-07 的仿生人第一次听见自己的心跳，却是在城市即将断电的那一夜。为了保住这颗不属于自己的心脏，她开始寻找制造者留下的最后一行代码。",
-    day: "周六",
-    time: "21:30",
     trend: "+67%",
     rank: 11,
   },
@@ -234,8 +216,6 @@ const animeLibrary = [
     studio: "Petal Code",
     synopsis:
       "每年樱花盛开时，城市都会重置一次记忆。只有两名特工保留着上一轮的记忆，他们必须在花落之前找到让时间停下来的方法。",
-    day: "周日",
-    time: "22:30",
     trend: "+35%",
     rank: 12,
   },
@@ -388,12 +368,69 @@ const websiteDirectory = [
   },
 ];
 
+// scheduleMap 是排播唯一数据源；需要「周几/几点」时从这里反查。
+function broadcastSlot(id) {
+  for (const [day, entries] of Object.entries(scheduleMap)) {
+    const hit = entries.find(([animeId]) => animeId === id);
+    if (hit) return { day, time: hit[1] };
+  }
+  return { day: "—", time: "待定" };
+}
+
 const state = {
   filter: "全部",
   showFavorites: false,
   activeDay: weekdayLabels[new Date().getDay()],
   websiteFilter: "全部",
+  rankingPeriod: "本周",
 };
+
+// 观看进度：anime -> 已观看集数集合。首次访问带演示数据。
+const PROGRESS_DEFAULTS = { "after-rain": [1, 2, 3, 4, 5, 6], "midnight-line": [1, 2] };
+let progress = readProgress();
+
+function readProgress() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("manshiguang:progress") || "null");
+    if (saved && typeof saved === "object") return saved;
+  } catch {
+    // 存储不可用时退回演示数据。
+  }
+  return Object.fromEntries(
+    Object.entries(PROGRESS_DEFAULTS).map(([id, eps]) => [id, [...eps]]),
+  );
+}
+
+function persistProgress() {
+  try {
+    localStorage.setItem("manshiguang:progress", JSON.stringify(progress));
+  } catch {
+    // 无痕模式下忽略。
+  }
+}
+
+function watchedCount(id) {
+  return (progress[id] || []).length;
+}
+
+function recordEpisode(id, ep) {
+  const seen = progress[id] || (progress[id] = []);
+  if (!seen.includes(ep)) {
+    seen.push(ep);
+    persistProgress();
+  }
+  renderContinue();
+}
+
+function episodeTitle(anime, ep) {
+  const titles = anime.episodeTitles || [];
+  return titles[Math.min(Math.max(ep, 1), anime.episodes) - 1] || `第 ${String(ep).padStart(2, "0")} 话`;
+}
+
+function featuredEpisode(anime) {
+  const match = /(\d+)\s*话/.exec(anime.status || "");
+  return match ? Number(match[1]) : anime.episodes;
+}
 
 const byId = (id) => animeLibrary.find((anime) => anime.id === id);
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -511,14 +548,20 @@ function renderRanking() {
   const list = $("#rankingList");
   if (!list) return;
 
-  list.innerHTML = animeLibrary
-    .filter((anime) => anime.rank <= 6)
-    .sort((a, b) => a.rank - b.rank)
+  const sorters = {
+    本周: (a, b) => a.rank - b.rank,
+    本月: (a, b) => b.score - a.score || a.rank - b.rank,
+    新作: (a, b) => b.year - a.year || b.score - a.score,
+  };
+  const sorted = [...animeLibrary].sort(sorters[state.rankingPeriod] || sorters.本周);
+
+  list.innerHTML = sorted
+    .slice(0, 6)
     .map(
-      (anime) => `
+      (anime, index) => `
         <article class="ranking-item" data-anime-id="${anime.id}" tabindex="0">
-          <span class="ranking-index">${String(anime.rank).padStart(2, "0")}</span>
-          <div class="ranking-cover">${coverMarkup(anime, anime.rank - 1)}</div>
+          <span class="ranking-index">${String(index + 1).padStart(2, "0")}</span>
+          <div class="ranking-cover">${coverMarkup(anime, index)}</div>
           <div class="ranking-info">
             <h3>${anime.title}</h3>
             <p>${anime.genres.join(" · ")} / ${anime.studio}</p>
@@ -530,6 +573,88 @@ function renderRanking() {
         </article>
       `,
     )
+    .join("");
+}
+
+function set(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function renderHero() {
+  const anime = byId("starlight");
+  if (!anime) return;
+  const slot = broadcastSlot(anime.id);
+  const latest = featuredEpisode(anime);
+  const ep = String(latest).padStart(2, "0");
+
+  set("heroDescription", anime.synopsis);
+  const tags = document.getElementById("heroTags");
+  if (tags) tags.innerHTML = ["原创动画", ...anime.genres, `${anime.episodes} 话`]
+    .map((tag) => `<span>${tag}</span>`).join("");
+  const meta = document.getElementById("heroMeta");
+  if (meta) {
+    meta.innerHTML = `
+      <div class="meta-item"><strong>${anime.score.toFixed(1)}</strong><span>观众评分</span></div>
+      <span class="meta-divider"></span>
+      <div class="meta-item"><strong>${ep} / ${String(anime.episodes).padStart(2, "0")}</strong><span>最新集数</span></div>
+      <span class="meta-divider"></span>
+      <div class="meta-item"><strong>${slot.time}</strong><span>每${slot.day}更新</span></div>
+    `;
+  }
+  set("heroEp", `EP. ${ep}`);
+  set("heroCaptionIndex", ep);
+  set("heroCaptionTitle", episodeTitle(anime, latest));
+  set("heroCaptionTime", slot.time);
+  set("heroScore", `${anime.score.toFixed(1)} / 10`);
+  set("heroStatus", `第 ${ep} 话已更新`);
+}
+
+function renderContinue() {
+  const grid = $("#continueGrid");
+  if (!grid) return;
+
+  const entries = Object.keys(progress)
+    .map((id) => ({ anime: byId(id), seen: progress[id] }))
+    .filter((item) => item.anime && item.seen.length);
+
+  if (!entries.length) {
+    grid.innerHTML = `
+      <div class="continue-empty">还没有观看记录。点开一部番，选一话开始今晚的故事。</div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = entries
+    .map(({ anime, seen }) => {
+      const latest = featuredEpisode(anime);
+      const ep = Math.min(seen.length, latest);
+      const percent = Math.round((ep / latest) * 100);
+      return `
+        <article class="continue-card" data-anime-id="${anime.id}" tabindex="0">
+          <div class="continue-visual ${anime.theme}">
+            <span class="cover-ghost">${anime.kanji}</span>
+            <span class="cover-orbit"></span>
+            <div class="continue-play">
+              <svg class="icon"><use href="#icon-play"></use></svg>
+            </div>
+            <div class="continue-progress">
+              <span style="width: ${percent}%"></span>
+            </div>
+          </div>
+          <div class="continue-info">
+            <div>
+              <small>看到第 ${String(ep).padStart(2, "0")} 话</small>
+              <h3>${anime.title}</h3>
+              <p>${episodeTitle(anime, ep)}</p>
+            </div>
+            <button class="round-action" type="button" aria-label="继续播放">
+              <svg class="icon"><use href="#icon-arrow"></use></svg>
+            </button>
+          </div>
+        </article>
+      `;
+    })
     .join("");
 }
 
@@ -791,6 +916,11 @@ function openDetail(id) {
   if (!anime || !panel || !content) return;
 
   const isFavorite = favorites.has(anime.id);
+  const slot = broadcastSlot(anime.id);
+  const latest = featuredEpisode(anime);
+  const seen = progress[anime.id] || [];
+  const resumeEp = Math.min(latest, seen.length + 1);
+  const resumeLabel = seen.length ? `继续看第 ${String(resumeEp).padStart(2, "0")} 话` : "从第 01 话开始";
   content.innerHTML = `
     <div class="detail-hero">
       <div class="detail-cover">${coverMarkup(anime, anime.rank - 1)}</div>
@@ -804,7 +934,7 @@ function openDetail(id) {
         <div class="detail-stats">
           <div><strong>${anime.score.toFixed(1)}</strong><span>观众评分</span></div>
           <div><strong>${anime.episodes}</strong><span>总集数</span></div>
-          <div><strong>${anime.day}</strong><span>${anime.time} 更新</span></div>
+          <div><strong>${slot.day}</strong><span>${slot.time} 更新</span></div>
           <div><strong>${anime.studio}</strong><span>制作公司</span></div>
         </div>
         <p class="detail-synopsis">${anime.synopsis}</p>
@@ -814,9 +944,9 @@ function openDetail(id) {
           <span>深夜档</span>
         </div>
         <div class="detail-actions">
-          <button class="button button-primary detail-watch" type="button">
+          <button class="button button-primary detail-watch" type="button" data-anime-id="${anime.id}" data-resume="${resumeEp}">
             <span class="button-icon"><svg class="icon"><use href="#icon-play"></use></svg></span>
-            从第 01 话开始
+            ${resumeLabel}
           </button>
           <button
             class="button button-ghost ${isFavorite ? "is-favorite" : ""}"
@@ -830,16 +960,18 @@ function openDetail(id) {
         </div>
       </div>
     </div>
-    <div class="detail-episodes">
+    <div class="detail-episodes" data-anime-id="${anime.id}">
       <div class="detail-episodes-head">
         <h3>选集</h3>
         <span>${anime.status} / 全 ${anime.episodes} 话</span>
       </div>
       <div class="episode-grid">
         ${Array.from({ length: anime.episodes }, (_, index) => {
-          const number = String(index + 1).padStart(2, "0");
-          const isCurrent = index === Math.min(anime.episodes - 1, 7);
-          return `<button class="episode-chip ${isCurrent ? "is-current" : ""}" type="button" data-episode="${number}">${number}</button>`;
+          const number = index + 1;
+          const available = number <= latest;
+          const watched = seen.includes(number);
+          const isCurrent = number === resumeEp && available;
+          return `<button class="episode-chip ${isCurrent ? "is-current" : ""} ${watched ? "is-watched" : ""} ${available ? "" : "is-locked"}" type="button" data-episode="${String(number).padStart(2, "0")}" ${available ? "" : "disabled"} title="${episodeTitle(anime, number)}">${String(number).padStart(2, "0")}</button>`;
         }).join("")}
       </div>
     </div>
@@ -924,55 +1056,69 @@ function setupReveal() {
   elements.forEach((element) => observer.observe(element));
 }
 
+const PAGES = new Set(["top", "library", "ranking", "schedule", "community", "websites"]);
+let currentPage = "top";
+
+function pageFromHash() {
+  const id = decodeURIComponent(location.hash || "").replace(/^#/, "");
+  return PAGES.has(id) ? id : "top";
+}
+
+function showPage(page) {
+  const target = PAGES.has(page) ? page : "top";
+  currentPage = target;
+  $$("#main > .page").forEach((p) => p.classList.toggle("is-visible", p.dataset.page === target));
+  $$(".desktop-nav a").forEach((l) => {
+    const isActive = l.getAttribute("href") === `#${target}`;
+    l.classList.toggle("is-active", isActive);
+    if (isActive) l.setAttribute("aria-current", "page");
+    else l.removeAttribute("aria-current");
+  });
+  const active = document.querySelector(`#main > .page[data-page="${target}"]`);
+  if (active) active.scrollTop = 0;
+  closeMobileMenu();
+}
+
+function navigateTo(page) {
+  if (location.hash === `#${page}`) showPage(page);
+  else location.hash = `#${page}`;
+}
+
 function setupHeader() {
-  const header = document.querySelector('#siteHeader');
-  if (!header) return;
-
-  const updateHeader = () => {
-    header.classList.toggle('is-scrolled', window.scrollY > 26);
-  };
-  updateHeader();
-  window.addEventListener('scroll', updateHeader, { passive: true });
-
-  const navLinks = [...document.querySelectorAll('.desktop-nav a')];
-  const sectionMap = { '#top': 'top', '#library': 'library', '#schedule': 'schedule', '#ranking': 'ranking', '#community': 'community', '#websites': 'websites' };
-
-  function showSection(id) {
-    // Hide all sections
-    document.querySelectorAll('main > section').forEach(s => {
-      s.classList.remove('is-visible');
-      s.style.overflow = '';
-    });
-    
-    // Show target section
-    const el = document.getElementById(id);
-    if (el) {
-      el.classList.add('is-visible');
-      el.style.overflow = 'auto';
-    }
-    
+  const header = document.querySelector("#siteHeader");
+  if (header) {
+    const updateHeader = () => {
+      header.classList.toggle("is-scrolled", window.scrollY > 26);
+    };
+    updateHeader();
+    window.addEventListener("scroll", updateHeader, { passive: true });
   }
 
-  // Initialize: show only hero
-  document.getElementById('top').classList.add('is-visible');
+  window.addEventListener("hashchange", () => showPage(pageFromHash()));
 
-  navLinks[0].classList.add('is-active');
-  navLinks[0].setAttribute('aria-current', 'page');
-
-  navLinks.forEach((link) => {
-    link.addEventListener('click', (e) => {
-      const target = link.getAttribute('href');
-      const targetId = sectionMap[target];
-      if (!targetId) return;
-      e.preventDefault();
-      showSection(targetId);
-      navLinks.forEach((l) => {
-        l.classList.remove('is-active');
-        l.removeAttribute('aria-current');
-      });
-      link.classList.add('is-active');
-      link.setAttribute('aria-current', 'page');
-    });
+  // 页面锚点统一委托：导航 tab、移动菜单、页脚、社交链接共用一套逻辑。
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest('a[href^="#"]');
+    if (!link) return;
+    const href = link.getAttribute("href");
+    if (href === "#search") {
+      event.preventDefault();
+      navigateTo("library");
+      return;
+    }
+    const id = decodeURIComponent(href.slice(1));
+    if (PAGES.has(id)) {
+      event.preventDefault();
+      navigateTo(id);
+      return;
+    }
+    const anchor = document.getElementById(id);
+    const page = anchor?.closest(".page");
+    if (page?.classList.contains("is-visible")) {
+      event.preventDefault();
+      anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+      closeMobileMenu();
+    }
   });
 }
 
@@ -1029,19 +1175,32 @@ function setupEvents() {
     }
     state.showFavorites = !state.showFavorites;
     state.filter = "全部";
-    $$(".filter-chip").forEach((chip) => chip.classList.toggle("is-active", chip.dataset.filter === "全部"));
+    $$(".library-section .filter-chip").forEach((chip) =>
+      chip.classList.toggle("is-active", chip.dataset.filter === "全部"),
+    );
     renderAnimeGrid();
     showToast(state.showFavorites ? `正在查看我的追番（${favorites.size}）` : "已显示全部番剧");
-    document.getElementById("library")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    navigateTo("library");
   });
 
-  $$(".filter-chip").forEach((chip) => {
+  $$(".library-section .filter-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       state.filter = chip.dataset.filter || "全部";
       state.showFavorites = false;
-      $$(".filter-chip").forEach((item) => item.classList.toggle("is-active", item === chip));
+      $$(".library-section .filter-chip").forEach((item) =>
+        item.classList.toggle("is-active", item === chip),
+      );
       renderAnimeGrid();
     });
+  });
+
+  const rankingTabs = $(".ranking-tabs");
+  rankingTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    state.rankingPeriod = button.textContent.trim();
+    $$(".ranking-tabs button").forEach((b) => b.classList.toggle("is-active", b === button));
+    renderRanking();
   });
 
   $("#weekTabs")?.addEventListener("click", (event) => {
@@ -1082,7 +1241,7 @@ function setupEvents() {
     }
 
     const animeTarget = event.target.closest("[data-anime-id]");
-    if (animeTarget && !event.target.closest("button:not(.search-result)")) {
+    if (animeTarget && !event.target.closest('button:not(.search-result):not(.round-action)')) {
       if (animeTarget.classList.contains("search-result")) {
         closeSearch();
       }
@@ -1111,16 +1270,24 @@ function setupEvents() {
       return;
     }
 
-    if (event.target.closest(".detail-watch")) {
-      showToast("播放器将在第二阶段接入，当前为视觉与交互演示");
+    const watchButton = event.target.closest(".detail-watch");
+    if (watchButton) {
+      const id = watchButton.dataset.animeId;
+      recordEpisode(id, Number(watchButton.dataset.resume) || 1);
+      openDetail(id);
+      showToast("播放器将在第二阶段接入，当前已记录观看进度");
       return;
     }
 
     const episode = event.target.closest(".episode-chip");
-    if (episode) {
-      $$(".episode-chip").forEach((chip) => chip.classList.remove("is-current"));
-      episode.classList.add("is-current");
-      showToast(`已选择第 ${episode.dataset.episode} 话`);
+    if (episode && !episode.disabled) {
+      const id = episode.closest("[data-anime-id]")?.dataset.animeId;
+      const anime = id && byId(id);
+      if (anime) {
+        recordEpisode(id, Number(episode.dataset.episode));
+        openDetail(id);
+        showToast(`已观看《${anime.title}》第 ${episode.dataset.episode} 话`);
+      }
       return;
     }
 
@@ -1163,13 +1330,12 @@ function setupEvents() {
     renderSearch(event.target.value);
   });
 
-  $$(".continue-card").forEach((card) => {
-    card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openDetail(card.dataset.animeId);
-      }
-    });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const card = event.target.closest?.(".continue-card[data-anime-id]");
+    if (!card) return;
+    event.preventDefault();
+    openDetail(card.dataset.animeId);
   });
 
   window.addEventListener("resize", () => {
@@ -1191,6 +1357,8 @@ function init() {
   setupHeroTilt();
   setupCursorGlow();
   updateHeroFavorite();
+  renderHero();
+  renderContinue();
   renderAnimeGrid();
   renderRanking();
   renderSchedule();
@@ -1199,6 +1367,7 @@ function init() {
   renderWebsites();
   updateFavoriteUI();
   setupEvents();
+  showPage(pageFromHash());
 }
 
 init();
