@@ -10,7 +10,7 @@
   // 两种模式（由面板里真实渲染的 .action-panel--image / --text 判定）：
   // - 图片模式：模型下拉、参数下拉、参考图 file input 与生成按钮全部复用原生，
   //   底部补一排「模型设置 / 导入图片 / 导出图片 / 预览结果 / 生成图片」。
-  // - 文本模式：文本模板（原生“预”按钮）、推理模型下拉、API 下拉与生成按钮
+  // - 文本模式：SKILL 模板（原生“预”按钮）、推理模型下拉、API 下拉与生成按钮
   //   全部复用原生，底部补「模型设置 / 预览结果 / 推理并输出到文本节点」。
   //   原生文本面板没有“参数设置”控件，因此不伪造该按钮；也没有参考图入口，
   //   所以文本模式不提供“导入图片”。
@@ -57,7 +57,7 @@
     "在这里自由输入提示词 / 文本，内容较长时可滚动或放大编辑。";
   const TEXT_PROMPT_LABEL = "提示词 / 文本";
   const TEXT_MODEL_LABEL = "推理模型";
-  const TEXT_TEMPLATE_LABEL = "文本模板";
+  const TEXT_TEMPLATE_LABEL = "SKILL 模板";
   // dataset 的键名必须是合法 JS 标识符，因此属性名手写、读取走 dataset.msTextAction
   const TEXT_ACTION_ATTR = "data-ms-text-action";
 
@@ -570,7 +570,7 @@
   // 只在 .ms-text-editor 上叠加：卡片外框、跟随定位、颜色变量全部复用上面
   // 图片模式的基础样式，这里只重排文本面板内部的顺序与外观。
   const TEXT_STYLE = `
-    /* 文本模板行：点它等于点原生「预」按钮，预设下拉由 JS 钉在本行下方 */
+    /* SKILL 模板行：点它等于点原生「预」按钮，预设下拉由 JS 钉在本行下方 */
     .inspector.${EDITOR_CLASS}.${TEXT_MODE_CLASS} .ms-text-template-row {
       flex: 0 0 auto;
       display: flex;
@@ -644,7 +644,7 @@
       overflow: visible !important;
     }
 
-    /* 预设下拉：脱离文档流，钉在文本模板行正下方（left/top 由 JS 计算） */
+    /* 预设下拉：脱离文档流，钉在 SKILL 模板行正下方（left/top 由 JS 计算） */
     .inspector.${EDITOR_CLASS}.${TEXT_MODE_CLASS} .action-panel__dropdown--text-preset {
       position: absolute !important;
       inset: auto !important;
@@ -1331,7 +1331,7 @@
       row.setAttribute(
         "title",
         presetButton
-          ? "点击选择文本模板（内置 + 自定义，在 设置 › 文本模板 管理）"
+          ? "点击选择 SKILL 模板（内置 + 自定义，在 设置 › SKILL 模板 管理）"
           : "模板入口未就绪，请稍候重试"
       );
       row.setAttribute("aria-expanded", open ? "true" : "false");
@@ -2403,7 +2403,7 @@
     event.preventDefault();
     event.stopPropagation();
 
-    // 优先委托文本模板补丁（数据=设置页「文本模板」体系：内置+自定义）。
+    // 优先委托 SKILL 模板补丁（数据=设置页「SKILL 模板」体系：内置+自定义）。
     // 补丁没加载/没选中文本节点时，回退原生「预」按钮下拉。
     const ext = window.__MS_TEXT_TEMPLATES__;
     if (ext && typeof ext.openFromRow === "function" && ext.openFromRow(inspector, row)) return;
@@ -2465,7 +2465,7 @@
       reposition: schedulePosition,
       // 供其它补丁复用「跳到 API 来源设置并定位模型列表」
       openApiSettings,
-      // 文本模板补丁套用模板后回显模板名（templateNamesByNode 在本闭包内，只能走 setter）
+      // SKILL 模板补丁套用模板后回显模板名（templateNamesByNode 在本闭包内，只能走 setter）
       setTemplateName(nodeId, name) {
         if (!nodeId) return;
         templateNamesByNode.set(nodeId, name || "选择模板");

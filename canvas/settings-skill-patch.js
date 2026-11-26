@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  // 文本模板分区（历史名 SKILL模板，DOM 类/存储键未改）：画布设置弹窗与设置整页（TOP_TABS 第二分区，settings-page-patch 负责切分区与裁剪侧栏，
+  // SKILL 模板分区（曾用名「文本模板」，DOM 类/存储键未改）：画布设置弹窗与设置整页（TOP_TABS 第二分区，settings-page-patch 负责切分区与裁剪侧栏，
   // 本补丁负责侧栏项、内容区、存储与导入导出）共用同一份代码：index.html 与 settings.html 都加载，
   // 侧栏项注入在 ComfyUI设置 之后；sync() 在弹窗未开时直接返回，画布常态零开销。机制复刻 text-api-patch：
   // 注入 .settings-sidebar__item + 独立 section + body 挂 VIEW_CLASS 遮罩，document 捕获阶段拦 click。
@@ -175,7 +175,7 @@
     button.className = "settings-sidebar__item";
     button.dataset.msSkillTab = "true";
     button.innerHTML =
-      '<span class="ms-skill-tab-icon" aria-hidden="true">📚</span><span>文本模板</span>';
+      '<span class="ms-skill-tab-icon" aria-hidden="true">📚</span><span>SKILL 模板</span>';
     // 贴最后一个 API 注入项之后；找不到就 append，顺序由顶栏分区决定，不敏感。
     const anchor =
       nav.querySelector("#ms-comfy-tab-btn") ||
@@ -258,8 +258,8 @@
     const templates = allTemplates();
     const nextHtml = `
       <div class="settings-section__header">
-        <h3>文本模板</h3>
-        <p>固定「怎么写」的提示词骨架：内置七个模板（小说转剧本 / 视觉资产拆解 / 图片提示词出图 / 剧本转分镜·H3生视频 / 人物 / 场景 / 道具）不可修改，可「另存为自定义」后编辑。画布文本节点卡片的「文本模板」直接选用这里的内置+自定义模板。</p>
+        <h3>SKILL 模板</h3>
+        <p>固定「怎么写」的提示词骨架：内置七个模板（小说转剧本 / 视觉资产拆解 / 图片提示词出图 / 剧本转分镜·H3生视频 / 人物 / 场景 / 道具）不可修改，可「另存为自定义」后编辑。画布文本节点卡片的「SKILL 模板」直接选用这里的内置+自定义模板。</p>
       </div>
       <div class="ms-skill__body">
         <div class="ms-skill__toolbar">
@@ -473,7 +473,7 @@
     };
     if (window.electronAPI?.saveTextFile) {
       window.electronAPI
-        .saveTextFile({ content: json, defaultFileName: fileName, title: "文本模板" })
+        .saveTextFile({ content: json, defaultFileName: fileName, title: "SKILL 模板" })
         .then((name) => {
           showStatus(name ? `已导出 ${name}` : "已取消导出。");
         })
@@ -500,7 +500,7 @@
       : Array.isArray(parsed)
         ? parsed
         : null;
-    if (!list) return { error: "文件里没有 templates 数组，不是文本模板导出件。" };
+    if (!list) return { error: "文件里没有 templates 数组，不是 SKILL 模板导出件。" };
     const templates = list
       .map((item, index) => normalizeTemplate(item, index))
       .filter((item) => item && item.content.trim());
@@ -512,7 +512,7 @@
     let picked = null;
     if (window.electronAPI?.openTextFile) {
       try {
-        picked = await window.electronAPI.openTextFile({ title: "文本模板 JSON" });
+        picked = await window.electronAPI.openTextFile({ title: "SKILL 模板 JSON" });
       } catch (error) {
         showStatus(`导入失败：${error?.message || error}`, "error");
         return;

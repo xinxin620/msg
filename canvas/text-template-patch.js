@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  // 文本模板补丁：画布文本节点卡片的「文本模板」下拉，数据源=设置页「文本模板」体系
+  // SKILL 模板补丁：画布文本节点卡片的「SKILL 模板」下拉，数据源=设置页「SKILL 模板」体系
   // （内置 skill-templates-data.js + localStorage manshiguang:canvas-skill-templates 自定义）。
   // 取代原先转发 bundle 原生「预」按钮的做法（原生预设存 IndexedDB、初始为空，形同没功能）。
   // 机制：image-inspector-patch 的模板行点击委托 openFromRow → 本补丁自建分组菜单（body 挂载、
@@ -255,7 +255,7 @@
     if (!templates.length) {
       const empty = document.createElement("div");
       empty.className = MENU_CLASS + "__empty";
-      empty.textContent = "还没有可用模板。到「设置 › 文本模板」新建自定义模板，或确认内置模板脚本已加载。";
+      empty.textContent = "还没有可用模板。到「设置 › SKILL 模板」新建自定义模板，或确认内置模板脚本已加载。";
       menu.appendChild(empty);
       return;
     }
@@ -293,7 +293,7 @@
     foot.className = MENU_CLASS + "__foot";
     const footText = document.createElement("span");
     footText.className = MENU_CLASS + "__foot-text";
-    footText.textContent = "内置模板在「设置 › 文本模板」维护";
+    footText.textContent = "内置模板在「设置 › SKILL 模板」维护";
     const manage = document.createElement("button");
     manage.type = "button";
     manage.className = MENU_CLASS + "__foot-btn";
@@ -409,7 +409,7 @@
     if (!customs.length) {
       const empty = document.createElement("div");
       empty.className = "ms-tt-panel__empty";
-      empty.textContent = "还没有自定义模板。点下方「＋ 新建模板」，名称+场景+正文填好即存；内置模板请到「设置 › 文本模板」查看/另存。";
+      empty.textContent = "还没有自定义模板。点下方「＋ 新建模板」，名称+场景+正文填好即存；内置模板请到「设置 › SKILL 模板」查看/另存。";
       bodyBox.appendChild(empty);
     } else {
       customs.forEach((tpl) => bodyBox.appendChild(buildCard(tpl, false)));
@@ -427,7 +427,7 @@
     head.className = "ms-tt-panel__head";
     const title = document.createElement("span");
     title.className = "ms-tt-panel__title";
-    title.textContent = "自定义文本模板";
+    title.textContent = "自定义 SKILL 模板";
     const close = document.createElement("button");
     close.type = "button"; close.className = "ms-tt-panel__btn is-ghost";
     close.textContent = "关闭";
