@@ -395,7 +395,7 @@
             <div>
               <p class="section-kicker">AFTER THE CREDITS</p>
               <h2 id="communityTitle">散场以后，故事还在继续</h2>
-              <p class="section-description">和 128,406 位时光旅人，一起交换今晚的心情。</p>
+              <p class="section-description">和 <span id="communityMembers"></span> 位时光旅人，一起交换今晚的心情。</p>
             </div>
             <a class="button button-outline" href="#community">
               进入社区
@@ -403,51 +403,21 @@
             </a>
           </div>
 
-          <div class="community-grid">
-            <article class="topic-card topic-large">
-              <div class="topic-art theme-starlight">
-                <span class="topic-ghost">星</span>
-                <span class="topic-orbit"></span>
-                <div class="topic-tag">正在热议 · 2.4k</div>
-              </div>
-              <div class="topic-body">
-                <div class="topic-meta">
-                  <span class="topic-avatar avatar-one">A</span>
-                  <span>阿遥不熬夜</span>
-                  <span>12 分钟前</span>
-                </div>
-                <h3>第 08 话最后那封信，到底是谁写的？</h3>
-                <p>
-                  我回看了前三集的时间线，邮戳上的年份好像不是 2016，而是 2036……
-                </p>
-                <div class="topic-footer">
-                  <span># 星海回响</span>
-                  <span>128 条回复</span>
+          <div class="community-layout">
+            <aside class="checkin-panel" id="checkinPanel">
+              <div class="checkin-head">
+                <span class="checkin-flame" aria-hidden="true">✦</span>
+                <div>
+                  <small>连续签到</small>
+                  <strong><span id="checkinStreak">0</span> 天</strong>
                 </div>
               </div>
-            </article>
+              <div class="checkin-dots" id="checkinDots" aria-label="本周签到进度"></div>
+              <p class="checkin-tip" id="checkinTip">每天回来，把光连成一串。</p>
+              <button class="button button-primary checkin-button" type="button" id="checkinButton">今日签到</button>
+            </aside>
 
-            <article class="topic-card">
-              <div class="topic-body">
-                <div class="topic-meta">
-                  <span class="topic-avatar avatar-two">M</span>
-                  <span>月面拾荒者</span>
-                  <span>38 分钟前</span>
-                </div>
-                <h3>哪部番的片尾曲，你从来舍不得跳过？</h3>
-                <p>最近循环《雨停之后》的片尾曲，前奏一响就不想点下一集。</p>
-                <div class="topic-footer">
-                  <span># 音乐分享</span>
-                  <span>86 条回复</span>
-                </div>
-              </div>
-            </article>
-
-            <article class="topic-card topic-quote">
-              <span class="quote-mark">“</span>
-              <p>如果故事终将散场，<br />至少在漫时光里，我们曾一起看过同一片星空。</p>
-              <span class="quote-author">— 今日签到 7 / 30</span>
-            </article>
+            <div class="community-grid" id="communityGrid"></div>
           </div>
         </div>
       </section>

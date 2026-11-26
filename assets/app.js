@@ -20,6 +20,8 @@ const animeLibrary = [
     ],
     trend: "+218%",
     rank: 1,
+    prevRank: 3,
+    watchers: 128406,
   },
   {
     id: "after-rain",
@@ -38,6 +40,8 @@ const animeLibrary = [
       "旧城进入漫长雨季，两个总在同一个屋檐下躲雨的人，开始交换彼此写了一半的日记。雨声盖住了秘密，也让靠近变得理所当然。",
     trend: "+142%",
     rank: 2,
+    prevRank: 2,
+    watchers: 96420,
   },
   {
     id: "midnight-line",
@@ -56,6 +60,8 @@ const animeLibrary = [
       "零点之后，城市会多出一班没有终点站的列车。只有带着未完成愿望的人才能看见它，而每一位乘客都必须在第七站前决定，留下还是回去。",
     trend: "+96%",
     rank: 3,
+    prevRank: 5,
+    watchers: 74318,
   },
   {
     id: "moon-courier",
@@ -74,6 +80,8 @@ const animeLibrary = [
       "月球背面的快递员每天送信、送种子、也替人送一句迟到的话。她驾驶旧式邮车穿过环形山，直到收到一封寄给自己的信。",
     trend: "+61%",
     rank: 4,
+    prevRank: 4,
+    watchers: 58201,
   },
   {
     id: "last-summer",
@@ -92,6 +100,8 @@ const animeLibrary = [
       "海边小镇的最后一届夏日祭，五个即将各奔东西的少年少女，决定为彼此留下一首只在前奏响起时才能想起来的歌。",
     trend: "+72%",
     rank: 5,
+    prevRank: 1,
+    watchers: 65432,
   },
   {
     id: "against-light",
@@ -110,6 +120,8 @@ const animeLibrary = [
       "浮空城失去重力引擎后，一群少年驾驶自制滑翔机穿越云墙，寻找传说中的最后一块升力核心。逆着光飞，才看得见回家的方向。",
     trend: "+49%",
     rank: 6,
+    prevRank: 8,
+    watchers: 43210,
   },
   {
     id: "letters-wind",
@@ -128,6 +140,8 @@ const animeLibrary = [
       "山顶的旧书店能把信寄给风。店主收留了一个不会说话的少女，两个人用一封封没有收件人的信，把小镇遗忘的故事重新找回来。",
     trend: "+38%",
     rank: 7,
+    prevRank: 7,
+    watchers: 38765,
   },
   {
     id: "deep-signal",
@@ -146,6 +160,8 @@ const animeLibrary = [
       "深海观测站接到一段来自海底的求救通话，声音却属于三年前失踪的站长。氧气还剩七十二小时，真相正在更深处等待。",
     trend: "+53%",
     rank: 8,
+    prevRank: 11,
+    watchers: 29840,
   },
   {
     id: "daydreamers",
@@ -164,6 +180,8 @@ const animeLibrary = [
       "每到下午三点，整座城市会短暂进入同一个梦境。只有四名从不午睡的学生记得发生了什么，并决定在梦里寻找失踪的同学。",
     trend: "+21%",
     rank: 9,
+    prevRank: 9,
+    watchers: 25610,
   },
   {
     id: "stardust-diner",
@@ -182,6 +200,8 @@ const animeLibrary = [
       "一间只在流星经过时出现的料理店，为每一位迷路的客人端上一道记忆里的味道。老板说，吃饱之后，路自然会出现在脚下。",
     trend: "+88%",
     rank: 10,
+    prevRank: 6,
+    watchers: 52190,
   },
   {
     id: "synthetic-heart",
@@ -200,6 +220,8 @@ const animeLibrary = [
       "编号 RX-07 的仿生人第一次听见自己的心跳，却是在城市即将断电的那一夜。为了保住这颗不属于自己的心脏，她开始寻找制造者留下的最后一行代码。",
     trend: "+67%",
     rank: 11,
+    prevRank: 12,
+    watchers: 21876,
   },
   {
     id: "sakura-protocol",
@@ -218,6 +240,8 @@ const animeLibrary = [
       "每年樱花盛开时，城市都会重置一次记忆。只有两名特工保留着上一轮的记忆，他们必须在花落之前找到让时间停下来的方法。",
     trend: "+35%",
     rank: 12,
+    prevRank: 10,
+    watchers: 33450,
   },
 ];
 
@@ -376,6 +400,61 @@ function broadcastSlot(id) {
   }
   return { day: "—", time: "待定" };
 }
+
+const communityTopics = [
+  {
+    id: "starletter",
+    large: true,
+    theme: "theme-starlight",
+    ghost: "星",
+    tag: "正在热议 · 2.4k",
+    avatar: "A",
+    avatarClass: "avatar-one",
+    author: "阿遥不熬夜",
+    minutesAgo: 12,
+    title: "第 08 话最后那封信，到底是谁写的？",
+    excerpt: "我回看了前三集的时间线，邮戳上的年份好像不是 2016，而是 2036……",
+    hashtag: "# 星海回响",
+    replies: 128,
+    likes: 342,
+  },
+  {
+    id: "ed-song",
+    avatar: "M",
+    avatarClass: "avatar-two",
+    author: "月面拾荒者",
+    minutesAgo: 38,
+    title: "哪部番的片尾曲，你从来舍不得跳过？",
+    excerpt: "最近循环《雨停之后》的片尾曲，前奏一响就不想点下一集。",
+    hashtag: "# 音乐分享",
+    replies: 86,
+    likes: 157,
+  },
+  {
+    id: "rain-diary",
+    avatar: "雨",
+    avatarClass: "avatar-three",
+    author: "屋檐观察员",
+    minutesAgo: 95,
+    title: "有人发现《雨停之后》每集日记都少一页吗？",
+    excerpt: "第 04 话缺的那页，在第 06 话的抽屉里出现了——时间线是闭环的。",
+    hashtag: "# 雨停之后",
+    replies: 64,
+    likes: 121,
+  },
+  {
+    id: "train-wish",
+    avatar: "列",
+    avatarClass: "avatar-four",
+    author: "第七站下车",
+    minutesAgo: 180,
+    title: "零点列车的乘客规则，细想非常残忍",
+    excerpt: "「必须在第七站前决定留下还是回去」——所以每一站都有人悄悄下车。",
+    hashtag: "# 零点列车",
+    replies: 41,
+    likes: 88,
+  },
+];
 
 const state = {
   genres: new Set(),
@@ -596,6 +675,17 @@ function renderAnimeGrid() {
   updateFavoriteUI();
 }
 
+function trendMarkup(anime) {
+  const diff = anime.prevRank - anime.rank;
+  if (diff > 0) return `<span class="rank-move is-up">▲${diff}</span>`;
+  if (diff < 0) return `<span class="rank-move is-down">▼${-diff}</span>`;
+  return `<span class="rank-move is-same">—</span>`;
+}
+
+function formatWatchers(n) {
+  return n >= 10000 ? `${(n / 10000).toFixed(1)} 万` : String(n);
+}
+
 function renderRanking() {
   const list = $("#rankingList");
   if (!list) return;
@@ -606,26 +696,50 @@ function renderRanking() {
     新作: (a, b) => b.year - a.year || b.score - a.score,
   };
   const sorted = [...animeLibrary].sort(sorters[state.rankingPeriod] || sorters.本周);
+  const top = sorted.slice(0, 3);
+  const rest = sorted.slice(3, 6);
 
-  list.innerHTML = sorted
-    .slice(0, 6)
+  const podium = top
     .map(
       (anime, index) => `
+        <article class="ranking-podium" data-anime-id="${anime.id}" tabindex="0" style="--index:${index}">
+          <div class="podium-cover">${coverMarkup(anime, index)}</div>
+          <div class="podium-body">
+            <span class="podium-index">TOP ${index + 1}</span>
+            <h3>${anime.title}</h3>
+            <p>${anime.genres.join(" · ")} / ${anime.studio}</p>
+            <div class="podium-stats">
+              <span class="ranking-score">${anime.score.toFixed(1)}</span>
+              ${trendMarkup(anime)}
+              <span class="ranking-watchers">${formatWatchers(anime.watchers)} 人在追</span>
+            </div>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+
+  const rows = rest
+    .map(
+      (anime, offset) => `
         <article class="ranking-item" data-anime-id="${anime.id}" tabindex="0">
-          <span class="ranking-index">${String(index + 1).padStart(2, "0")}</span>
-          <div class="ranking-cover">${coverMarkup(anime, index)}</div>
+          <span class="ranking-index">${String(top.length + offset + 1).padStart(2, "0")}</span>
+          <div class="ranking-cover">${coverMarkup(anime, top.length + offset)}</div>
           <div class="ranking-info">
             <h3>${anime.title}</h3>
             <p>${anime.genres.join(" · ")} / ${anime.studio}</p>
           </div>
           <div class="ranking-trend">
-            <span class="trend-value">${anime.trend}</span>
+            ${trendMarkup(anime)}
+            <span class="ranking-watchers">${formatWatchers(anime.watchers)} 人在追</span>
             <span class="ranking-score">${anime.score.toFixed(1)}</span>
           </div>
         </article>
       `,
     )
     .join("");
+
+  list.innerHTML = `${podium}${rows}`;
 }
 
 function set(id, value) {
@@ -708,6 +822,151 @@ function renderContinue() {
       `;
     })
     .join("");
+}
+
+// ---------- 社区：话题流 / 点赞收藏 / 签到 ----------
+
+function readJson(key, fallback) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    return saved && typeof saved === "object" ? saved : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+let topicLikes = readJson("manshiguang:topic-likes", {});
+let topicSaved = readJson("manshiguang:topic-saved", {});
+let checkin = readJson("manshiguang:checkin", { last: "", streak: 0, days: [] });
+
+function persistJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // 存储不可用时保持会话内生效。
+  }
+}
+
+function beijingDate(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function relativeTime(minutes) {
+  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时前`;
+  return `${Math.floor(minutes / 1440)} 天前`;
+}
+
+function renderCommunity() {
+  const grid = $("#communityGrid");
+  if (!grid) return;
+
+  const members = $("#communityMembers");
+  if (members) {
+    const total = animeLibrary.reduce((sum, anime) => sum + anime.watchers, 0);
+    members.textContent = total.toLocaleString("zh-CN");
+  }
+
+  grid.innerHTML = communityTopics
+    .map((topic, index) => {
+      const liked = !!topicLikes[topic.id];
+      const saved = !!topicSaved[topic.id];
+      const art = topic.large
+        ? `<div class="topic-art ${topic.theme}">
+             <span class="topic-ghost">${topic.ghost}</span>
+             <span class="topic-orbit"></span>
+             <div class="topic-tag">${topic.tag}</div>
+           </div>`
+        : "";
+      return `
+        <article class="topic-card ${topic.large ? "topic-large" : ""}" data-topic-id="${topic.id}" tabindex="0" style="--index:${index}">
+          ${art}
+          <div class="topic-body">
+            <div class="topic-meta">
+              <span class="topic-avatar ${topic.avatarClass}">${topic.avatar}</span>
+              <span>${topic.author}</span>
+              <span>${relativeTime(topic.minutesAgo)}</span>
+            </div>
+            <h3>${topic.title}</h3>
+            <p>${topic.excerpt}</p>
+            <div class="topic-footer">
+              <span>${topic.hashtag}</span>
+              <span class="topic-actions">
+                <button class="topic-action ${liked ? "is-on" : ""}" type="button" data-like-id="${topic.id}" aria-pressed="${liked}" aria-label="点赞">
+                  <svg class="icon"><use href="#icon-heart"></use></svg>${topic.likes + (liked ? 1 : 0)}
+                </button>
+                <span>${topic.replies} 条回复</span>
+              </span>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  renderCheckin();
+}
+
+function renderCheckin() {
+  const streakEl = $("#checkinStreak");
+  if (streakEl) streakEl.textContent = String(checkin.streak);
+
+  const dots = $("#checkinDots");
+  if (dots) {
+    const today = beijingDate();
+    const week = [];
+    const jsDay = new Date().getDay(); // 0 周日
+    const mondayOffset = jsDay === 0 ? -6 : 1 - jsDay;
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date();
+      d.setDate(d.getDate() + mondayOffset + i);
+      const key = beijingDate(d);
+      week.push({ key, label: "一二三四五六日"[i], done: checkin.days.includes(key), future: key > today });
+    }
+    dots.innerHTML = week
+      .map(
+        (day) =>
+          `<span class="checkin-dot ${day.done ? "is-done" : ""} ${day.future ? "is-future" : ""}" title="${day.key}">${day.done ? "✓" : day.label}</span>`,
+      )
+      .join("");
+  }
+
+  const button = $("#checkinButton");
+  const tip = $("#checkinTip");
+  const doneToday = checkin.last === beijingDate();
+  if (button) {
+    button.textContent = doneToday ? "今天已签到" : "今日签到";
+    button.disabled = doneToday;
+    button.classList.toggle("is-done", doneToday);
+  }
+  if (tip) tip.textContent = doneToday ? `连续 ${checkin.streak} 天，明天继续。` : "每天回来，把光连成一串。";
+}
+
+function doCheckin() {
+  const today = beijingDate();
+  if (checkin.last === today) return;
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  checkin.streak = checkin.last === beijingDate(y) ? checkin.streak + 1 : 1;
+  checkin.last = today;
+  checkin.days = [...new Set([...checkin.days, today])].slice(-30);
+  persistJson("manshiguang:checkin", checkin);
+  renderCheckin();
+  showToast(`签到成功，连续 ${checkin.streak} 天`);
+}
+
+function toggleTopicReaction(key, store, id, onLabel, offLabel) {
+  const topic = communityTopics.find((t) => t.id === id);
+  if (!topic) return;
+  if (store[id]) {
+    delete store[id];
+    showToast(offLabel(topic));
+  } else {
+    store[id] = true;
+    showToast(onLabel(topic));
+  }
+  persistJson(key, store);
+  renderCommunity();
 }
 
 function renderSchedule(day = state.activeDay) {
@@ -1602,6 +1861,19 @@ function setupEvents() {
 
   $("#mediaRefresh")?.addEventListener("click", loadMedia);
 
+  $("#checkinButton")?.addEventListener("click", doCheckin);
+
+  $("#communityGrid")?.addEventListener("click", (event) => {
+    const like = event.target.closest("[data-like-id]");
+    if (like) {
+      toggleTopicReaction("manshiguang:topic-likes", topicLikes, like.dataset.likeId,
+        (t) => `已点赞「${t.title.slice(0, 12)}…」`, "已取消点赞");
+      return;
+    }
+    const card = event.target.closest("[data-topic-id]");
+    if (card) showToast("话题详情页将在第二阶段接入，当前可点赞互动");
+  });
+
   $("#mediaFilter")?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-media-kind]");
     if (!chip) return;
@@ -1652,8 +1924,7 @@ function setupEvents() {
       return;
     }
 
-    const remindButton = event.target.closest("[data-remind-id]");
-    if (remindButton) {
+    const remindButton = event.target.closest("[data-remind-id]");    if (remindButton) {
       toggleReminder(remindButton.dataset.remindId);
       return;
     }
@@ -1792,6 +2063,7 @@ function init() {
   renderSearch();
   renderWebsitesFilter();
   renderWebsites();
+  renderCommunity();
   updateFavoriteUI();
   setupEvents();
   showPage(pageFromHash());
