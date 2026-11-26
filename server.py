@@ -19,6 +19,7 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 ALLOWED_FOLDERS = (
     Path(r"D:\data\workData\漫时光\画布\images"),
     Path(r"C:\Users\liliang\msg"),
+    BASE_DIR / "uploads",  # 手动上传的素材落这里；随 ALLOWED_FOLDERS 进索引/预览/回收全链路
 )
 
 
@@ -71,6 +72,11 @@ DATA_DIR = BASE_DIR / "data"
 DATA_MAX_BODY_BYTES = 2 * 1024 * 1024
 MEDIA_INDEX_MAX_DEPTH = 6
 MEDIA_INDEX_SKIP_DIRS = {".trash", "node_modules", "__pycache__", ".vscode", ".git"}
+
+# 素材上传：POST /__media_upload/?name=<文件名>，body 为原始字节，流式写 uploads/。
+UPLOAD_PREFIX = "/__media_upload/"
+UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1024 * 1024
 TEXTAPI_MAX_BODY_BYTES = 4 * 1024 * 1024
 TEXTAPI_TIMEOUT_SECONDS = 180
 COMFY_MAX_BODY_BYTES = 64 * 1024 * 1024
@@ -262,7 +268,13 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
                 break
         self.send_json(
             HTTPStatus.OK,
-            {"ok": True, "items": items, "truncated": truncated, "total": len(items)},
+            {
+                "ok": True,
+                "items": items,
+                "truncated": truncated,
+                "total": len(items),
+                "roots": [str(folder) for folder in ALLOWED_FOLDERS],
+            },
         )
 
     def handle_media_index_post(self, body: bytes):
@@ -408,6 +420,10 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if path.startswith(TEXTAPI_PREFIX):
             self.handle_textapi_proxy("POST")
             return
+        # 上传必须在读 body 之前分流：视频/音频可达 GB 级，只能流式落盘。
+        if path.startswith(UPLOAD_PREFIX):
+            self.handle_media_upload(path)
+            return
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length > 65536:
             self.close_connection = True  # 未读 body，HTTP/1.1 keep-alive 下必须断开防连接污染
@@ -425,6 +441,74 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             self.handle_data_post(path, body)
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "POST 接口不存在"})
+
+    def handle_media_upload(self, request_path: str):
+        """POST /__media_upload/?name=<文件名>：原始字节流式写入 uploads/。
+
+        只认 MEDIA_INDEX_KINDS 白名单扩展名；文件名去路径、去控制字符；
+        先写 .part 临时文件再原子改名，杜绝半截文件混进索引。
+        """
+        if not self.is_loopback_client():
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "仅允许本机访问"})
+            return
+        name = (parse_qs(urlparse(self.path).query).get("name") or [""])[0]
+        name = os.path.basename(name.replace("\\", "/"))
+        name = "".join(ch for ch in name if ord(ch) >= 32 and ch not in ':*?"<>|').strip()
+        if not name or name in (".", ".."):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "文件名无效"})
+            return
+        suffix = Path(name).suffix.lower()
+        if suffix not in MEDIA_INDEX_KINDS:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": f"不支持的文件类型 {suffix or '(无扩展名)'}"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "缺少 Content-Length，无法接收文件"})
+            return
+        if length > UPLOAD_MAX_BYTES:
+            self.close_connection = True
+            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "文件超过 2GB 上限"})
+            return
+
+        upload_dir = ALLOWED_FOLDERS[2]
+        try:
+            upload_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)})
+            return
+
+        stem, ext = os.path.splitext(name)
+        target = upload_dir / name
+        counter = 0
+        while target.exists():
+            counter += 1
+            target = upload_dir / f"{stem}-{counter}{ext}"
+        tmp = target.with_suffix(target.suffix + ".part")
+        received = 0
+        try:
+            with tmp.open("wb") as out:
+                while received < length:
+                    chunk = self.rfile.read(min(UPLOAD_CHUNK_BYTES, length - received))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    received += len(chunk)
+            if received != length:
+                raise OSError(f"传输不完整（{received}/{length} 字节）")
+            os.replace(str(tmp), str(target))
+            self.send_json(
+                HTTPStatus.OK,
+                {"ok": True, "saved": target.name, "path": target.name, "size": received},
+            )
+        except OSError as exc:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)})
 
     def handle_data_post(self, request_path: str, body: bytes):
         """POST /__data/<file>：数据管理页写回站点 JSON（白名单内、先校验再原子替换）。"""

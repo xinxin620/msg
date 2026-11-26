@@ -227,6 +227,7 @@ const state = {
   rankingPeriod: "本周",
   mediaKind: "全部",
   mediaItems: [],
+  mediaRoots: [],
   mediaLoaded: false,
   mediaLoading: false,
   mediaActive: null,
@@ -1010,6 +1011,7 @@ async function loadMedia() {
     const data = await response.json();
     if (!data.ok) throw new Error(data.error || "扫描失败");
     state.mediaItems = data.items || [];
+    state.mediaRoots = data.roots || [];
     state.mediaLoaded = true;
     if (data.truncated) showToast("文件较多，仅显示前 4000 个");
   } catch (error) {
@@ -1098,7 +1100,7 @@ function openMediaLightbox(item) {
   stage.innerHTML = media;
 
   $("#mediaLightboxTitle").textContent = item.name;
-  $("#mediaLightboxMeta").textContent = `${MEDIA_ROOTS[item.root] || ""}/${item.path} · ${formatBytes(item.size)} · ${formatDate(item.mtime)}`;
+  $("#mediaLightboxMeta").textContent = `${state.mediaRoots[item.root] || ""}/${item.path} · ${formatBytes(item.size)} · ${formatDate(item.mtime)}`;
 
   box.classList.add("is-open");
   box.setAttribute("aria-hidden", "false");
@@ -1132,6 +1134,61 @@ function closeMediaLightbox() {
   }
 }
 
+function uploadOneMedia(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/__media_upload/?name=${encodeURIComponent(file.name)}`);
+    xhr.responseType = "text";
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      let data = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        /* 非 JSON 响应按失败处理 */
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.ok) resolve(data);
+      else reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("网络错误"));
+    xhr.send(file);
+  });
+}
+
+function setUploadBar(visible, text, ratio) {
+  const bar = $("#mediaUploadBar");
+  const label = $("#mediaUploadText");
+  const fill = $("#mediaUploadFill");
+  if (bar) bar.hidden = !visible;
+  if (label && text != null) label.textContent = text;
+  if (fill && ratio != null) fill.style.width = `${Math.round(ratio * 100)}%`;
+}
+
+async function uploadMediaFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  let ok = 0;
+  const failed = [];
+  for (let index = 0; index < list.length; index += 1) {
+    const file = list[index];
+    setUploadBar(true, `上传中 ${index + 1}/${list.length}：${file.name}`, 0);
+    try {
+      await uploadOneMedia(file, (ratio) =>
+        setUploadBar(true, `上传中 ${index + 1}/${list.length}：${file.name} ${Math.round(ratio * 100)}%`, ratio),
+      );
+      ok += 1;
+    } catch (error) {
+      failed.push(`${file.name}（${error.message}）`);
+    }
+  }
+  setUploadBar(false, "", 0);
+  await loadMedia();
+  if (ok) showToast(`已上传 ${ok} 个文件${failed.length ? `，${failed.length} 个失败` : ""}`);
+  if (failed.length) console.warn("素材上传失败：", failed);
+}
+
 async function trashActiveMedia() {
   const item = state.mediaActive;
   if (!item) return;
@@ -1155,7 +1212,7 @@ async function trashActiveMedia() {
 
 function openActiveMediaFolder() {
   const item = state.mediaActive;
-  const root = item && MEDIA_ROOTS[item.root];
+  const root = item && state.mediaRoots[item.root];
   if (!root) return;
   fetch("/__open_folder", {
     method: "POST",
@@ -1449,8 +1506,6 @@ function setupReveal() {
 
 const PAGES = new Set(["top", "library", "ranking", "schedule", "community", "websites", "media", "data"]);
 
-// 素材管理：与 server.py ALLOWED_FOLDERS 顺序一致（root 下标即白名单序号）。
-const MEDIA_ROOTS = ["D:/data/workData/漫时光/画布/images", "C:/Users/liliang/msg"];
 const MEDIA_KIND_LABELS = { 全部: "全部", image: "图片", video: "视频", audio: "音频", text: "文本" };
 let currentPage = "top";
 
@@ -1623,6 +1678,12 @@ function setupEvents() {
   });
 
   $("#mediaRefresh")?.addEventListener("click", loadMedia);
+
+  $("#mediaUploadInput")?.addEventListener("change", (event) => {
+    const files = event.target.files;
+    if (files && files.length) uploadMediaFiles(files);
+    event.target.value = "";
+  });
 
   $("#checkinButton")?.addEventListener("click", doCheckin);
 

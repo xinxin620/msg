@@ -454,13 +454,24 @@
               <p class="section-kicker">CANVAS OUTPUTS</p>
               <h2 id="mediaTitle">素材管理</h2>
               <p class="section-description">
-                画布生成的图片、视频、音频统一在这里浏览、预览与整理；删除的文件移入回收目录，不直接销毁。
+                画布生成的与手动上传的图片、视频、音频统一在这里浏览、预览与整理；删除的文件移入回收目录，不直接销毁。
               </p>
             </div>
-            <button class="button button-outline" type="button" id="mediaRefresh">
-              重新扫描
-              <svg class="icon"><use href="#icon-arrow"></use></svg>
-            </button>
+            <div class="media-head-actions">
+              <button class="button button-outline" type="button" id="mediaRefresh">
+                重新扫描
+                <svg class="icon"><use href="#icon-arrow"></use></svg>
+              </button>
+              <label class="button button-primary media-upload-button">
+                上传素材
+                <input type="file" id="mediaUploadInput" accept="image/*,video/*,audio/*,.json,.txt,.md" multiple hidden />
+              </label>
+            </div>
+          </div>
+
+          <div class="media-upload-bar" id="mediaUploadBar" hidden>
+            <span id="mediaUploadText">上传中…</span>
+            <span class="media-upload-track"><span class="media-upload-fill" id="mediaUploadFill"></span></span>
           </div>
 
           <div class="filter-bar media-filter" role="group" aria-label="素材类型筛选" id="mediaFilter"></div>
