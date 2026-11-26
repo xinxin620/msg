@@ -155,7 +155,6 @@ button { color: inherit; font: inherit; cursor: pointer; }
 .view-host { min-height: 40px; }
 
 /* ===== 制作流水线（阶段面板内任务卡） ===== */
-.pipe-note { margin: 0; color: var(--muted); font-size: 13px; }
 .task-card {
   padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--surface); box-shadow: var(--shadow-glow);

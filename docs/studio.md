@@ -4,6 +4,7 @@
 > 零依赖外壳（IIFE 无构建）。画布/图片工坊/剧情导演台/看背影识人/设置为 iframe 实时页，其余三项（设定与出图/数字人视频/任务与成片）占位。**只是外壳+路由，不代理 API 配置、不复制资产索引、不重实现工作流**——实际能力全在 `canvas/`、`gallery/`、`story/`、`server.py`。「剧情导演台」是独立域（项目卡片/剧集树/剧本渲染全在 `story/`），见 `docs/story.md`；外壳只做两件事：`story` frame 路由 + 代理项目目录授权（`handleStoryDirectoryRequest()`，只写 token 记录、**不覆盖 `bridge:default` 资产目录），契约见该文件。「设置」工作区只是把画布的设置弹窗整页化（`canvas/settings.html`），配置数据仍与画布同源共享，外壳不另存一份；该页顶栏 `TOP_TABS` 是设置分区切换器（现「API设置」+「文本模板」两项：前者选中时侧栏只剩 5 个 API 分区，后者只剩注入的模板项），后续其它设置（常规/快捷键等）在设置页内加分区，不再新增左栏 tab；常规与快捷键目前仍在画布设置里配。
 
 ## 组成
+- `studio/assets/studio.css`：外壳主题。`--rail-width:216px`（`20261126-1` 起从 268 收窄），`.rail-item` 单行紧凑卡：默认只显标题，激活项才显副题（`.item-body small`），状态徽标 `在线/规划中` 靠右，去 hover 位移改纯边框/底色反馈。
 - `studio/index.html`：静态骨架（`#railList`/`#stageFrame`/顶部工具条/`#assetDirChip`/`#soonTemplate`）+ 版本守卫，缺/过期 `v` 自动重定向。
 - `studio/assets/studio.js`：
   - `WORKSPACES` 唯一注册表：`frame`=真实页（可带 `tabs` 分段控制器），`soon`=只渲染 `purpose`/`inputs`/`outputs`/`relation` 规划说明，不做假功能。八项：`canvas`/`assets`/`story`（剧情导演台，见 `docs/story.md`）/`game`/`settings`（「设置」）在线，`imagelab`/`human`/`tasks` 占位。`buildUrl()` 只对 `assets` 重写 URL，其余 frame 必须在 `url` 里自带 `?v=`（含 `settings` → `../canvas/settings.html?v=`+VERSION）。

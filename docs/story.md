@@ -5,7 +5,7 @@
 > 定位：**项目/剧集管理 + 剧本专用查看**，不重实现写作——生成能力（小说→剧本、剧本→分镜、资产提取）归 `liang-drama-prompts` 等 skills 与后续「生成」批次，本域只读写文件、渲染、组织。
 
 ## 组成
-- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`/`#apiChip`）+ 图标 sprite + 版本守卫（`20261123-4`）。脚本顺序：`canvas/skill-templates-data.js` → `story-fs.js` → `story-render.js` → `story-gen.js` → `story.js`（defer）。**顺序不能乱**：story-gen.templates() 读 `__MS_SKILL_TEMPLATES_BUILTIN__`，story.js 的 boot 检查 FS/RENDER 且流水线要用 GEN。
+- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`/`#apiChip`）+ 图标 sprite + 版本守卫（`20261126-1`）。脚本顺序：`canvas/skill-templates-data.js` → `story-fs.js` → `story-render.js` → `story-gen.js` → `story.js`（defer）。**顺序不能乱**：story-gen.templates() 读 `__MS_SKILL_TEMPLATES_BUILTIN__`，story.js 的 boot 检查 FS/RENDER 且流水线要用 GEN。
 - `story/assets/story-fs.js`：文件层。直连共享 IndexedDB `manshiguang-canvas-bridge`/`directoryHandles`（同 game.js 先例，**不加载 web-bridge.js**，避免画布 fetch/图片 src 补丁副作用）。挂 `window.__MS_STORY_FS__`。
 - `story/assets/story-render.js`：专用解析器。挂 `window.__MS_STORY_RENDER__`：`parseScreenplay`/`speakerColors`/`countStats`/`parseH3`/`parseVisualAssets`/`parseAssetPrompts`。
 - `story/assets/story.js`：外壳路由与视图（项目卡片 → 剧集树 + 三阶段 tab）。
@@ -15,7 +15,8 @@
 ## 导演台布局（`20261123-5`，参考桶老师 H3 导演台重做）
 项目内不再是「卡片列表点进项目」，而是**单页工作台**：
 - **顶栏 `#apiChip`**：文本 API 配置/模型/缺项。
-- **`.desk-bar`**：项目下拉（`projectSelect()`，含「＋ 添加项目…」）+ 刷新 + 删除项目。一个授权目录＝一部剧＝下拉一项。
+- **`.desk-bar`**：项目下拉（`projectSelect()`，含「＋ 添加项目…」）+ 刷新 + 删除项目。一个授权目录＝一部剧＝下拉一项。`20261126-1` 起整条做成卡片（边框/圆角/阴影），下拉自绘箭头（`appearance:none` + 内联 SVG chevron），右侧用 `.db-spacer` 把操作按钮推到尾部。
+- **未选项目时**：`renderEmptyState()` 渲染 `.desk-intro`（标题「选择一个项目继续」+ 提示 + `.project-grid` 项目卡，卡名带紫色圆点 `::before`），不再用旧的「从上方下拉选择项目，或：」一行字。
 - **`.phase-cards`**：01 剧本创作 / 02 资产提炼 / 03 分镜制作 三张大卡（`PHASES`），卡上显示「本集已就绪/等待产出」（`phaseReady()` 看本集该阶段视图文件是否存在）。
 - **`.ep-row`**：本集下拉（`state.activeEp`，默认最新一集）+ 文件计数。
 - **`.panel`**：所选阶段面板 = 该阶段动作卡（`GEN_TASKS[phase]`）+ 查看区（`viewSection()` 用 `PHASE_VIEWS[phase]` 复用专用渲染器）。
