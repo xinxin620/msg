@@ -6,7 +6,7 @@
   // 本文件无 DOM、无副作用，只挂 window.__MS_SKILL_TEMPLATES_BUILTIN__；
   // 升级 skills 的格式约定时同步这里，并在 settings-skill-patch.js 提 BUILTIN_VERSION。
 
-  const BUILTIN_VERSION = 2;
+  const BUILTIN_VERSION = 3;
 
   const TEMPLATES = [
     {
@@ -100,20 +100,23 @@
         "- 每个单元交付两个代码块，不合并、不交叉：先英文正文块（可整段复制投喂），紧跟逐段中文对照块。",
         "",
         "英文正文六段（reference 模式，顺序与字段名固定）：",
-        "`subject_definitions:` 每个 `<Subject N> is 【角色】 in <Picture N>, with 【脸型骨相+五官+识别特征+服装各层】.` 独立一行；",
+        "`subject_definitions:` `<Subject 1> is 【角色】 in <Picture 1>, with 【脸型骨相+五官+识别特征+服装各层】.`、",
+        "`<Subject 2> is the 【场景】 environment in <Picture 2>, featuring 【布局/家具/光/色】.` 各独立一行；",
         "`summary:` 首行任务类型前缀（如 `[reference generation]`）+ 一到三句可见状态变化；",
         "`retention_analysis:` 逐条写标签、出现镜次、保留强度；",
-        "`detailed_description:` 逐镜 `[Shot N]`，每镜独立成段且位于段首，台词写在 `<d>[Chinese]逐字台词</d>` 内；",
+        "`detailed_description:` 逐镜 `[Shot N]`，每镜独立成段且位于段首，台词写在 `<d>[语言]逐字台词</d>` 内（默认 Chinese，粤语/英语等换标签）；",
         "`overall_soundscape:` 只汇总环境声/物理音效/非语言人声，不重复对白；",
         "`non_diegetic_music:` 无配乐写 `N/A`。",
+        "代码块内字段行、每条标签定义行、各 `[Shot N]` 段之间必须空一行（中英文块同规）。",
         "",
         "铁律：",
         "1. 台词逐字来自剧本，需要新台词先回写作阶段；不改写剧情、人物身份。",
-        "2. `<Subject N>` 与 `<Picture N>` 是两套独立编号，一张图只属于一个主体；每个单元各自从 1 编号。",
+        "2. `<Subject N>` 与 `<Picture N>` 是两套独立编号，一张图只属于一个主体；每单元默认重编号：",
+        "   Subject 1＝Picture 1＝本单元入画角色，Subject 2＝Picture 2＝环境；入画但无参考图的角色纯文字定义（照常占编号，不写 `in <Picture N>`）。",
         "3. 画外角色整条不写、不占编号、不写音色。",
         "4. 标签行只准住在英文正文块的 `subject_definitions` 段落内，元数据/分镜表/中文块里不许另起一行写标签定义。",
         "5. 容器切分剧情优先、时长兜底：同一条因果链不劈开，超 15 秒必切、不足 4 秒必并；容器间写承接式硬切。",
-        "6. 中文混进英文块即污染（只允许 `<d>[Chinese]…</d>` 台词与服装中文名括注两处）。",
+        "6. 中文混进英文块即污染（只允许 `<d>[语言]…</d>` 台词与服装中文名括注两处）。",
         "",
         "先输出《分镜参数确认卡》（单元划分 / 每单元模式 / 参考图槽位与顺序 / 主体与声线映射 / 空间锁 /",
         "台词来源 / 各镜对白容量 / 容器切分 / 镜头边界类型 / 待我决定项）并停下等确认，再成稿。",
