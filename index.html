@@ -364,21 +364,24 @@
               <h2 id="scheduleTitle">本季新番时刻表</h2>
               <p class="section-description">把想看的故事，放进这一周的时间里。</p>
             </div>
-            <span class="schedule-time">
-              <span class="live-dot"></span>
-              北京时间
-            </span>
+            <div class="schedule-clock">
+              <span class="clock-time" id="scheduleClock">--:--:--</span>
+              <span class="clock-next" id="scheduleNext"></span>
+            </div>
           </div>
 
           <div class="week-tabs" id="weekTabs" role="tablist" aria-label="按星期查看新番">
-            <button type="button" role="tab" data-day="周一">周一 <small>02</small></button>
-            <button type="button" role="tab" data-day="周二">周二 <small>03</small></button>
-            <button type="button" role="tab" data-day="周三">周三 <small>04</small></button>
-            <button type="button" role="tab" data-day="周四">周四 <small>05</small></button>
-            <button type="button" role="tab" data-day="周五">周五 <small>06</small></button>
-            <button type="button" role="tab" data-day="周六">周六 <small>07</small></button>
-            <button type="button" role="tab" data-day="周日">周日 <small>08</small></button>
+            <button type="button" role="tab" data-day="周一">周一 <small></small></button>
+            <button type="button" role="tab" data-day="周二">周二 <small></small></button>
+            <button type="button" role="tab" data-day="周三">周三 <small></small></button>
+            <button type="button" role="tab" data-day="周四">周四 <small></small></button>
+            <button type="button" role="tab" data-day="周五">周五 <small></small></button>
+            <button type="button" role="tab" data-day="周六">周六 <small></small></button>
+            <button type="button" role="tab" data-day="周日">周日 <small></small></button>
+            <button type="button" role="tab" data-day="全部">全部 <small>整周</small></button>
           </div>
+
+          <p class="library-count" id="scheduleCount" aria-live="polite"></p>
 
           <div class="schedule-board" id="scheduleBoard"></div>
         </div>

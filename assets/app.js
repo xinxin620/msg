@@ -445,6 +445,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 let favorites = readFavorites();
+let reminders = readReminders();
 let toastTimer;
 
 function readFavorites() {
@@ -713,34 +714,161 @@ function renderSchedule(day = state.activeDay) {
   const board = $("#scheduleBoard");
   if (!board) return;
 
-  const entries = scheduleMap[day] || [];
+  const days = day === "全部" ? Object.keys(scheduleMap) : [day];
+  const entries = days.flatMap((d) => (scheduleMap[d] || []).map(([id, time]) => ({ d, id, time })));
+
+  const counter = $("#scheduleCount");
+  if (counter) counter.textContent = day === "全部" ? `整周 ${entries.length} 档更新` : `${day} ${entries.length} 档更新`;
+
   if (!entries.length) {
     board.innerHTML = `<div class="schedule-empty">这一天暂时没有排播，去番剧库随便逛逛吧。</div>`;
-    return;
+  } else {
+    board.innerHTML = entries
+      .map(({ d, id, time }, index) => {
+        const anime = byId(id);
+        if (!anime) return "";
+        const seen = watchedCount(anime.id);
+        const reminded = reminders.has(anime.id);
+        const at = nextUpdateAt(d, time);
+        const aired = at.getTime() <= Date.now();
+        return `
+          <article class="schedule-card ${aired ? "is-aired" : "is-upcoming"}" data-anime-id="${anime.id}" tabindex="0" style="--index:${index}">
+            <div class="schedule-cover">${coverMarkup(anime, index)}</div>
+            <div class="schedule-info">
+              <span class="schedule-time-label">${day === "全部" ? `${d} · ` : ""}${time} 更新</span>
+              <h3>${anime.title}</h3>
+              <p>${anime.status}${seen ? ` · 已看 ${String(seen).padStart(2, "0")} 话` : ""}</p>
+              <div class="schedule-card-foot">
+                <span class="schedule-countdown" data-countdown-day="${d}" data-countdown-time="${time}">${formatCountdown(at.getTime() - Date.now())}</span>
+                <button class="schedule-remind ${reminded ? "is-on" : ""}" type="button" data-remind-id="${anime.id}"
+                  aria-pressed="${reminded}" aria-label="${reminded ? "关闭开播提醒" : "开启开播提醒"}：${anime.title}">
+                  <svg class="icon"><use href="#icon-clock"></use></svg>
+                </button>
+              </div>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
   }
-
-  board.innerHTML = entries
-    .map(([id, time], index) => {
-      const anime = byId(id);
-      if (!anime) return "";
-      return `
-        <article class="schedule-card" data-anime-id="${anime.id}" tabindex="0" style="--index:${index}">
-          <div class="schedule-cover">${coverMarkup(anime, index)}</div>
-          <div class="schedule-info">
-            <span class="schedule-time-label">${time} 更新</span>
-            <h3>${anime.title}</h3>
-            <p>${anime.status} · ${anime.genres[0]}</p>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
 
   $$("#weekTabs [data-day]").forEach((button) => {
     const isActive = button.dataset.day === day;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-selected", String(isActive));
   });
+}
+
+// ---------- 新番表：时钟 / 倒计时 / 提醒 ----------
+
+const DAY_INDEX = { 周日: 0, 周一: 1, 周二: 2, 周三: 3, 周四: 4, 周五: 5, 周六: 6 };
+
+function beijingParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", hourCycle: "h23", weekday: "short",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  const weekday = (map.weekday || "").replace("周", "");
+  return {
+    weekday: weekday === "日" ? "周日" : `周${weekday}`,
+    md: `${map.month}/${map.day}`,
+    clock: `${map.hour}:${map.minute}:${map.second}`,
+  };
+}
+
+function nextUpdateAt(day, time) {
+  const now = beijingParts();
+  const [h, m] = time.split(":").map(Number);
+  // "24:00" 归到次日 00:00（番剧表惯例：周六 24:00 = 周日 00:00）。
+  const hour = h % 24;
+  const dayIndex = (DAY_INDEX[day] + (h === 24 ? 1 : 0)) % 7;
+  const target = new Date();
+  let diff = (dayIndex - DAY_INDEX[now.weekday] + 7) % 7;
+  if (diff === 0) {
+    const nowMinutes = Number(now.clock.slice(0, 2)) * 60 + Number(now.clock.slice(3, 5));
+    if (hour * 60 + m <= nowMinutes) diff = 7;
+  }
+  target.setDate(target.getDate() + diff);
+  target.setHours(hour, m, 0, 0);
+  return target;
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return "已更新";
+  const total = Math.floor(ms / 1000);
+  const d = Math.floor(total / 86400);
+  const hh = String(Math.floor((total % 86400) / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  return d > 0 ? `${d} 天 ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
+}
+
+function readReminders() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("manshiguang:reminders") || "[]");
+    return new Set(Array.isArray(saved) ? saved : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistReminders() {
+  try {
+    localStorage.setItem("manshiguang:reminders", JSON.stringify([...reminders]));
+  } catch {
+    // 存储不可用时提醒只在当前会话生效。
+  }
+}
+
+function toggleReminder(id) {
+  const anime = byId(id);
+  if (!anime) return;
+  if (reminders.has(id)) {
+    reminders.delete(id);
+    showToast(`已关闭《${anime.title}》开播提醒`);
+  } else {
+    reminders.add(id);
+    showToast(`已开启《${anime.title}》开播提醒`);
+  }
+  persistReminders();
+  renderSchedule(state.activeDay);
+}
+
+function setupScheduleClock() {
+  const weekButtons = $$("#weekTabs [data-day]");
+  weekButtons.forEach((button) => {
+    if (button.dataset.day === "全部") return;
+    const small = button.querySelector("small");
+    if (small) small.textContent = beijingParts(nextUpdateAt(button.dataset.day, "00:00")).md;
+    if (button.dataset.day === beijingParts().weekday) button.classList.add("is-today");
+  });
+
+  const tick = () => {
+    const now = beijingParts();
+    const clock = $("#scheduleClock");
+    if (clock) clock.textContent = now.clock;
+
+    $$("#scheduleBoard [data-countdown-day]").forEach((el) => {
+      el.textContent = formatCountdown(nextUpdateAt(el.dataset.countdownDay, el.dataset.countdownTime).getTime() - Date.now());
+    });
+
+    const all = [];
+    Object.entries(scheduleMap).forEach(([d, entries]) =>
+      entries.forEach(([, time]) => all.push({ d, time })),
+    );
+    all.sort((a, b) => nextUpdateAt(a.d, a.time) - nextUpdateAt(b.d, b.time));
+    const next = all[0];
+    const nextEl = $("#scheduleNext");
+    if (next && nextEl) {
+      const anime = (scheduleMap[next.d].find(([, t]) => t === next.time) || [])[0];
+      const title = byId(anime)?.title || "";
+      nextEl.textContent = `下一部 · 《${title}》${next.d} ${next.time} · ${formatCountdown(nextUpdateAt(next.d, next.time).getTime() - Date.now())}`;
+    }
+  };
+  tick();
+  window.setInterval(tick, 1000);
 }
 
 function websiteCategories() {
@@ -1524,6 +1652,12 @@ function setupEvents() {
       return;
     }
 
+    const remindButton = event.target.closest("[data-remind-id]");
+    if (remindButton) {
+      toggleReminder(remindButton.dataset.remindId);
+      return;
+    }
+
     const animeTarget = event.target.closest("[data-anime-id]");
     if (animeTarget && !event.target.closest('button:not(.search-result):not(.round-action)')) {
       if (animeTarget.classList.contains("search-result")) {
@@ -1654,6 +1788,7 @@ function init() {
   renderAnimeGrid();
   renderRanking();
   renderSchedule();
+  setupScheduleClock();
   renderSearch();
   renderWebsitesFilter();
   renderWebsites();
