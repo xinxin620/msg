@@ -1,396 +1,211 @@
-const animeLibrary = [
-  {
-    id: "starlight",
-    title: "星海回响",
-    en: "ECHOES OF THE AZURE",
-    kanji: "星",
-    theme: "theme-starlight",
-    genres: ["奇幻", "治愈"],
-    year: 2026,
-    score: 9.8,
-    episodes: 12,
-    status: "更新至 08 话",
-    badge: "本周精选",
-    studio: "Aster Works",
-    synopsis:
-      "一间只在深夜营业的邮局，替无法再见的人寄出最后一封信。少年在第七个满月，等到了来自十年后的回音，也终于明白有些告别会穿过整片星海，迟到地抵达。",
-    episodeTitles: [
-      "雨夜的邮戳", "深夜邮局", "第七个满月", "十年后的信", "空白的收件人",
-      "倒流的星轨", "旧寄件人", "星之邮局", "第二缕晨光", "回音原点", "满月告别", "星光坠落之前",
-    ],
-    trend: "+218%",
-    rank: 1,
-    prevRank: 3,
-    watchers: 128406,
-  },
-  {
-    id: "after-rain",
-    title: "雨停之后",
-    en: "AFTER THE RAIN",
-    kanji: "雨",
-    theme: "theme-rain",
-    genres: ["恋爱", "治愈"],
-    year: 2026,
-    score: 9.5,
-    episodes: 12,
-    status: "更新至 06 话",
-    badge: "口碑新作",
-    studio: "Blue Hour",
-    synopsis:
-      "旧城进入漫长雨季，两个总在同一个屋檐下躲雨的人，开始交换彼此写了一半的日记。雨声盖住了秘密，也让靠近变得理所当然。",
-    trend: "+142%",
-    rank: 2,
-    prevRank: 2,
-    watchers: 96420,
-  },
-  {
-    id: "midnight-line",
-    title: "零点列车",
-    en: "MIDNIGHT LINE",
-    kanji: "列",
-    theme: "theme-train",
-    genres: ["悬疑", "科幻"],
-    year: 2026,
-    score: 9.3,
-    episodes: 10,
-    status: "更新至 02 话",
-    badge: "悬疑黑马",
-    studio: "Nocturne Lab",
-    synopsis:
-      "零点之后，城市会多出一班没有终点站的列车。只有带着未完成愿望的人才能看见它，而每一位乘客都必须在第七站前决定，留下还是回去。",
-    trend: "+96%",
-    rank: 3,
-    prevRank: 5,
-    watchers: 74318,
-  },
-  {
-    id: "moon-courier",
-    title: "月面邮差",
-    en: "LUNAR COURIER",
-    kanji: "月",
-    theme: "theme-moon",
-    genres: ["科幻", "治愈"],
-    year: 2025,
-    score: 9.1,
-    episodes: 13,
-    status: "全 13 话",
-    badge: "完整放送",
-    studio: "Orbit 9",
-    synopsis:
-      "月球背面的快递员每天送信、送种子、也替人送一句迟到的话。她驾驶旧式邮车穿过环形山，直到收到一封寄给自己的信。",
-    trend: "+61%",
-    rank: 4,
-    prevRank: 4,
-    watchers: 58201,
-  },
-  {
-    id: "last-summer",
-    title: "夏日终曲",
-    en: "THE LAST SUMMER",
-    kanji: "夏",
-    theme: "theme-summer",
-    genres: ["恋爱", "青春"],
-    year: 2026,
-    score: 8.9,
-    episodes: 12,
-    status: "更新至 10 话",
-    badge: "青春物语",
-    studio: "Paper Sun",
-    synopsis:
-      "海边小镇的最后一届夏日祭，五个即将各奔东西的少年少女，决定为彼此留下一首只在前奏响起时才能想起来的歌。",
-    trend: "+72%",
-    rank: 5,
-    prevRank: 1,
-    watchers: 65432,
-  },
-  {
-    id: "against-light",
-    title: "逆光飞行",
-    en: "AGAINST THE LIGHT",
-    kanji: "光",
-    theme: "theme-flight",
-    genres: ["热血", "科幻"],
-    year: 2026,
-    score: 8.8,
-    episodes: 24,
-    status: "更新至 17 话",
-    badge: "高燃推荐",
-    studio: "Skyline",
-    synopsis:
-      "浮空城失去重力引擎后，一群少年驾驶自制滑翔机穿越云墙，寻找传说中的最后一块升力核心。逆着光飞，才看得见回家的方向。",
-    trend: "+49%",
-    rank: 6,
-    prevRank: 8,
-    watchers: 43210,
-  },
-  {
-    id: "letters-wind",
-    title: "风中信笺",
-    en: "LETTERS IN THE WIND",
-    kanji: "风",
-    theme: "theme-wind",
-    genres: ["治愈", "奇幻"],
-    year: 2025,
-    score: 9.0,
-    episodes: 12,
-    status: "全 12 话",
-    badge: "静静看完",
-    studio: "Mint Hill",
-    synopsis:
-      "山顶的旧书店能把信寄给风。店主收留了一个不会说话的少女，两个人用一封封没有收件人的信，把小镇遗忘的故事重新找回来。",
-    trend: "+38%",
-    rank: 7,
-    prevRank: 7,
-    watchers: 38765,
-  },
-  {
-    id: "deep-signal",
-    title: "深海来电",
-    en: "DEEP BLUE SIGNAL",
-    kanji: "海",
-    theme: "theme-ocean",
-    genres: ["悬疑", "科幻"],
-    year: 2026,
-    score: 8.7,
-    episodes: 12,
-    status: "更新至 05 话",
-    badge: "深夜限定",
-    studio: "Below Zero",
-    synopsis:
-      "深海观测站接到一段来自海底的求救通话，声音却属于三年前失踪的站长。氧气还剩七十二小时，真相正在更深处等待。",
-    trend: "+53%",
-    rank: 8,
-    prevRank: 11,
-    watchers: 29840,
-  },
-  {
-    id: "daydreamers",
-    title: "白昼梦游",
-    en: "DAYDREAMERS",
-    kanji: "梦",
-    theme: "theme-daydream",
-    genres: ["奇幻", "青春"],
-    year: 2025,
-    score: 8.6,
-    episodes: 12,
-    status: "全 12 话",
-    badge: "想象力满分",
-    studio: "Mellow",
-    synopsis:
-      "每到下午三点，整座城市会短暂进入同一个梦境。只有四名从不午睡的学生记得发生了什么，并决定在梦里寻找失踪的同学。",
-    trend: "+21%",
-    rank: 9,
-    prevRank: 9,
-    watchers: 25610,
-  },
-  {
-    id: "stardust-diner",
-    title: "星屑料理店",
-    en: "STARDUST DINER",
-    kanji: "味",
-    theme: "theme-diner",
-    genres: ["治愈", "奇幻"],
-    year: 2026,
-    score: 9.2,
-    episodes: 10,
-    status: "更新至 08 话",
-    badge: "深夜食堂",
-    studio: "Honey Lamp",
-    synopsis:
-      "一间只在流星经过时出现的料理店，为每一位迷路的客人端上一道记忆里的味道。老板说，吃饱之后，路自然会出现在脚下。",
-    trend: "+88%",
-    rank: 10,
-    prevRank: 6,
-    watchers: 52190,
-  },
-  {
-    id: "synthetic-heart",
-    title: "机械心跳",
-    en: "SYNTHETIC HEART",
-    kanji: "心",
-    theme: "theme-heart",
-    genres: ["科幻", "热血"],
-    year: 2026,
-    score: 8.5,
-    episodes: 24,
-    status: "更新至 09 话",
-    badge: "正在上升",
-    studio: "Loop Engine",
-    synopsis:
-      "编号 RX-07 的仿生人第一次听见自己的心跳，却是在城市即将断电的那一夜。为了保住这颗不属于自己的心脏，她开始寻找制造者留下的最后一行代码。",
-    trend: "+67%",
-    rank: 11,
-    prevRank: 12,
-    watchers: 21876,
-  },
-  {
-    id: "sakura-protocol",
-    title: "樱色协议",
-    en: "SAKURA PROTOCOL",
-    kanji: "樱",
-    theme: "theme-sakura",
-    genres: ["恋爱", "悬疑"],
-    year: 2026,
-    score: 8.4,
-    episodes: 12,
-    status: "更新至 04 话",
-    badge: "本周开播",
-    studio: "Petal Code",
-    synopsis:
-      "每年樱花盛开时，城市都会重置一次记忆。只有两名特工保留着上一轮的记忆，他们必须在花落之前找到让时间停下来的方法。",
-    trend: "+35%",
-    rank: 12,
-    prevRank: 10,
-    watchers: 33450,
-  },
-];
-
-const scheduleMap = {
-  周一: [
-    ["against-light", "19:00"],
-    ["letters-wind", "21:00"],
-    ["midnight-line", "23:30"],
-    ["moon-courier", "24:00"],
-  ],
-  周二: [
-    ["letters-wind", "18:30"],
-    ["after-rain", "20:00"],
-    ["daydreamers", "22:00"],
-    ["starlight", "24:00"],
-  ],
-  周三: [
-    ["moon-courier", "19:30"],
-    ["deep-signal", "21:00"],
-    ["synthetic-heart", "22:30"],
-    ["stardust-diner", "24:00"],
-  ],
-  周四: [
-    ["after-rain", "19:00"],
-    ["daydreamers", "21:30"],
-    ["sakura-protocol", "23:00"],
-    ["starlight", "24:00"],
-  ],
-  周五: [
-    ["starlight", "18:30"],
-    ["stardust-diner", "20:30"],
-    ["against-light", "22:00"],
-    ["synthetic-heart", "24:00"],
-  ],
-  周六: [
-    ["midnight-line", "18:00"],
-    ["synthetic-heart", "20:30"],
-    ["last-summer", "22:00"],
-    ["deep-signal", "24:00"],
-  ],
-  周日: [
-    ["last-summer", "18:30"],
-    ["sakura-protocol", "20:00"],
-    ["moon-courier", "22:00"],
-    ["after-rain", "23:30"],
-  ],
-};
-
 const weekdayLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
-// 网站大全：按行业大类收录常用站点，name / url / desc 三项。
-const websiteDirectory = [
-  {
-    category: "开发技术",
-    icon: "</>",
-    sites: [
-      { name: "GitHub", url: "https://github.com", desc: "全球最大的代码托管与开源协作平台。" },
-      { name: "MDN Web Docs", url: "https://developer.mozilla.org/zh-CN/", desc: "权威的 Web 前端与浏览器技术标准文档。" },
-      { name: "Stack Overflow", url: "https://stackoverflow.com", desc: "程序员问答社区，报错排查首选。" },
-      { name: "掘金", url: "https://juejin.cn", desc: "中文技术博客与开发者社区。" },
-      { name: "npm", url: "https://www.npmjs.com", desc: "JavaScript 包管理与依赖仓库。" },
-      { name: "Can I use", url: "https://caniuse.com", desc: "查询浏览器特性兼容支持情况。" },
-    ],
-  },
-  {
-    category: "设计创意",
-    icon: "◐",
-    sites: [
-      { name: "Dribbble", url: "https://dribbble.com", desc: "全球设计师作品灵感社区。" },
-      { name: "Behance", url: "https://www.behance.net", desc: "Adobe 旗下创意设计作品展示平台。" },
-      { name: "Figma", url: "https://www.figma.com", desc: "在线协作 UI/UX 设计工具。" },
-      { name: "花瓣网", url: "https://huaban.com", desc: "中文图片灵感采集与素材库。" },
-      { name: "Unsplash", url: "https://unsplash.com", desc: "高质量免费可商用图片素材。" },
-      { name: "Iconify", url: "https://icon-sets.iconify.design", desc: "聚合多套开源图标集的检索工具。" },
-    ],
-  },
-  {
-    category: "学习教育",
-    icon: "✎",
-    sites: [
-      { name: "哔哩哔哩课堂", url: "https://www.bilibili.com", desc: "大量免费视频教程与学习区。" },
-      { name: "Coursera", url: "https://www.coursera.org", desc: "全球名校在线课程平台。" },
-      { name: "中国大学 MOOC", url: "https://www.icourse163.org", desc: "国内高校精品在线课程。" },
-      { name: "维基百科", url: "https://zh.wikipedia.org", desc: "开放式中文百科知识库。" },
-      { name: "MDN 学习区", url: "https://developer.mozilla.org/zh-CN/docs/Learn", desc: "从零开始的 Web 开发入门教程。" },
-      { name: "LeetCode", url: "https://leetcode.cn", desc: "算法刷题与面试准备平台。" },
-    ],
-  },
-  {
-    category: "影音娱乐",
-    icon: "▶",
-    sites: [
-      { name: "哔哩哔哩", url: "https://www.bilibili.com", desc: "弹幕视频站，动画、影视与知识区。" },
-      { name: "YouTube", url: "https://www.youtube.com", desc: "全球最大综合视频分享平台。" },
-      { name: "豆瓣", url: "https://www.douban.com", desc: "影视书籍评分、影评与兴趣小组。" },
-      { name: "网易云音乐", url: "https://music.163.com", desc: "以歌单和评论氛围著称的在线音乐。" },
-      { name: "IMDb", url: "https://www.imdb.com", desc: "权威影视资料库与评分榜单。" },
-      { name: "Pixiv", url: "https://www.pixiv.net", desc: "亚洲最大的插画与二次元创作社区。" },
-    ],
-  },
-  {
-    category: "效率工具",
-    icon: "⚙",
-    sites: [
-      { name: "Notion", url: "https://www.notion.so", desc: "笔记、数据库与协作一体化工作台。" },
-      { name: "腾讯文档", url: "https://docs.qq.com", desc: "在线协作办公文档套件。" },
-      { name: "TinyPNG", url: "https://tinypng.com", desc: "图片无损压缩在线工具。" },
-      { name: "Squoosh", url: "https://squoosh.app", desc: "浏览器内的图片格式与压缩对比工具。" },
-      { name: "Excalidraw", url: "https://excalidraw.com", desc: "手绘风格的在线白板与流程图。" },
-      { name: "123 云盘", url: "https://www.123pan.com", desc: "免登录大文件传输与网盘。" },
-    ],
-  },
-  {
-    category: "AI 智能",
-    icon: "✦",
-    sites: [
-      { name: "ChatGPT", url: "https://chat.openai.com", desc: "OpenAI 通用对话大模型助手。" },
-      { name: "Claude", url: "https://claude.ai", desc: "Anthropic 出品的安全对齐 AI 助手。" },
-      { name: "Gemini", url: "https://gemini.google.com", desc: "Google 多模态大模型对话入口。" },
-      { name: "Hugging Face", url: "https://huggingface.co", desc: "开源模型、数据集与 AI 应用社区。" },
-      { name: "Poe", url: "https://poe.com", desc: "聚合多家大模型的一站式对话平台。" },
-      { name: "Kimi", url: "https://kimi.moonshot.cn", desc: "月之暗面长文本 AI 助手。" },
-    ],
-  },
-  {
-    category: "生活资讯",
-    icon: "☼",
-    sites: [
-      { name: "微博", url: "https://weibo.com", desc: "中文实时热点与社交资讯平台。" },
-      { name: "知乎", url: "https://www.zhihu.com", desc: "问答与深度讨论的中文社区。" },
-      { name: "小红书", url: "https://www.xiaohongshu.com", desc: "生活方式种草与经验分享社区。" },
-      { name: "高德地图", url: "https://www.amap.com", desc: "在线地图、导航与出行规划。" },
-      { name: "什么值得买", url: "https://www.smzdm.com", desc: "消费决策与优惠信息聚合。" },
-      { name: "Weather", url: "https://weather.com", desc: "全球天气预报与气象服务。" },
-    ],
-  },
-  {
-    category: "开发资源",
-    icon: "⌘",
-    sites: [
-      { name: "V2EX", url: "https://www.v2ex.com", desc: "创意工作者与开发者的交流社区。" },
-      { name: "freeCodeCamp", url: "https://www.freecodecamp.org/chinese/", desc: "免费自编程式 Web 开发学习。" },
-      { name: "CodePen", url: "https://codepen.io", desc: "前端代码片段在线演示与分享。" },
-      { name: "DevDocs", url: "https://devdocs.io", desc: "聚合多种 API 文档的离线速查。" },
-      { name: "Regex101", url: "https://regex101.com", desc: "在线正则表达式调试与解释。" },
-      { name: "JSON.cn", url: "https://www.json.cn", desc: "JSON 格式化与校验在线工具。" },
-    ],
-  },
+// 站点数据全部在 data/*.json（「数据管理」页可上传/编辑，POST /__data/ 写回）。
+let animeLibrary = [];
+let scheduleMap = {};
+let websiteDirectory = [];
+let communityTopics = [];
+
+const SITE_DATA = [
+  { key: "animeLibrary", file: "data/anime.json", label: "番剧库", shape: "array",
+    hint: "数组，每项一部番：id/title/en/kanji/theme/genres/year/score/episodes/status/badge/studio/synopsis，可选 featured:true 设为首页推荐。" },
+  { key: "scheduleMap", file: "data/schedule.json", label: "新番排播", shape: "object",
+    hint: "对象，键为周一…周日，值为 [[番剧id, '24:00'], …]，id 必须存在于番剧库。" },
+  { key: "websiteDirectory", file: "data/websites.json", label: "网站大全", shape: "array",
+    hint: "数组，每项一个分类：category/icon/sites[]，site 含 name/url/desc。" },
+  { key: "communityTopics", file: "data/community.json", label: "社区话题", shape: "array",
+    hint: "数组，每项一个话题：id/author/avatar/avatarClass/title/excerpt/hashtag/replies/likes/minutesAgo，可选 large/theme/ghost/tag。" },
 ];
+
+async function loadSiteData() {
+  const results = await Promise.all(
+    SITE_DATA.map(async ({ file }) => {
+      try {
+        const response = await fetch(file, { cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        return await response.json();
+      } catch {
+        showToast(`本地数据 ${file} 读取失败，请确认 server.py 正在运行`);
+        return null;
+      }
+    }),
+  );
+  animeLibrary = results[0] || [];
+  scheduleMap = results[1] || {};
+  websiteDirectory = results[2] || [];
+  communityTopics = results[3] || [];
+}
+
+function featuredAnime() {
+  return animeLibrary.find((anime) => anime.featured) || animeLibrary[0];
+}
+
+// ---------- 数据管理：在线编辑 / 上传 / 写回 ----------
+
+let dataActiveKey = "animeLibrary";
+const dataDirty = new Set();
+
+function siteDataEntry(key) {
+  return SITE_DATA.find((entry) => entry.key === key);
+}
+
+function currentDataValue(key) {
+  return { animeLibrary, scheduleMap, websiteDirectory, communityTopics }[key];
+}
+
+function renderDataTabs() {
+  const tabs = $("#dataTabs");
+  if (!tabs) return;
+  tabs.innerHTML = SITE_DATA.map(
+    (entry) => `
+      <button class="filter-chip ${entry.key === dataActiveKey ? "is-active" : ""}"
+        type="button" role="tab" data-data-key="${entry.key}"
+        aria-selected="${entry.key === dataActiveKey}">${entry.label}${dataDirty.has(entry.key) ? " ·" : ""}</button>
+    `,
+  ).join("");
+}
+
+function renderDataEditor() {
+  const entry = siteDataEntry(dataActiveKey);
+  const area = $("#dataEditor");
+  const hint = $("#dataEditorHint");
+  const error = $("#dataError");
+  if (!entry || !area) return;
+  if (error) error.textContent = "";
+  if (hint) hint.textContent = entry.hint;
+  area.value = JSON.stringify(currentDataValue(entry.key), null, 2);
+  renderDataTabs();
+}
+
+function validateDataText(key, text) {
+  const entry = siteDataEntry(key);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return { ok: false, error: `JSON 语法错误：${error.message}` };
+  }
+  if (entry.shape === "array" && !Array.isArray(parsed)) return { ok: false, error: "顶层必须是数组" };
+  if (entry.shape === "object" && (Array.isArray(parsed) || typeof parsed !== "object" || parsed === null)) {
+    return { ok: false, error: "顶层必须是对象" };
+  }
+  if (key === "scheduleMap") {
+    const ids = new Set(animeLibrary.map((anime) => anime.id));
+    for (const [day, entries] of Object.entries(parsed)) {
+      if (!Array.isArray(entries)) return { ok: false, error: `${day} 的值必须是数组` };
+      for (const pair of entries) {
+        if (!Array.isArray(pair) || pair.length !== 2) return { ok: false, error: `${day} 内每项必须是 [番剧id, "时间"]` };
+        if (!ids.has(pair[0])) return { ok: false, error: `${day} 引用了番剧库不存在的 id「${pair[0]}」` };
+      }
+    }
+  }
+  if (key === "animeLibrary") {
+    const missing = parsed.filter((anime) => !anime.id || !anime.title || !anime.theme);
+    if (missing.length) return { ok: false, error: "每项至少要有 id / title / theme 字段" };
+    const dup = parsed.map((anime) => anime.id).filter((id, index, all) => all.indexOf(id) !== index);
+    if (dup.length) return { ok: false, error: `id 重复：${[...new Set(dup)].join("、")}` };
+  }
+  return { ok: true, parsed };
+}
+
+function setDataStatus(text, kind = "") {
+  const status = $("#dataStatus");
+  if (!status) return;
+  status.textContent = text;
+  status.className = `data-status ${kind}`;
+}
+
+async function saveActiveData() {
+  const entry = siteDataEntry(dataActiveKey);
+  const result = validateDataText(entry.key, $("#dataEditor").value);
+  const error = $("#dataError");
+  if (!result.ok) {
+    if (error) error.textContent = result.error;
+    showToast("数据格式有误，未保存");
+    return;
+  }
+  if (error) error.textContent = "";
+  setDataStatus("保存中…");
+  try {
+    const response = await fetch(`/__data/${entry.file.split("/")[1]}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(result.parsed),
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "保存失败");
+    applyDataValue(entry.key, result.parsed);
+    dataDirty.delete(entry.key);
+    renderAll();
+    renderDataEditor();
+    setDataStatus(`已保存到 ${entry.file} · 全站已生效`, "is-ok");
+    showToast(`《${entry.label}》已保存并生效`);
+  } catch (err) {
+    setDataStatus("");
+    showToast(`保存失败：${err.message}（确认 server.py 在运行）`);
+  }
+}
+
+function applyDataValue(key, value) {
+  if (key === "animeLibrary") animeLibrary = value;
+  if (key === "scheduleMap") scheduleMap = value;
+  if (key === "websiteDirectory") websiteDirectory = value;
+  if (key === "communityTopics") communityTopics = value;
+}
+
+function setupDataPage() {
+  $("#dataTabs")?.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-data-key]");
+    if (!tab || tab.dataset.dataKey === dataActiveKey) return;
+    dataActiveKey = tab.dataset.dataKey;
+    renderDataEditor();
+  });
+
+  $("#dataEditor")?.addEventListener("input", () => {
+    dataDirty.add(dataActiveKey);
+    renderDataTabs();
+    const result = validateDataText(dataActiveKey, $("#dataEditor").value);
+    $("#dataError").textContent = result.ok ? "" : result.error;
+  });
+
+  $("#dataSave")?.addEventListener("click", saveActiveData);
+
+  $("#dataFormat")?.addEventListener("click", () => {
+    const area = $("#dataEditor");
+    try {
+      area.value = JSON.stringify(JSON.parse(area.value), null, 2);
+      $("#dataError").textContent = "";
+    } catch (error) {
+      $("#dataError").textContent = `无法格式化：${error.message}`;
+    }
+  });
+
+  $("#dataReload")?.addEventListener("click", () => {
+    dataDirty.delete(dataActiveKey);
+    renderDataEditor();
+    setDataStatus("已重载磁盘上的当前数据");
+  });
+
+  $("#dataUploadInput")?.addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const area = $("#dataEditor");
+      area.value = String(reader.result);
+      dataDirty.add(dataActiveKey);
+      renderDataTabs();
+      const result = validateDataText(dataActiveKey, area.value);
+      $("#dataError").textContent = result.ok ? "" : result.error;
+      setDataStatus(result.ok ? `已载入 ${file.name}，点「保存并生效」写入磁盘` : "上传文件校验未通过", result.ok ? "is-ok" : "is-bad");
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  });
+
+  renderDataEditor();
+}
+
 
 // scheduleMap 是排播唯一数据源；需要「周几/几点」时从这里反查。
 function broadcastSlot(id) {
@@ -400,61 +215,6 @@ function broadcastSlot(id) {
   }
   return { day: "—", time: "待定" };
 }
-
-const communityTopics = [
-  {
-    id: "starletter",
-    large: true,
-    theme: "theme-starlight",
-    ghost: "星",
-    tag: "正在热议 · 2.4k",
-    avatar: "A",
-    avatarClass: "avatar-one",
-    author: "阿遥不熬夜",
-    minutesAgo: 12,
-    title: "第 08 话最后那封信，到底是谁写的？",
-    excerpt: "我回看了前三集的时间线，邮戳上的年份好像不是 2016，而是 2036……",
-    hashtag: "# 星海回响",
-    replies: 128,
-    likes: 342,
-  },
-  {
-    id: "ed-song",
-    avatar: "M",
-    avatarClass: "avatar-two",
-    author: "月面拾荒者",
-    minutesAgo: 38,
-    title: "哪部番的片尾曲，你从来舍不得跳过？",
-    excerpt: "最近循环《雨停之后》的片尾曲，前奏一响就不想点下一集。",
-    hashtag: "# 音乐分享",
-    replies: 86,
-    likes: 157,
-  },
-  {
-    id: "rain-diary",
-    avatar: "雨",
-    avatarClass: "avatar-three",
-    author: "屋檐观察员",
-    minutesAgo: 95,
-    title: "有人发现《雨停之后》每集日记都少一页吗？",
-    excerpt: "第 04 话缺的那页，在第 06 话的抽屉里出现了——时间线是闭环的。",
-    hashtag: "# 雨停之后",
-    replies: 64,
-    likes: 121,
-  },
-  {
-    id: "train-wish",
-    avatar: "列",
-    avatarClass: "avatar-four",
-    author: "第七站下车",
-    minutesAgo: 180,
-    title: "零点列车的乘客规则，细想非常残忍",
-    excerpt: "「必须在第七站前决定留下还是回去」——所以每一站都有人悄悄下车。",
-    hashtag: "# 零点列车",
-    replies: 41,
-    likes: 88,
-  },
-];
 
 const state = {
   genres: new Set(),
@@ -748,7 +508,7 @@ function set(id, value) {
 }
 
 function renderHero() {
-  const anime = byId("starlight");
+  const anime = featuredAnime();
   if (!anime) return;
   const slot = broadcastSlot(anime.id);
   const latest = featuredEpisode(anime);
@@ -1095,7 +855,10 @@ function toggleReminder(id) {
   renderSchedule(state.activeDay);
 }
 
+let scheduleClockTimer;
+
 function setupScheduleClock() {
+  window.clearInterval(scheduleClockTimer);
   const weekButtons = $$("#weekTabs [data-day]");
   weekButtons.forEach((button) => {
     if (button.dataset.day === "全部") return;
@@ -1127,7 +890,7 @@ function setupScheduleClock() {
     }
   };
   tick();
-  window.setInterval(tick, 1000);
+  scheduleClockTimer = window.setInterval(tick, 1000);
 }
 
 function websiteCategories() {
@@ -1684,7 +1447,7 @@ function setupReveal() {
   elements.forEach((element) => observer.observe(element));
 }
 
-const PAGES = new Set(["top", "library", "ranking", "schedule", "community", "websites", "media"]);
+const PAGES = new Set(["top", "library", "ranking", "schedule", "community", "websites", "media", "data"]);
 
 // 素材管理：与 server.py ALLOWED_FOLDERS 顺序一致（root 下标即白名单序号）。
 const MEDIA_ROOTS = ["D:/data/workData/漫时光/画布/images", "C:/Users/liliang/msg"];
@@ -1949,7 +1712,8 @@ function setupEvents() {
     }
 
     if (event.target.closest(".watch-featured")) {
-      openDetail("starlight");
+      const anime = featuredAnime();
+      if (anime) openDetail(anime.id);
       return;
     }
 
@@ -2041,18 +1805,28 @@ function setupEvents() {
 }
 
 function updateHeroFavorite() {
-  const button = $(".favorite-featured");
-  if (!button) return;
-  button.dataset.animeId = "starlight";
-  button.setAttribute("data-anime-id", "starlight");
+  const anime = featuredAnime();
+  if (!anime) return;
+  $$(".favorite-featured, .open-anime").forEach((button) => {
+    button.dataset.animeId = anime.id;
+    button.setAttribute("data-anime-id", anime.id);
+  });
 }
 
-function init() {
+async function init() {
   createStarfield();
   setupHeader();
   setupReveal();
   setupHeroTilt();
   setupCursorGlow();
+  setupEvents();
+  await loadSiteData();
+  renderAll();
+  setupDataPage();
+  showPage(pageFromHash());
+}
+
+function renderAll() {
   updateHeroFavorite();
   renderHero();
   renderContinue();
@@ -2065,8 +1839,6 @@ function init() {
   renderWebsites();
   renderCommunity();
   updateFavoriteUI();
-  setupEvents();
-  showPage(pageFromHash());
 }
 
 init();

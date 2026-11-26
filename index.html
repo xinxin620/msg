@@ -78,6 +78,7 @@
         <a href="#community">社区</a>
         <a href="#websites">网站大全</a>
         <a href="#media">素材管理</a>
+        <a href="#data">数据管理</a>
         <a href="studio/index.html?v=20261117-1" target="_blank" rel="noopener">AI 创作工作台</a>
         <a href="game/index.html?v=20261117-1" target="_blank" rel="noopener">看背影识人</a>
       </nav>
@@ -109,6 +110,7 @@
         <a href="#community">社区</a>
         <a href="#websites">网站大全</a>
         <a href="#media">素材管理</a>
+        <a href="#data">数据管理</a>
         <a href="studio/index.html?v=20261117-1" target="_blank" rel="noopener">AI 创作工作台</a>
         <a href="game/index.html?v=20261117-1" target="_blank" rel="noopener">看背影识人</a>
       </div>
@@ -464,6 +466,42 @@
           <div class="filter-bar media-filter" role="group" aria-label="素材类型筛选" id="mediaFilter"></div>
 
           <div class="media-grid" id="mediaGrid" aria-live="polite"></div>
+        </div>
+      </section>
+      </div>
+
+      <div class="page" data-page="data">
+      <section class="data-section section-space" id="data" aria-labelledby="dataTitle">
+        <div class="page-shell">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">SITE CONTENT</p>
+              <h2 id="dataTitle">数据管理</h2>
+              <p class="section-description">
+                番剧、排播、网站大全、社区话题都存成本地 JSON 文件。在这里直接编辑或上传替换，保存后全站立即生效。
+              </p>
+            </div>
+            <span class="data-status" id="dataStatus"></span>
+          </div>
+
+          <div class="data-tabs" role="tablist" aria-label="选择要编辑的数据集" id="dataTabs"></div>
+
+          <div class="data-editor">
+            <div class="data-editor-head">
+              <p class="data-editor-hint" id="dataEditorHint"></p>
+              <div class="data-editor-actions">
+                <label class="button button-outline data-upload">
+                  上传 JSON
+                  <input type="file" id="dataUploadInput" accept=".json,application/json" hidden />
+                </label>
+                <button class="text-button" type="button" id="dataFormat">格式化</button>
+                <button class="text-button" type="button" id="dataReload">放弃修改并重载</button>
+                <button class="button button-primary" type="button" id="dataSave">保存并生效</button>
+              </div>
+            </div>
+            <textarea id="dataEditor" class="data-editor-area" spellcheck="false" aria-label="数据 JSON 编辑器"></textarea>
+            <p class="data-editor-error" id="dataError" role="alert"></p>
+          </div>
         </div>
       </section>
       </div>

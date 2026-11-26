@@ -63,6 +63,12 @@ MEDIA_INDEX_KINDS = {
     ".json": "text", ".txt": "text", ".md": "text",
 }
 MEDIA_INDEX_MAX_FILES = 4000
+
+# 数据管理：POST /__data/ 写回站点数据；只认白名单文件、必须为合法 JSON。
+DATA_PREFIX = "/__data/"
+DATA_ALLOWED_FILES = {"anime.json", "schedule.json", "websites.json", "community.json"}
+DATA_DIR = BASE_DIR / "data"
+DATA_MAX_BODY_BYTES = 2 * 1024 * 1024
 MEDIA_INDEX_MAX_DEPTH = 6
 MEDIA_INDEX_SKIP_DIRS = {".trash", "node_modules", "__pycache__", ".vscode", ".git"}
 TEXTAPI_MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -415,7 +421,46 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if path == MEDIA_INDEX_PREFIX.rstrip("/") or path.startswith(MEDIA_INDEX_PREFIX):
             self.handle_media_index_post(body)
             return
+        if path.startswith(DATA_PREFIX):
+            self.handle_data_post(path, body)
+            return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "POST 接口不存在"})
+
+    def handle_data_post(self, request_path: str, body: bytes):
+        """POST /__data/<file>：数据管理页写回站点 JSON（白名单内、先校验再原子替换）。"""
+        if not self.is_loopback_client():
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "仅允许本机访问"})
+            return
+        name = request_path[len(DATA_PREFIX):].strip("/")
+        if name not in DATA_ALLOWED_FILES:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "数据文件不在白名单内"})
+            return
+        if len(body) > DATA_MAX_BODY_BYTES:
+            self.close_connection = True
+            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "数据过大（>2MB）"})
+            return
+        try:
+            parsed = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "不是合法 JSON"})
+            return
+        if not isinstance(parsed, (list, dict)):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "顶层必须是数组或对象"})
+            return
+        target = DATA_DIR / name
+        tmp = DATA_DIR / f".{name}.tmp"
+        try:
+            DATA_DIR.mkdir(exist_ok=True)
+            # 重新序列化写入：统一 UTF-8 无 BOM，杜绝半截文件（先写临时再替换）。
+            tmp.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(str(tmp), str(target))
+            self.send_json(HTTPStatus.OK, {"ok": True, "saved": name})
+        except OSError as exc:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)})
 
     def handle_comfy_proxy(self, request_path: str, method: str):
         """转发 ComfyUI 请求。
