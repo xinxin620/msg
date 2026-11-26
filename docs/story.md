@@ -5,7 +5,7 @@
 > 定位：**项目/剧集管理 + 剧本专用查看**，不重实现写作——生成能力（小说→剧本、剧本→分镜、资产提取）归 `liang-drama-prompts` 等 skills 与后续「生成」批次，本域只读写文件、渲染、组织。
 
 ## 组成
-- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`/`#apiChip`）+ 图标 sprite + 版本守卫（`20261126-1`）。脚本顺序：`canvas/skill-templates-data.js` → `story-fs.js` → `story-render.js` → `story-gen.js` → `story.js`（defer）。**顺序不能乱**：story-gen.templates() 读 `__MS_SKILL_TEMPLATES_BUILTIN__`，story.js 的 boot 检查 FS/RENDER 且流水线要用 GEN。
+- `story/index.html`：骨架（`#storyBody`/`#backBtn`/`#topTitle`/`#storyToast`/`#apiChip`）+ 图标 sprite + 版本守卫（`20261126-2`）。脚本顺序：`canvas/skill-templates-data.js` → `story-fs.js` → `story-render.js` → `story-gen.js` → `story.js`（defer）。**顺序不能乱**：story-gen.templates() 读 `__MS_SKILL_TEMPLATES_BUILTIN__`，story.js 的 boot 检查 FS/RENDER 且流水线要用 GEN。
 - `story/assets/story-fs.js`：文件层。直连共享 IndexedDB `manshiguang-canvas-bridge`/`directoryHandles`（同 game.js 先例，**不加载 web-bridge.js**，避免画布 fetch/图片 src 补丁副作用）。挂 `window.__MS_STORY_FS__`。
 - `story/assets/story-render.js`：专用解析器。挂 `window.__MS_STORY_RENDER__`：`parseScreenplay`/`speakerColors`/`countStats`/`parseH3`/`parseVisualAssets`/`parseAssetPrompts`。
 - `story/assets/story.js`：外壳路由与视图（项目卡片 → 剧集树 + 三阶段 tab）。

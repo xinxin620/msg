@@ -95,12 +95,12 @@ button { color: inherit; font: inherit; cursor: pointer; }
 .rail-item {
   display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 9px;
   width: 100%; padding: 7px 9px;
-  border: 1px solid transparent; border-radius: var(--radius-sm);
-  background: transparent; text-align: left;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.6); text-align: left;
   transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
-.rail-item:hover { border-color: var(--border); background: rgba(255, 255, 255, 0.85); }
-.rail-item.is-active { border-color: var(--border-strong); background: var(--surface); box-shadow: var(--shadow-glow); }
+.rail-item:hover { border-color: var(--border-strong); background: rgba(255, 255, 255, 0.9); }
+.rail-item.is-active { border-color: var(--primary); background: var(--bg-soft); box-shadow: var(--shadow-glow); }
 .rail-item .item-icon { display: grid; place-items: center; color: var(--muted); }
 .rail-item .item-icon .icon { width: 17px; height: 17px; }
 .rail-item.is-active .item-icon { color: var(--primary); }
