@@ -164,7 +164,7 @@
             <div class="poster-orbital orbital-two" aria-hidden="true"></div>
             <div class="poster-frame" id="heroPoster">
               <div class="poster-image">
-                <img src="assets/hero-art.svg" alt="星空下回望的少女原创插画" />
+                <img id="heroPosterImg" src="assets/hero-art.svg" alt="星空下回望的少女原创插画" />
                 <div class="poster-shade"></div>
                 <div class="poster-scan" aria-hidden="true"></div>
               </div>
@@ -512,6 +512,14 @@
             </div>
             <textarea id="dataEditor" class="data-editor-area" spellcheck="false" aria-label="数据 JSON 编辑器"></textarea>
             <p class="data-editor-error" id="dataError" role="alert"></p>
+          </div>
+
+          <div class="poster-panel">
+            <div class="poster-panel-head">
+              <h3>番剧封面海报</h3>
+              <p>给每部番上传真实海报图（jpg/png/webp）；保存后番剧库、新番表、排行榜、搜索与首页推荐立即换图。不传则保持默认的汉字封面。</p>
+            </div>
+            <div class="poster-list" id="posterList"></div>
           </div>
         </div>
       </section>

@@ -4412,6 +4412,88 @@ main > .page .section-space { padding-bottom: 40px; }
   font-size: 12px;
 }
 
+/* 真实海报封面：图片铺满，保留 NO. 角标与微光 */
+.cover-photo {
+  position: relative;
+}
+
+.cover-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.poster-panel {
+  margin-top: 22px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.poster-panel-head h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.poster-panel-head p {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.poster-list {
+  display: grid;
+  gap: 10px;
+}
+
+.poster-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.poster-row-cover {
+  display: block;
+  aspect-ratio: 0.72;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.poster-row-cover .cover-art {
+  height: 100%;
+}
+
+.poster-row-cover .cover-index,
+.poster-row-cover .cover-image-shine {
+  display: none;
+}
+
+.poster-row-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poster-row-state {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.poster-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* 素材管理 */
 .media-head-actions {
   display: flex;

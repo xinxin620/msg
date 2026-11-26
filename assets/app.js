@@ -153,6 +153,88 @@ function applyDataValue(key, value) {
   if (key === "communityTopics") communityTopics = value;
 }
 
+function renderPosterPanel() {
+  const list = $("#posterList");
+  if (!list) return;
+  if (!animeLibrary.length) {
+    list.innerHTML = `<p class="poster-empty">番剧库为空——先在上方 JSON 编辑器里添加数据并保存。</p>`;
+    return;
+  }
+  list.innerHTML = animeLibrary
+    .map(
+      (anime) => `
+        <div class="poster-row" data-poster-id="${anime.id}">
+          <span class="poster-row-cover">${coverMarkup(anime, 0)}</span>
+          <span class="poster-row-name">${escapeHtml(anime.title)}</span>
+          <span class="poster-row-state">${anime.image ? "已上传海报" : "默认封面"}</span>
+          <label class="text-button poster-row-upload">
+            ${anime.image ? "更换海报" : "上传海报"}
+            <input type="file" accept="image/png,image/jpeg,image/webp" data-poster-input="${anime.id}" hidden />
+          </label>
+          ${anime.image ? `<button class="text-button media-danger" type="button" data-poster-remove="${anime.id}">移除</button>` : ""}
+        </div>
+      `,
+    )
+    .join("");
+}
+
+async function saveAnimePoster(animeId, imagePath) {
+  const anime = byId(animeId);
+  if (!anime) return;
+  if (imagePath === null) {
+    delete anime.image;
+    delete anime.imageRoot;
+  } else {
+    anime.image = imagePath;
+    anime.imageRoot = 2;
+  }
+  try {
+    const response = await fetch("/__data/anime.json", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(animeLibrary),
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "写入 anime.json 失败");
+    dataDirty.delete("animeLibrary");
+    renderAll();
+    renderPosterPanel();
+    renderDataEditor();
+    showToast(imagePath === null ? `《${anime.title}》已恢复默认封面` : `《${anime.title}》海报已更新，全站生效`);
+  } catch (error) {
+    showToast(`海报保存失败：${error.message}`);
+  }
+}
+
+function setupPosterPanel() {
+  const list = $("#posterList");
+  if (!list) return;
+
+  list.addEventListener("change", async (event) => {
+    const input = event.target.closest("[data-poster-input]");
+    if (!input) return;
+    const file = input.files?.[0];
+    if (!file) return;
+    const animeId = input.dataset.posterInput;
+    const extMatch = /\.(png|jpe?g|webp)$/i.exec(file.name);
+    const safeName = `cover-${animeId}${extMatch ? extMatch[0].toLowerCase() : ".png"}`;
+    try {
+      const data = await uploadOneMedia(file, null, safeName, "posters");
+      await saveAnimePoster(animeId, `posters/${data.path}`);
+    } catch (error) {
+      showToast(`海报上传失败：${error.message}`);
+    }
+    input.value = "";
+  });
+
+  list.addEventListener("click", (event) => {
+    const remove = event.target.closest("[data-poster-remove]");
+    if (remove) saveAnimePoster(remove.dataset.posterRemove, null);
+  });
+
+  renderPosterPanel();
+}
+
 function setupDataPage() {
   $("#dataTabs")?.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-data-key]");
@@ -204,6 +286,7 @@ function setupDataPage() {
   });
 
   renderDataEditor();
+  setupPosterPanel();
 }
 
 
@@ -316,7 +399,26 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2600);
 }
 
+function coverSrc(anime) {
+  if (!anime.image) return "";
+  const encoded = String(anime.image)
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+  return `/__media/${encoded}?root=${anime.imageRoot != null ? anime.imageRoot : 2}`;
+}
+
 function coverMarkup(anime, index = 0) {
+  const src = coverSrc(anime);
+  if (src) {
+    return `
+      <span class="cover-art cover-photo ${anime.theme}">
+        <img src="${src}" alt="${escapeHtml(anime.title)} 海报" loading="lazy" />
+        <span class="cover-image-shine"></span>
+        <span class="cover-index">NO.${String(index + 1).padStart(2, "0")}</span>
+      </span>
+    `;
+  }
   return `
     <span class="cover-art ${anime.theme}">
       <span class="cover-image-shine"></span>
@@ -535,6 +637,13 @@ function renderHero() {
   set("heroCaptionTime", slot.time);
   set("heroScore", `${anime.score.toFixed(1)} / 10`);
   set("heroStatus", `第 ${ep} 话已更新`);
+
+  const posterImg = document.getElementById("heroPosterImg");
+  if (posterImg) {
+    const src = coverSrc(anime);
+    posterImg.src = src || "assets/hero-art.svg";
+    posterImg.alt = src ? `${anime.title} 海报` : "星空下回望的少女原创插画";
+  }
 }
 
 function renderContinue() {
@@ -1134,10 +1243,11 @@ function closeMediaLightbox() {
   }
 }
 
-function uploadOneMedia(file, onProgress) {
+function uploadOneMedia(file, onProgress, name, dir) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/__media_upload/?name=${encodeURIComponent(file.name)}`);
+    const params = `name=${encodeURIComponent(name || file.name)}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}`;
+    xhr.open("POST", `/__media_upload/?${params}`);
     xhr.responseType = "text";
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);

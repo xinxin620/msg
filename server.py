@@ -77,6 +77,7 @@ MEDIA_INDEX_SKIP_DIRS = {".trash", "node_modules", "__pycache__", ".vscode", ".g
 UPLOAD_PREFIX = "/__media_upload/"
 UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
+UPLOAD_SUBDIRS = {"posters"}  # 可选子目录白名单（番剧海报），防任意路径
 TEXTAPI_MAX_BODY_BYTES = 4 * 1024 * 1024
 TEXTAPI_TIMEOUT_SECONDS = 180
 COMFY_MAX_BODY_BYTES = 64 * 1024 * 1024
@@ -474,6 +475,12 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             return
 
         upload_dir = ALLOWED_FOLDERS[2]
+        subdir = (parse_qs(urlparse(self.path).query).get("dir") or [""])[0]
+        if subdir:
+            if subdir not in UPLOAD_SUBDIRS:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "子目录不在白名单内"})
+                return
+            upload_dir = upload_dir / subdir
         try:
             upload_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
