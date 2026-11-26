@@ -101,17 +101,29 @@ button { color: inherit; font: inherit; cursor: pointer; }
 /* 顶栏项目下拉 → 01/02/03 阶段大卡 → 本集下拉 → 阶段面板 */
 .desk-bar, .ep-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  max-width: 1180px; margin: 0 auto; padding: 16px 24px 0; width: 100%;
+  max-width: 1180px; margin: 0 auto; padding: 18px 24px 0; width: 100%;
 }
-.ep-row { padding-top: 10px; }
-.db-label { font: 600 11px/1 var(--font-latin); letter-spacing: 0.14em; color: var(--muted); }
+.desk-bar {
+  padding: 13px 16px; margin: 18px auto 0; width: calc(100% - 48px);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface); box-shadow: var(--shadow-glow);
+}
+.ep-row { padding-top: 12px; }
+.db-label { font: 700 11px/1 var(--font-latin); letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase; }
 .db-select {
-  min-width: 220px; padding: 9px 14px; border-radius: 12px; border: 1px solid var(--border-strong);
-  background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 600;
+  min-width: 240px; padding: 9px 34px 9px 14px; border-radius: 12px; border: 1px solid var(--border-strong);
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23777' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  color: var(--text); font: inherit; font-size: 14px; font-weight: 600;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
-.db-btn { padding: 8px 16px; font-size: 13px; }
-.db-remove:hover { border-color: var(--danger); color: var(--danger); }
-.ep-count { font-size: 12px; color: var(--muted); margin-left: 4px; }
+.db-select:hover { border-color: var(--primary-soft); }
+.db-select:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26, 26, 26, 0.08); }
+.desk-bar .db-select { background-color: var(--bg-soft); }
+.db-spacer { flex: 1 1 auto; }
+.db-btn { padding: 9px 16px; font-size: 13px; }
+.db-remove:hover { border-color: var(--danger); color: var(--danger); background: rgba(229, 77, 66, 0.06); }
+.ep-count { font-size: 12px; color: var(--muted); margin-left: 4px; padding: 2px 10px; border-radius: 999px; background: var(--surface-raised); }
 
 /* 阶段大卡 01/02/03 */
 .phase-cards {
@@ -187,16 +199,17 @@ button { color: inherit; font: inherit; cursor: pointer; }
 .btn-danger { color: var(--danger); border-color: #f0c4c0; }
 .btn-danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .project-card {
   position: relative; text-align: left;
-  padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--surface); box-shadow: var(--shadow-glow);
-  transition: transform 160ms ease, box-shadow 160ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
-.project-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
-.project-card .pc-name { font-size: 17px; font-weight: 800; margin: 0 0 2px; }
-.project-card .pc-path { font: 500 12px/1.5 var(--font-latin); color: var(--muted-deep); word-break: break-all; margin: 0 0 14px; }
+.project-card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: var(--shadow-lg); }
+.project-card .pc-name { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; margin: 0 0 4px; }
+.project-card .pc-name::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--secondary); flex: 0 0 auto; }
+.project-card .pc-path { font: 500 12px/1.5 var(--font-latin); color: var(--muted-deep); word-break: break-all; margin: 0; }
 .project-card .pc-meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-soft); font-size: 12px; }
 .project-card .pc-meta b { color: var(--primary); font-weight: 800; }
 .pc-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
@@ -207,11 +220,17 @@ button { color: inherit; font: inherit; cursor: pointer; }
 }
 .pc-actions button:hover { background: var(--danger); color: #fff; }
 .pc-empty {
-  grid-column: 1 / -1; padding: 48px 24px; text-align: center;
+  grid-column: 1 / -1; padding: 56px 24px; text-align: center;
   border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
   background: var(--bg-soft); color: var(--muted);
 }
-.pc-empty strong { display: block; color: var(--text-soft); font-size: 16px; margin-bottom: 6px; }
+.pc-empty strong { display: block; color: var(--text-soft); font-size: 17px; margin-bottom: 8px; }
+
+/* 项目选择器空态引导 */
+.desk-intro { max-width: 1180px; margin: 22px auto 0; padding: 0 24px; width: 100%; }
+.desk-intro h2 { margin: 0 0 4px; font-size: 18px; font-weight: 800; }
+.desk-intro p { margin: 0; color: var(--muted); font-size: 13px; }
+.desk-intro .project-grid { margin-top: 16px; }
 
 /* ===== 文件视图通用 ===== */
 .file-tab {

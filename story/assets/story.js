@@ -156,6 +156,7 @@
     });
     bar.appendChild(el("span", "db-label", "项目"));
     bar.appendChild(sel);
+    bar.appendChild(el("span", "db-spacer"));
 
     const refreshBtn = el("button", "btn-ghost db-btn", "刷新");
     refreshBtn.type = "button";
@@ -209,25 +210,27 @@
   }
 
   function renderEmptyState() {
-    const wrap = el("div", "wrap");
+    const intro = el("div", "desk-intro");
     if (!state.projects.length) {
-      wrap.appendChild(
-        el("div", "pc-empty", "<strong>尚未选择项目</strong>点上方「＋ 添加项目…」选择存放 剧集/EPxxx/ 的本地目录（空目录也行，导入小说会自动建）。"),
+      intro.appendChild(
+        el("div", "pc-empty", "<strong>还没有项目</strong>用上方「＋ 添加项目…」选择存放 剧集/EPxxx/ 的本地目录（空目录也行，导入小说会自动建）。"),
       );
-    } else {
-      wrap.appendChild(el("p", "pipe-note", "从上方下拉选择项目，或："));
-      const grid = el("div", "project-grid");
-      state.projects.forEach((project) => {
-        const card = el("button", "project-card");
-        card.type = "button";
-        card.appendChild(el("p", "pc-name", escapeHtml(project.name || "未命名项目")));
-        card.appendChild(el("p", "pc-path", "授权目录 · " + escapeHtml(project.name || "")));
-        card.addEventListener("click", () => loadProject(project.token, project.name || ""));
-        grid.appendChild(card);
-      });
-      wrap.appendChild(grid);
+      body.appendChild(intro);
+      return;
     }
-    body.appendChild(wrap);
+    intro.appendChild(el("h2", null, "选择一个项目继续"));
+    intro.appendChild(el("p", null, "或从上方下拉切换；项目 = 一个已授权的本地目录。"));
+    const grid = el("div", "project-grid");
+    state.projects.forEach((project) => {
+      const card = el("button", "project-card");
+      card.type = "button";
+      card.appendChild(el("p", "pc-name", escapeHtml(project.name || "未命名项目")));
+      card.appendChild(el("p", "pc-path", "点击打开 · 授权目录"));
+      card.addEventListener("click", () => loadProject(project.token, project.name || ""));
+      grid.appendChild(card);
+    });
+    intro.appendChild(grid);
+    body.appendChild(intro);
   }
 
   async function addProject() {
