@@ -14,7 +14,7 @@
 | 回归验收项 | `docs/acceptance.md` | — |
 | 版本历史/流水账 | `docs/history.md` | — |
 
-主站一行：纯静态 IIFE，`animeLibrary` 是 12 部番剧唯一数据源；`renderAnimeGrid()`/`renderRanking()`/`renderSchedule()`/`renderSearch()`/`renderWebsites()`+`renderWebsitesFilter()` 渲染；`setupEvents()` 统一绑定，画布/资产入口 `target="_blank"`；`init()` 初始化唯一入口。导航是 SPA：`setupHeader()` 用 `sectionMap` 切换 `main > section.is-visible`（`main > section{display:none}`），新增 tab 要同时改 index.html 两处导航、`sectionMap`、`init()` 调用与数据源。网站大全数据源 `websiteDirectory`（按行业大类分组，每组 sites[] 含 name/url/desc），`state.websiteFilter` 控分类筛选。
+主站一行：纯静态 IIFE，`animeLibrary` 是 12 部番剧唯一数据源；`renderAnimeGrid()`/`renderRanking()`/`renderSchedule()`/`renderSearch()`/`renderWebsites()`+`renderWebsitesFilter()` 渲染；`setupEvents()` 统一绑定，画布/资产入口 `target="_blank"`；`init()` 初始化唯一入口。导航是 SPA：`main > .page[data-page]` 容器（`index.html`）+ `styles.css` 尾部 `main > .page{display:none}`，`showPage(page)` 切 `.is-visible`，hash 路由（`#top/#library/#ranking/#schedule/#community/#websites`，`pageFromHash`+`hashchange` 刷新恢复）；锚点点击统一委托（桌面/移动菜单/页脚共用 `a[href^="#"]`，页面外 id 走 `scrollIntoView`）。新增 tab 要同时改 index.html 两处导航+`.page` 容器、`PAGES` 集合与数据源。观看进度 `manshiguang:progress`（animeId->已看集数数组，继续观看区与选集/立即观看联动）；排播唯一数据源是 `scheduleMap`，`broadcastSlot(id)` 反查周几/时间，animeLibrary 不再存 day/time；hero 由 `renderHero()` 从 starlight 派生，勿再写死。网站大全数据源 `websiteDirectory`（按行业大类分组，每组 sites[] 含 name/url/desc），`state.websiteFilter` 控分类筛选。
 
 ## 省 token 写代码模式（用户已启用，默认遵守）
 1. 无开场白、无多余说明，优先直接贴代码。
