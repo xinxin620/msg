@@ -275,15 +275,31 @@
             </a>
           </div>
 
-          <div class="filter-bar" role="group" aria-label="番剧分类筛选">
-            <button class="filter-chip is-active" type="button" data-filter="全部">全部</button>
-            <button class="filter-chip" type="button" data-filter="奇幻">奇幻</button>
-            <button class="filter-chip" type="button" data-filter="恋爱">恋爱</button>
-            <button class="filter-chip" type="button" data-filter="科幻">科幻</button>
-            <button class="filter-chip" type="button" data-filter="治愈">治愈</button>
-            <button class="filter-chip" type="button" data-filter="热血">热血</button>
-            <button class="filter-chip" type="button" data-filter="悬疑">悬疑</button>
+          <div class="library-toolbar">
+            <div class="library-search">
+              <svg class="icon"><use href="#icon-search"></use></svg>
+              <input id="librarySearchInput" type="search" placeholder="在番剧库内搜索标题、类型…" autocomplete="off" aria-label="在番剧库内搜索" />
+            </div>
+            <label class="library-sort">
+              <span>排序</span>
+              <select id="librarySort" aria-label="番剧库排序">
+                <option value="default">默认（热度榜）</option>
+                <option value="score">评分最高</option>
+                <option value="new">最新出品</option>
+                <option value="hot">上升最快</option>
+              </select>
+            </label>
           </div>
+
+          <div class="filter-bar library-genres" role="group" aria-label="番剧类型筛选（可多选）" id="libraryGenres"></div>
+
+          <div class="filter-bar library-status" role="group" aria-label="播放状态筛选">
+            <button class="filter-chip is-active" type="button" data-status="全部">全部状态</button>
+            <button class="filter-chip" type="button" data-status="airing">在播</button>
+            <button class="filter-chip" type="button" data-status="finished">完结</button>
+          </div>
+
+          <p class="library-count" id="libraryCount" aria-live="polite"></p>
 
           <div class="anime-grid" id="animeGrid" aria-live="polite"></div>
         </div>

@@ -378,7 +378,10 @@ function broadcastSlot(id) {
 }
 
 const state = {
-  filter: "全部",
+  genres: new Set(),
+  status: "全部",
+  sort: "default",
+  query: "",
   showFavorites: false,
   activeDay: weekdayLabels[new Date().getDay()],
   websiteFilter: "全部",
@@ -488,39 +491,81 @@ function coverMarkup(anime, index = 0) {
   `;
 }
 
+function isAiring(anime) {
+  return /^更新至/.test(anime.status || "");
+}
+
+function libraryGenres() {
+  const set = new Set();
+  animeLibrary.forEach((anime) => anime.genres.forEach((genre) => set.add(genre)));
+  return [...set];
+}
+
+function renderLibraryGenres() {
+  const bar = $("#libraryGenres");
+  if (!bar) return;
+  bar.innerHTML = ["全部", ...libraryGenres()]
+    .map((genre) => {
+      const isAll = genre === "全部";
+      const active = isAll ? state.genres.size === 0 : state.genres.has(genre);
+      return `<button class="filter-chip ${active ? "is-active" : ""}" type="button" data-genre="${genre}" aria-pressed="${active}">${genre}</button>`;
+    })
+    .join("");
+}
+
+function matchesLibraryFilters(anime) {
+  if (state.genres.size && ![...state.genres].every((genre) => anime.genres.includes(genre))) {
+    return false;
+  }
+  if (state.status === "airing" && !isAiring(anime)) return false;
+  if (state.status === "finished" && isAiring(anime)) return false;
+  if (state.showFavorites && !favorites.has(anime.id)) return false;
+  const query = state.query.trim().toLowerCase();
+  if (query) {
+    const haystack = [anime.title, anime.en, anime.studio, ...anime.genres].join(" ").toLowerCase();
+    if (!haystack.includes(query)) return false;
+  }
+  return true;
+}
+
+const LIBRARY_SORTERS = {
+  default: (a, b) => a.rank - b.rank,
+  score: (a, b) => b.score - a.score || a.rank - b.rank,
+  new: (a, b) => b.year - a.year || b.score - a.score,
+  hot: (a, b) => parseFloat(b.trend) - parseFloat(a.trend),
+};
+
 function renderAnimeGrid() {
   const grid = $("#animeGrid");
   if (!grid) return;
 
-  let visibleAnime = animeLibrary.filter(
-    (anime) => state.filter === "全部" || anime.genres.includes(state.filter),
-  );
+  const visibleAnime = animeLibrary.filter(matchesLibraryFilters).sort(LIBRARY_SORTERS[state.sort] || LIBRARY_SORTERS.default);
 
-  if (state.showFavorites) {
-    visibleAnime = visibleAnime.filter((anime) => favorites.has(anime.id));
+  const counter = $("#libraryCount");
+  if (counter) {
+    counter.textContent = state.showFavorites
+      ? `追番中 · ${visibleAnime.length} 部`
+      : `共 ${animeLibrary.length} 部 · 当前显示 ${visibleAnime.length} 部`;
   }
 
   if (!visibleAnime.length) {
-    grid.innerHTML = `
-      <div class="search-empty" style="grid-column: 1 / -1;">
-        ${
-          state.showFavorites
-            ? "还没有收藏的番剧。点一下卡片右下角的心形，把喜欢的故事留在这里。"
-            : "这个分类暂时没有番剧，换一个标签看看。"
-        }
-      </div>
-    `;
+    const reason = state.showFavorites
+      ? "还没有收藏的番剧。点一下卡片右下角的心形，把喜欢的故事留在这里。"
+      : "没有同时满足这些条件的番剧，试着减少筛选或换个关键词。";
+    grid.innerHTML = `<div class="search-empty" style="grid-column: 1 / -1;">${reason}</div>`;
     return;
   }
 
   grid.innerHTML = visibleAnime
     .map((anime, index) => {
       const isFavorite = favorites.has(anime.id);
+      const airing = isAiring(anime);
       return `
         <article class="anime-card" data-anime-id="${anime.id}" tabindex="0" style="--index:${index}">
           <div class="anime-cover">
             ${coverMarkup(anime, animeLibrary.indexOf(anime))}
             <span class="cover-badge">${anime.badge}</span>
+            <span class="cover-status ${airing ? "is-airing" : "is-finished"}">${airing ? "在播" : "完结"}</span>
             <button
               class="cover-favorite ${isFavorite ? "is-favorite" : ""}"
               type="button"
@@ -534,7 +579,7 @@ function renderAnimeGrid() {
           <div class="anime-info">
             <div>
               <h3>${anime.title}</h3>
-              <p>${anime.year} · ${anime.genres.join(" / ")} · ${anime.episodes} 话</p>
+              <p>${anime.year} · ${anime.genres.join(" / ")} · ${anime.status}</p>
             </div>
             <span class="anime-score">
               <svg class="icon"><use href="#icon-star"></use></svg>
@@ -546,6 +591,7 @@ function renderAnimeGrid() {
     })
     .join("");
 
+  renderLibraryGenres();
   updateFavoriteUI();
 }
 
@@ -1374,24 +1420,40 @@ function setupEvents() {
       return;
     }
     state.showFavorites = !state.showFavorites;
-    state.filter = "全部";
-    $$(".library-section .filter-chip").forEach((chip) =>
-      chip.classList.toggle("is-active", chip.dataset.filter === "全部"),
-    );
     renderAnimeGrid();
     showToast(state.showFavorites ? `正在查看我的追番（${favorites.size}）` : "已显示全部番剧");
     navigateTo("library");
   });
 
-  $$(".library-section .filter-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      state.filter = chip.dataset.filter || "全部";
-      state.showFavorites = false;
-      $$(".library-section .filter-chip").forEach((item) =>
-        item.classList.toggle("is-active", item === chip),
-      );
-      renderAnimeGrid();
-    });
+  $("#libraryGenres")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-genre]");
+    if (!chip) return;
+    const genre = chip.dataset.genre;
+    if (genre === "全部") state.genres.clear();
+    else if (state.genres.has(genre)) state.genres.delete(genre);
+    else state.genres.add(genre);
+    state.showFavorites = false;
+    renderAnimeGrid();
+  });
+
+  $(".library-status")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-status]");
+    if (!chip) return;
+    state.status = chip.dataset.status || "全部";
+    $$(".library-status .filter-chip").forEach((item) =>
+      item.classList.toggle("is-active", item === chip),
+    );
+    renderAnimeGrid();
+  });
+
+  $("#librarySort")?.addEventListener("change", (event) => {
+    state.sort = event.target.value || "default";
+    renderAnimeGrid();
+  });
+
+  $("#librarySearchInput")?.addEventListener("input", (event) => {
+    state.query = event.target.value;
+    renderAnimeGrid();
   });
 
   const rankingTabs = $(".ranking-tabs");
@@ -1561,7 +1623,8 @@ function setupEvents() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
-    const card = event.target.closest?.(".continue-card[data-anime-id]");
+    // 可聚焦卡片（番剧库/排行/时刻表/继续观看）统一键盘打开详情。
+    const card = event.target.closest?.(".anime-card[data-anime-id], .continue-card[data-anime-id], .ranking-item[data-anime-id], .schedule-card[data-anime-id]");
     if (!card) return;
     event.preventDefault();
     openDetail(card.dataset.animeId);

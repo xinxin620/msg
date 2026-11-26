@@ -1517,6 +1517,103 @@ input:focus-visible,
   gap: 36px 22px;
 }
 
+/* 番剧库工具条：搜索 + 排序 */
+.library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin: -6px 0 18px;
+}
+
+.library-search {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  min-height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+}
+
+.library-search:focus-within {
+  border-color: var(--primary);
+}
+
+.library-search .icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.library-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.library-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.library-sort select {
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.library-sort select:focus-visible {
+  border-color: var(--primary);
+}
+
+.library-count {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cover-status {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(8px);
+}
+
+.cover-status.is-airing {
+  border: 1px solid rgba(124, 92, 255, 0.5);
+  background: rgba(124, 92, 255, 0.22);
+  color: var(--text);
+}
+
+.cover-status.is-finished {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(20, 20, 24, 0.5);
+  color: rgba(255, 255, 255, 0.85);
+}
+
 .anime-card {
   min-width: 0;
   animation: card-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
