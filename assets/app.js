@@ -383,6 +383,11 @@ const state = {
   activeDay: weekdayLabels[new Date().getDay()],
   websiteFilter: "全部",
   rankingPeriod: "本周",
+  mediaKind: "全部",
+  mediaItems: [],
+  mediaLoaded: false,
+  mediaLoading: false,
+  mediaActive: null,
 };
 
 // 观看进度：anime -> 已观看集数集合。首次访问带演示数据。
@@ -776,6 +781,196 @@ function hostOf(url) {
   }
 }
 
+// ---------- 素材管理（画布生成物） ----------
+
+function mediaSrc(item) {
+  const encoded = String(item.path)
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+  return `/__media/${encoded}?root=${item.root}`;
+}
+
+function formatBytes(size) {
+  if (!Number.isFinite(size)) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDate(seconds) {
+  const date = new Date(seconds * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+async function loadMedia() {
+  if (state.mediaLoading) return;
+  state.mediaLoading = true;
+  const grid = $("#mediaGrid");
+  if (grid) grid.innerHTML = `<div class="media-empty">正在扫描本地生成目录…</div>`;
+  try {
+    const response = await fetch("/__media_index/", { cache: "no-store" });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "扫描失败");
+    state.mediaItems = data.items || [];
+    state.mediaLoaded = true;
+    if (data.truncated) showToast("文件较多，仅显示前 4000 个");
+  } catch (error) {
+    state.mediaItems = [];
+    state.mediaLoaded = false;
+    if (grid) {
+      grid.innerHTML = `<div class="media-empty">扫描失败：${escapeHtml(error.message)}。请确认本地服务（server.py）正在运行。</div>`;
+    }
+  } finally {
+    state.mediaLoading = false;
+    renderMediaFilter();
+    renderMediaGrid();
+  }
+}
+
+function renderMediaFilter() {
+  const bar = $("#mediaFilter");
+  if (!bar) return;
+  const counts = { 全部: state.mediaItems.length };
+  state.mediaItems.forEach((item) => {
+    counts[item.kind] = (counts[item.kind] || 0) + 1;
+  });
+  bar.innerHTML = Object.keys(MEDIA_KIND_LABELS)
+    .filter((kind) => kind === "全部" || counts[kind])
+    .map(
+      (kind) => `
+        <button class="filter-chip ${kind === state.mediaKind ? "is-active" : ""}"
+          type="button" data-media-kind="${kind}">${MEDIA_KIND_LABELS[kind]}${counts[kind] ? ` ${counts[kind]}` : ""}</button>
+      `,
+    )
+    .join("");
+}
+
+function renderMediaGrid() {
+  const grid = $("#mediaGrid");
+  if (!grid) return;
+
+  if (!state.mediaLoaded) {
+    grid.innerHTML = `<div class="media-empty">尚未扫描。点右上角「重新扫描」读取本地生成目录。</div>`;
+    return;
+  }
+
+  const items = state.mediaItems
+    .filter((item) => state.mediaKind === "全部" || item.kind === state.mediaKind)
+    .sort((a, b) => b.mtime - a.mtime);
+
+  if (!items.length) {
+    grid.innerHTML = `<div class="media-empty">${state.mediaItems.length ? "这个类型暂时没有文件。" : "生成目录里还没有可管理的图片、视频或音频。去画布跑一次生成，再回来看看。"}</div>`;
+    return;
+  }
+
+  grid.innerHTML = items
+    .map((item) => {
+      const preview =
+        item.kind === "image"
+          ? `<img class="media-thumb-img" src="${mediaSrc(item)}" alt="" loading="lazy" />`
+          : item.kind === "video"
+            ? `<video class="media-thumb-img" src="${mediaSrc(item)}#t=0.5" muted preload="metadata"></video>`
+            : item.kind === "audio"
+              ? `<span class="media-thumb-icon">♪</span>`
+              : `<span class="media-thumb-icon">T</span>`;
+      return `
+        <article class="media-card" data-media-index="${state.mediaItems.indexOf(item)}" tabindex="0">
+          <div class="media-thumb">${preview}<span class="media-kind">${MEDIA_KIND_LABELS[item.kind] || item.kind}</span></div>
+          <div class="media-card-info">
+            <h3 title="${escapeHtml(item.path)}">${escapeHtml(item.name)}</h3>
+            <p>${formatDate(item.mtime)} · ${formatBytes(item.size)}</p>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function openMediaLightbox(item) {
+  const box = $("#mediaLightbox");
+  const stage = $("#mediaLightboxStage");
+  if (!box || !stage || !item) return;
+  state.mediaActive = item;
+
+  let media = "";
+  if (item.kind === "image") media = `<img src="${mediaSrc(item)}" alt="${escapeHtml(item.name)}" />`;
+  else if (item.kind === "video") media = `<video src="${mediaSrc(item)}" controls autoplay></video>`;
+  else if (item.kind === "audio") media = `<audio src="${mediaSrc(item)}" controls autoplay></audio>`;
+  else media = `<pre class="media-text-preview" id="mediaTextPreview">加载中…</pre>`;
+  stage.innerHTML = media;
+
+  $("#mediaLightboxTitle").textContent = item.name;
+  $("#mediaLightboxMeta").textContent = `${MEDIA_ROOTS[item.root] || ""}/${item.path} · ${formatBytes(item.size)} · ${formatDate(item.mtime)}`;
+
+  box.classList.add("is-open");
+  box.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-locked");
+
+  if (item.kind === "text") {
+    fetch(mediaSrc(item))
+      .then((r) => r.text())
+      .then((text) => {
+        const pre = $("#mediaTextPreview");
+        if (pre) pre.textContent = text.slice(0, 4000) + (text.length > 4000 ? "\n…（截断）" : "");
+      })
+      .catch(() => {
+        const pre = $("#mediaTextPreview");
+        if (pre) pre.textContent = "文本读取失败";
+      });
+  }
+  window.setTimeout(() => box.querySelector(".media-lightbox-close")?.focus(), 80);
+}
+
+function closeMediaLightbox() {
+  const box = $("#mediaLightbox");
+  if (!box) return;
+  box.classList.remove("is-open");
+  box.setAttribute("aria-hidden", "true");
+  const stage = $("#mediaLightboxStage");
+  if (stage) stage.innerHTML = ""; // 停掉播放
+  state.mediaActive = null;
+  if (!$("#searchPanel")?.classList.contains("is-open") && !$("#detailPanel")?.classList.contains("is-open")) {
+    document.body.classList.remove("is-locked");
+  }
+}
+
+async function trashActiveMedia() {
+  const item = state.mediaActive;
+  if (!item) return;
+  try {
+    const response = await fetch("/__media_index/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "move", root: item.root, path: item.path }),
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "移入回收失败");
+    state.mediaItems = state.mediaItems.filter((entry) => !(entry.root === item.root && entry.path === item.path));
+    closeMediaLightbox();
+    renderMediaFilter();
+    renderMediaGrid();
+    showToast(`《${item.name}》已移入回收目录`);
+  } catch (error) {
+    showToast(`操作失败：${error.message}`);
+  }
+}
+
+function openActiveMediaFolder() {
+  const item = state.mediaActive;
+  const root = item && MEDIA_ROOTS[item.root];
+  if (!root) return;
+  fetch("/__open_folder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Manshiguang-Action": "open-folder" },
+    body: JSON.stringify({ folder: root.replace(/\//g, "\\") }),
+  })
+    .then((r) => r.json())
+    .then((data) => showToast(data.ok ? `已打开 ${root}` : `打开失败：${data.error || "未知错误"}`))
+    .catch((error) => showToast(`打开失败：${error.message}`));
+}
+
 function updateFavoriteUI() {
   const count = favorites.size;
   const counter = $("#favoriteCount");
@@ -1056,7 +1251,11 @@ function setupReveal() {
   elements.forEach((element) => observer.observe(element));
 }
 
-const PAGES = new Set(["top", "library", "ranking", "schedule", "community", "websites"]);
+const PAGES = new Set(["top", "library", "ranking", "schedule", "community", "websites", "media"]);
+
+// 素材管理：与 server.py ALLOWED_FOLDERS 顺序一致（root 下标即白名单序号）。
+const MEDIA_ROOTS = ["D:/data/workData/漫时光/画布/images", "C:/Users/liliang/msg"];
+const MEDIA_KIND_LABELS = { 全部: "全部", image: "图片", video: "视频", audio: "音频", text: "文本" };
 let currentPage = "top";
 
 function pageFromHash() {
@@ -1076,6 +1275,7 @@ function showPage(page) {
   });
   const active = document.querySelector(`#main > .page[data-page="${target}"]`);
   if (active) active.scrollTop = 0;
+  if (target === "media" && !state.mediaLoaded && !state.mediaLoading) loadMedia();
   closeMobileMenu();
 }
 
@@ -1210,6 +1410,28 @@ function setupEvents() {
     renderSchedule(state.activeDay);
   });
 
+  $("#mediaRefresh")?.addEventListener("click", loadMedia);
+
+  $("#mediaFilter")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-media-kind]");
+    if (!chip) return;
+    state.mediaKind = chip.dataset.mediaKind || "全部";
+    $$("#mediaFilter .filter-chip").forEach((item) =>
+      item.classList.toggle("is-active", item === chip),
+    );
+    renderMediaGrid();
+  });
+
+  $("#mediaGrid")?.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-media-index]");
+    if (!card) return;
+    const item = state.mediaItems[Number(card.dataset.mediaIndex)];
+    if (item) openMediaLightbox(item);
+  });
+
+  $("#mediaOpenFolder")?.addEventListener("click", openActiveMediaFolder);
+  $("#mediaTrash")?.addEventListener("click", trashActiveMedia);
+
   $("#websitesFilter")?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-website-filter]");
     if (!chip) return;
@@ -1291,6 +1513,11 @@ function setupEvents() {
       return;
     }
 
+    if (event.target.closest("[data-close-media]")) {
+      closeMediaLightbox();
+      return;
+    }
+
     if (event.target.closest("[data-search-term]")) {
       const term = event.target.closest("[data-search-term]").dataset.searchTerm;
       const input = $("#searchInput");
@@ -1316,7 +1543,9 @@ function setupEvents() {
     }
 
     if (event.key === "Escape") {
-      if ($("#detailPanel")?.classList.contains("is-open")) {
+      if ($("#mediaLightbox")?.classList.contains("is-open")) {
+        closeMediaLightbox();
+      } else if ($("#detailPanel")?.classList.contains("is-open")) {
         closeDetail();
       } else if ($("#searchPanel")?.classList.contains("is-open")) {
         closeSearch();

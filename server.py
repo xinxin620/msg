@@ -10,7 +10,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import urllib.request
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, unquote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -51,6 +51,20 @@ GALLERY_CONTENT_TYPES = {
 
 COMFY_PREFIX = "/__comfy/"
 TEXTAPI_PREFIX = "/__textapi/"
+
+# 素材管理：枚举白名单根目录里的画布生成物；删除=移入根目录下 .trash（不真删）。
+MEDIA_INDEX_PREFIX = "/__media_index/"
+MEDIA_INDEX_KINDS = {
+    ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image",
+    ".webp": "image", ".avif": "image", ".bmp": "image",
+    ".mp4": "video", ".webm": "video", ".mov": "video",
+    ".mp3": "audio", ".wav": "audio", ".ogg": "audio", ".m4a": "audio",
+    ".flac": "audio", ".aac": "audio",
+    ".json": "text", ".txt": "text", ".md": "text",
+}
+MEDIA_INDEX_MAX_FILES = 4000
+MEDIA_INDEX_MAX_DEPTH = 6
+MEDIA_INDEX_SKIP_DIRS = {".trash", "node_modules", "__pycache__", ".vscode", ".git"}
 TEXTAPI_MAX_BODY_BYTES = 4 * 1024 * 1024
 TEXTAPI_TIMEOUT_SECONDS = 180
 COMFY_MAX_BODY_BYTES = 64 * 1024 * 1024
@@ -142,7 +156,7 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def handle_media_asset(self, request_path: str):
-        raw_relative = request_path[len("/__media/"):]
+        raw_relative = unquote(request_path[len("/__media/"):])
         if not raw_relative or chr(0) in raw_relative or chr(92) in raw_relative:
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "媒体路径无效"})
             return
@@ -150,8 +164,13 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
         if relative_path.is_absolute():
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "媒体路径无效"})
             return
+        # 可选 root=<索引> 精确定位白名单根目录；缺省则逐个试，第一个命中即用。
+        root_param = (parse_qs(urlparse(self.path).query).get("root") or [""])[0]
+        roots = list(ALLOWED_FOLDERS)
+        if root_param.isdigit() and int(root_param) < len(roots):
+            roots = [roots[int(root_param)]]
         candidate = None
-        for allowed in ALLOWED_FOLDERS:
+        for allowed in roots:
             test = (allowed / relative_path).resolve()
             if test.is_file() and is_path_within(test, allowed):
                 candidate = test
@@ -160,7 +179,14 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "媒体文件不存在"})
             return
         suffix = candidate.suffix.lower()
-        ct_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".mp4": "video/mp4"}
+        ct_map = {
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+            ".bmp": "image/bmp",
+            ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+            ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+            ".m4a": "audio/mp4", ".flac": "audio/flac", ".aac": "audio/aac",
+        }
         content_type = ct_map.get(suffix, "application/octet-stream")
         try:
             with candidate.open("rb") as f:
@@ -174,6 +200,129 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
         except OSError:
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "媒体文件读取失败"})
+
+    def handle_media_index_get(self):
+        """GET /__media_index/：枚举白名单根目录里的生成物，返回相对路径清单。"""
+        if not self.is_loopback_client():
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "仅允许本机访问"})
+            return
+        items = []
+        truncated = False
+        for root_index, root in enumerate(ALLOWED_FOLDERS):
+            if not root.is_dir():
+                continue
+            stack = [(root, 0)]
+            while stack:
+                folder, depth = stack.pop()
+                if depth > MEDIA_INDEX_MAX_DEPTH:
+                    continue
+                try:
+                    entries = sorted(folder.iterdir(), key=lambda p: p.name.lower())
+                except OSError:
+                    continue
+                for entry in entries:
+                    if len(items) >= MEDIA_INDEX_MAX_FILES:
+                        truncated = True
+                        break
+                    name = entry.name
+                    try:
+                        if entry.is_dir():
+                            if name.lower() not in MEDIA_INDEX_SKIP_DIRS:
+                                stack.append((entry, depth + 1))
+                            continue
+                        if name.startswith(".") or not entry.is_file():
+                            continue
+                        kind = MEDIA_INDEX_KINDS.get(entry.suffix.lower())
+                        if not kind:
+                            continue
+                        try:
+                            stat = entry.stat()
+                            rel = entry.relative_to(root).as_posix()
+                        except (OSError, ValueError):
+                            continue
+                        items.append({
+                            "root": root_index,
+                            "path": rel,
+                            "name": name,
+                            "kind": kind,
+                            "size": stat.st_size,
+                            "mtime": int(stat.st_mtime),
+                        })
+                    except OSError:
+                        continue
+                if truncated:
+                    break
+            if truncated:
+                break
+        self.send_json(
+            HTTPStatus.OK,
+            {"ok": True, "items": items, "truncated": truncated, "total": len(items)},
+        )
+
+    def handle_media_index_post(self, body: bytes):
+        """POST /__media_index/：action=move 移入 .trash，action=restore 还原。"""
+        if not self.is_loopback_client():
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "仅允许本机访问"})
+            return
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "无效 JSON"})
+            return
+        action = (data.get("action") or "").strip()
+        root_index = data.get("root")
+        rel = (data.get("path") or "").strip()
+        if action not in ("move", "restore") or not isinstance(root_index, int) \
+                or root_index < 0 or root_index >= len(ALLOWED_FOLDERS) or not rel:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "参数无效"})
+            return
+        root = ALLOWED_FOLDERS[root_index]
+        parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
+        if not parts or ".." in parts or any(chr(0) in p for p in parts):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "路径无效"})
+            return
+        trash_dir = root / ".trash"
+        target = (root.joinpath(*parts)).resolve()
+        if not is_path_within(target, root):
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "目录未授权"})
+            return
+        if action == "move":
+            if not target.is_file():
+                self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "文件不存在"})
+                return
+            try:
+                trash_dir.mkdir(exist_ok=True)
+                stamp = int(target.stat().st_mtime)
+                dest = trash_dir / f"{stamp}-{target.name}"
+                counter = 0
+                while dest.exists():
+                    counter += 1
+                    dest = trash_dir / f"{stamp}-{counter}-{target.name}"
+                shutil.move(str(target), str(dest))
+                self.send_json(HTTPStatus.OK, {"ok": True, "trashed": dest.name})
+            except OSError as exc:
+                self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)})
+            return
+        # restore：只认 .trash 里那层，文件名带 <mtime>- 前缀
+        if parts[0] != ".trash" or len(parts) != 2:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "回收文件路径无效"})
+            return
+        source = (trash_dir / parts[1]).resolve()
+        if not source.is_file() or not is_path_within(source, trash_dir):
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "回收文件不存在"})
+            return
+        original = parts[1].split("-", 1)[-1] if "-" in parts[1] else parts[1]
+        # 还原回原目录不可考（.trash 是平铺），落回根目录同名处；重名加序号。
+        dest = root / original
+        counter = 0
+        while dest.exists():
+            counter += 1
+            dest = root / f"{counter}-{original}"
+        try:
+            shutil.move(str(source), str(dest))
+            self.send_json(HTTPStatus.OK, {"ok": True, "restored": dest.name})
+        except OSError as exc:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)})
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -192,6 +341,9 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
             return
         if path.startswith("/__media/"):
             self.handle_media_asset(path)
+            return
+        if path == MEDIA_INDEX_PREFIX.rstrip("/") or path.startswith(MEDIA_INDEX_PREFIX):
+            self.handle_media_index_get()
             return
         if path.startswith(COMFY_PREFIX):
             self.handle_comfy_proxy(path, "GET")
@@ -259,6 +411,9 @@ class ManshiguangHandler(SimpleHTTPRequestHandler):
 
         if path == "/__open_folder":
             self.handle_open_folder_post(body)
+            return
+        if path == MEDIA_INDEX_PREFIX.rstrip("/") or path.startswith(MEDIA_INDEX_PREFIX):
+            self.handle_media_index_post(body)
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "POST 接口不存在"})
 

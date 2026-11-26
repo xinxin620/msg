@@ -10,7 +10,7 @@
 | 工作台 / studio / 目录授权 / 工作区 | `docs/studio.md` | `studio/assets/studio.js` |
 | 剧情导演台 / 项目管理 / 制作流水线（导入小说·小说转剧本·资产提取·剧本转分镜）/ 剧集树 / 剧本查看渲染 | `docs/story.md` | `story/assets/story*.js`、`story/index.html` |
 | 看背影识人 / 小游戏 / 背影素材 / 战绩榜 | `docs/game.md` | `game/assets/game.js`、`game/data/roster.json` |
-| 主站 / 首页 / 番剧 / 收藏 / 导航 | （无 docs，直接） | `index.html` + `assets/app.js` + `assets/styles.css` |
+| 主站 / 首页 / 番剧 / 收藏 / 导航 / 素材管理（画布生成物页内 tab） | （无 docs，直接） | `index.html` + `assets/app.js` + `assets/styles.css`、枚举端点 `server.py` `__media_index` |
 | 回归验收项 | `docs/acceptance.md` | — |
 | 版本历史/流水账 | `docs/history.md` | — |
 
@@ -28,7 +28,7 @@
 - `canvas/assets/index-*.js|.css` **只读禁改**，升级整体替换 + 重核桥接契约。
 - 浏览器读不了任意 Windows 绝对路径；`webdir:<uuid>` 是 handle 键非路径；`showDirectoryPicker()` 须在点击处理首个 `await` 前调用；目录授权必须顶层窗口。
 - 无 Java/Spring/MySQL/消息队列，无数据库表；状态全在浏览器存储 + `C:\Users\liliang\msg`（明文 API 配置文件只放本人可控目录）。
-- 本地起停：`start.bat`/`stop.bat` → `python server.py 4173`（`/__health`、`/__open_folder`、`/__gallery_asset/`、`/__comfy/`、`/__textapi/`）。
+- 本地起停：`start.bat`/`stop.bat` → `python server.py 4173`（`/__health`、`/__open_folder`、`/__gallery_asset/`、`/__media/`、`/__media_index/`、`/__comfy/`、`/__textapi/`）。素材管理页（主站 `#media` tab）走 `__media_index`：GET 枚举 `ALLOWED_FOLDERS` 两个根目录（画布 images + msg，root 下标须与前端 `MEDIA_ROOTS` 顺序一致）返回相对路径清单，预览走 `/__media/<rel>?root=N`，删除=POST move 进根目录 `.trash`（不真删，restore 平铺回根目录）；仅本机、限深 6/上限 4000、跳 `.trash` 等目录。
 - 存储键位总表与实体字段：见各 `docs/<域>.md`；改动前 `git log` 核对版本号事实。
 - 编码：用户文案/文档默认简体中文，标识符英文；IIFE/`const`/命名函数/`data-*`；React 容器加 DOM 只追加+CSS `order` 排序且可重入；桥接拒绝 `throw new Error(中文)` 不静默成功；一次性脚本放 `_scratch/`。
 
