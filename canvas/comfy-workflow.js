@@ -616,9 +616,12 @@
     return out;
   }
 
-  // 按工作流真实旁路态算「首次加载时该显示为关闭」的组名：
-  // 组内中心点命中的节点里只要存在 mode=4（被 rgthree 旁路），就判定这组当前是关的。
-  // 用于选工作流时给画布分组开关播种初值，做到「首次启用/关闭与工作流里面保持一致」。
+  // 按工作流真实旁路态算「首次加载时该显示为关闭」的组名。
+  // 规则：组内全部非静音成员都是 mode=4（旁路）才判整组关闭。
+  // 曾用「任一成员 mode=4 即判关」——误把「个别节点单独旁路、组本身启用」当成整组关：
+  // liang-超写实超细节文生图 的「尺寸」组里 2 个 easy int 单独旁路、ResolutionSelector 启用，
+  // 判关后画布把选择器整体排除、EmptyLatentImage 退回文件里烧死的脏值 7040x1920（ComfyUI 实际 768x1368），
+  // 大 4 倍像素直接触发 SeedVR2 3K 放大 OOM。静音(2)成员不参与判定。
   function seedOffGroups(workflow) {
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     const groups = Array.isArray(workflow?.groups) ? workflow.groups : [];
@@ -626,12 +629,12 @@
     for (const g of groups) {
       const b = g?.bounding; if (!b) continue;
       const title = String(g.title || "").trim(); if (!title || off.includes(title)) continue;
-      const bypassed = nodes.some(n => {
+      const members = nodes.filter(n => {
         const p = n?.pos || [0, 0], s = n?.size || [0, 0];
         const cx = p[0] + s[0] / 2, cy = p[1] + s[1] / 2;
-        return cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3] && Number(n?.mode || 0) === 4;
+        return cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3] && Number(n?.mode || 0) !== 2;
       });
-      if (bypassed) off.push(title);
+      if (members.length && members.every(n => Number(n?.mode || 0) === 4)) off.push(title);
     }
     return off;
   }
