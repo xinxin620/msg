@@ -38,28 +38,22 @@
          modal 内再恢复 pointer-events:auto，正常交互不受影响。 */
       html.${ROOT_CLASS} .settings-overlay {
         position: fixed; inset: 0; z-index: 1000;
-        display: block; overflow: hidden; padding: 56px 24px 24px;
-        background:
-          radial-gradient(1100px 520px at 12% -8%, #ffffffb3, #0000 60%),
-          radial-gradient(900px 460px at 96% 4%, #f6ece0a6, #0000 58%),
-          var(--canvas-bg, #efece6);
+        display: block; overflow: hidden; padding: 56px 0 0;
+        background: var(--canvas-bg, #efece6);
         -webkit-backdrop-filter: none; backdrop-filter: none;
         pointer-events: none;
       }
       html.${ROOT_CLASS}[data-theme=dark] .settings-overlay {
-        background:
-          radial-gradient(1100px 520px at 12% -8%, #ffffff12, #0000 60%),
-          radial-gradient(900px 460px at 96% 4%, #8f7c681f, #0000 58%),
-          var(--canvas-bg);
+        background: var(--canvas-bg);
       }
+      /* 整页贴合：弹窗铺满顶栏以下全幅，去圆角/边框/阴影，不再像画布里的浮层卡片。 */
       html.${ROOT_CLASS} .settings-modal,
       html.${ROOT_CLASS} .settings-modal.settings-modal--sectioned {
         pointer-events: auto;
-        width: min(1180px, 100%); max-width: 1180px;
+        width: 100%; max-width: none;
         height: 100%; max-height: none;
-        margin: 0 auto; border-radius: 20px;
-        border: 1px solid #8f7c6833;
-        box-shadow: 0 30px 72px #372c2238, inset 0 1px 0 #ffffff94;
+        margin: 0; border: 0; border-radius: 0;
+        box-shadow: none;
         overflow: hidden;
       }
 
@@ -89,11 +83,9 @@
         font: 13px/1.4 var(--font-body, "Microsoft YaHei UI", "Noto Sans SC", sans-serif);
         -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
       }
-      /* 内容宽度与下方居中卡片对齐（同 .settings-modal 的 min(1180px,100%)），
-         否则「应用到画布」会贴到视口最右、和卡片脱节。 */
+      /* 顶栏内容全幅铺开，与下方整页设置区左右对齐。 */
       #${BAR_ID} .ms-sp-inner {
         display: flex; align-items: center; gap: 14px; width: 100%;
-        max-width: 1180px; margin: 0 auto;
       }
       #${BAR_ID} .ms-sp-mark {
         width: 30px; height: 30px; border-radius: 10px; flex: 0 0 auto;
@@ -145,8 +137,6 @@
       html.${ROOT_CLASS}:not(.${OPEN_CLASS}) #${BAR_ID} .ms-sp-reopen { display: inline-block; }
 
       @media (max-width: 900px) {
-        html.${ROOT_CLASS} .settings-overlay { padding: 56px 0 0; }
-        html.${ROOT_CLASS} .settings-modal { border-radius: 0; border-left: 0; border-right: 0; }
         html.${ROOT_CLASS} .settings-modal__layout { grid-template-columns: 1fr; }
         html.${ROOT_CLASS} .settings-sidebar { border-right: 0; border-bottom: 1px solid #8f7c681a; }
         #${BAR_ID} .ms-sp-hint { display: none; }
